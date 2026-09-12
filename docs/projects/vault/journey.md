@@ -53,8 +53,8 @@ with `list.repo`, `show.repo`, and `reply.repo` each `equals
 1. `town --help` lists `town/github` with `list`, `show`, `reply`. It
    does not say there is a token, whose it is, or what it is.
 2. `town github --help` prints the shop's summary, guidance, the three
-   commands with their arguments, and the constraints in words: "--repo
-   must be `<owner/name>`".
+   commands with their arguments, and the constraints in words, as gate's help
+   writes them: "repo `<owner/name>` only".
 3. `town github list --repo <owner/name>` prints the repo's open issues,
    one line each, `#<number> <title>`, and exits 0. GitHub answered a
    request the town signed; the shop sent it unsigned.

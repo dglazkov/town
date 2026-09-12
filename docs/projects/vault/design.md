@@ -137,7 +137,7 @@ commands:
       - { name: limit, type: int, default: 20, constrainable: [equals, one_of] }
     output: text
   - name: show
-    summary: Print one issue: title, state, author, body.
+    summary: "Print one issue: title, state, author, body."
     effect: read
     args:
       - { name: repo, type: string, required: true, constrainable: [equals, one_of, prefix, regex] }
@@ -302,7 +302,9 @@ title, state, author, and body, `reply` posting the body from `--body`
 or stdin and printing the comment's `html_url`. A non-2xx answer is
 exit 1 with the status and GitHub's `message` on stderr and nothing
 else, since stderr is the audit's and a message can quote a body. It
-reads no environment but the teller's URL and sets no `Authorization`.
+reads no environment but the teller's URL, sets no `Authorization`, and
+follows no redirect, since GitHub's `Location` names its own host, past
+the teller.
 
 ## Testing it
 

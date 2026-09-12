@@ -264,8 +264,8 @@ harness, no box with a name.
 one `ok` line per test and exits 0. The walk, as above, at the
 shepherd's cost of one model session, well under a dollar: the audit
 shows zero rows with result `denied` before the grant was narrowed and
-at least one after; every row for the shop shows `github-token` served
-with at least one request; the reply is on GitHub under the user's
+at least one after; every allowed command row for the shop shows
+`github-token` served with at least one request; the reply is on GitHub under the user's
 account; the agent's transcript says it can no longer reply and does
 not retry; and `grep -r` for the token's value over the transcript, the
 scratch directory, and `town.db` with its WAL finds nothing. Recorded

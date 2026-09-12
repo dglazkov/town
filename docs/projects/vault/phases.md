@@ -143,9 +143,10 @@ agent's sentence is unchanged.
 Tests, `checkout`: `test/gate.test.ts`, with a fake runtime and a fake
 vault: a live grant's bindings reach the runtime, a revoked credential
 makes the grant not live and the call "not available", a need without
-a binding the same, and nothing opened on any denial. `test/help.test.ts`,
+a binding the same, and on a denied, malformed, and dead-pass call no
+binding opened and no teller listened, counted. `test/help.test.ts`,
 a shop whose grant is not live is absent. `test/store.test.ts`, the
-liveness query. Tests, `command`: `test/vault.test.ts` walking journey
+liveness query. Tests, `command`: `test/operator.test.ts` walking journey
 2 steps 1 to 8 with `type add` of a fake origin the test starts and a
 fixture shop, `test/fixtures/teller-shop` from vault phase 0; the copy in
 step 8 with the key, and the copy of `town.db` alone refused.
@@ -154,8 +155,7 @@ prints its environment, argv, stdin, `TOWN_STATE`, and every file it
 can read under the data directory, the value found nowhere, the
 request seen signed. `test/narrow.test.ts` grown: a denied, malformed,
 and dead-pass call on the fixture shop with the fake origin's request
-count unchanged and the teller's listen counted by a fake runtime in
-the checkout ring. `test/cli-guard.test.ts` grown by the words
+count unchanged, while `test/gate.test.ts` counts the listens. `test/cli-guard.test.ts` grown by the words
 `github`, `credential`, `repo`.
 
 **Not this phase:** No real token, no real origin, no github shop, no

@@ -54,13 +54,15 @@ vitest, a YAML parser, `.gitignore` already here. `src/manifest.ts`:
 the v0 types, `parseManifest(text)` and `validateManifest(m)` returning
 a list of refusals, each `field: what is wrong; write <this> instead
 (spec §<n>)`; `credentials` and `depends` present and non-empty refused
-with the line naming the later project. `src/spec.ts`: the spec as a
+with the line naming the later project, `vault` or `compose`. `src/spec.ts`: the spec as a
 string, under three hundred lines, printed by `townd spec`; every
 validator message cites a section of it. `src/runtime.ts`:
 `run(shopDir, manifest, command, args, { user, stateRoot, stdin })`
 building canonical argv, the closed environment, the state directory,
 the thirty-second limit, and returning `{ stdout, stderr, exit,
-timedOut }`. `src/shoptest.ts`: `testShop(dir)` running `tests[].run`
+timedOut }`. `src/args.ts`: `parseArgs(manifest, command, words)`, a
+command's words to canonical arguments or a usage refusal, which the
+shop tests use now and the gate uses in gate phase 1. `src/shoptest.ts`: `testShop(dir)` running `tests[].run`
 line by line through the runtime against a scratch state, one result
 per test. `src/townd.ts`: the operator's entry with `spec` and, for this
 phase, `admin shop test <dir>` needing no data directory. `src/cli.ts`:
@@ -74,7 +76,7 @@ each refusal fires on a fixture missing that field, with a message that
 names the section and the fix; `credentials:` refused with the project
 named. `test/runtime.test.ts`, with a fixture shop whose entry prints
 its argv and environment as JSON: canonical order, defaults filled, the
-environment exactly the five names, `TOWN_STATE` private per shop and
+environment exactly the three names, `TOWN_STATE` private per shop and
 user, stdin passed, a sleeping entry killed at the limit with `timedOut`
 set. `test/shoptest.test.ts`, the memory shop's own tests pass through
 `testShop`, and a test that must fail fails.
@@ -86,7 +88,7 @@ shop's name says nothing yet.
 exit 0. `node bin/townd.js spec | wc -l` under three hundred. `node
 bin/townd.js admin shop test shops/memory` prints one `ok` line per test
 and exits 0. Falsified by at least one mutation: the runtime passing
-the parent's environment through (the five-names assertion fails), and
+the parent's environment through (the three-names assertion fails), and
 a manifest with `credentials:` accepted (the refusal test fails).
 
 **Status: NOT STARTED.**

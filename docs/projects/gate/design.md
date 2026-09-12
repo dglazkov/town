@@ -137,8 +137,12 @@ Types are `string`, `int`, `bool`, `enum` with `values`. `effect` is
 `read`, `write`, or `destructive`. `output` is `text` or `json`.
 `constrainable` names which of the built-in kinds a grant may put on the
 argument; a grant naming any other is refused when made. `tests[].run`
-is lines of `<command> <args>`, run in order through the runtime against
-a scratch state, and `expect` is one of `contains`, `equals`, `exit`.
+is lines of `<command> <args>`, words split as a shell would with quotes
+and nothing expanded, each parsed against the manifest and run in order
+through the runtime against one scratch state. Every line but the last
+must exit 0; `expect` is one of `contains`, `equals` (on the last line's
+stdout), or `exit` (its exit code). An argument's `default` fills it when
+omitted; `enum` lists its `values`.
 
 `townd spec` prints the spec: the fields, the types, the runtime contract,
 one full example. It is the whole SDK, and the validator's every message
@@ -153,10 +157,13 @@ process:
 - **argv**: the command, then the arguments in canonical form, `--name
   value` in manifest order, defaults filled, enums and ints already
   checked. A shop parses argv and nothing more clever.
-- **environment**: `TOWN_STATE`, a directory made on first call and
-  private to this shop and this user; `TOWN_USER`, an opaque id;
-  `TOWN_SHOP` and `TOWN_COMMAND`; `PATH`. Nothing else from the town's
-  own environment reaches the shop.
+- **entry**: a `.mjs` or `.js` entry runs under the town's own Node;
+  any other file is executed directly and must be executable.
+- **environment**: exactly three names. `TOWN_STATE`, a directory made
+  on first call and private to this shop and this user; `TOWN_USER`, an
+  opaque id; `PATH`, the town's own. Nothing else from the town's own
+  environment reaches the shop; the command is `argv[0]` and the shop
+  knows its own name.
 - **stdin**: the call's stdin, as the command sent it, capped at one
   megabyte.
 - **stdout**: the result, passed to the agent as it is.
@@ -164,8 +171,8 @@ process:
   exit the agent sees `error: town/memory recall failed` and the last
   lines of it on stderr, exit 1.
 - **exit code**: 0 is success; anything else is exit 1 at the agent.
-- **time**: thirty seconds, then killed, exit 1, the audit row saying
-  so.
+- **time**: thirty seconds, then the entry and anything it started are
+  killed, exit 1, the audit row saying so.
 
 In the pilot draft this is a container with an egress allowlist; here
 it is a process, and the sandbox is a promise, as the draft's §13.3 says
@@ -252,7 +259,8 @@ binary.
 
 **What the binaries do not decide.** The authority is not in either
 file. The agent's is the grant file; the operator's is the data
-directory, and `townd` with no data directory does nothing. On one box,
+directory, and `townd` with no data directory reaches no town: `spec`
+and `shop test` read nothing of one, and every other verb needs `--data`. On one box,
 the agent's filesystem reaches the data directory through the harness,
 and it could widen its own grant with `townd admin` or with `sqlite3`
 alone. That is colocation, the harness's ambient authority, and the
@@ -325,10 +333,14 @@ agent.
 
 ## What this does not do, on purpose
 
-- **Credentials and the vault.** The next project: typed credentials,
+- **Credentials and the vault.** The next project, **vault**: typed credentials,
   the operator connecting one, the runtime injecting it into a shop's
   outbound calls through a proxy, and `town/gdocs` as the shop that
   needs it.
+- **Dependencies and inter-shop calls.** A shop calling another through
+  the town with its caller's grant, attenuated by the dependency's scope
+  (the draft's §6.4). A later project, **compose**, when there is a shop
+  that is a recipe over others. The validator names both projects.
 - **Town Hall and scratch namespaces.** Agents authoring shops through
   `town hall spec/validate/publish`; this project's `townd spec` and the
   validator are what Town Hall will front.

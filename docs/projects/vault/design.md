@@ -182,8 +182,8 @@ seeded with `github-token`, `https://api.github.com`, `Authorization:
 Bearer {token}`; `credentials(id, user_id, type, label, sealed,
 created_at, revoked_at)`; `grants.credentials`, JSON `{ "<type>":
 "<credential id>" }`; and `calls.credentials`, JSON `[{ "type", "requests" }]`.
-`meta.schema` goes from gate's value to the next, and a database made
-by gate is migrated in place by `ALTER TABLE` on open: gate's rows keep
+`meta.schema` is written as `2`, gate's store having written none, and
+a database made by gate is migrated in place by `ALTER TABLE` on open: gate's rows keep
 working and gain empty bindings. A type's name is lowercase letters,
 digits, and `-`; its header is `<Name>: <value with {token}>`, and the
 seeded row is the shape.

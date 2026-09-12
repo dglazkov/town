@@ -12,7 +12,7 @@ import { shopDir } from "./gate.js";
 import { isoTime } from "./notices.js";
 import { ManifestRefused, loadShop, testShop } from "./shoptest.js";
 import type { RunCredential } from "./runtime.js";
-import { StoreError, openStore, type Store } from "./store.js";
+import { StoreError, openStore, type Grant, type GrantState, type Store, type User } from "./store.js";
 import { VaultError, ensureKey, requireKey } from "./vault.js";
 
 export interface Io {
@@ -30,9 +30,9 @@ export const SECRET_LIMIT_BYTES = 64 * 1024;
 const USAGE = `usage: townd admin [--data <dir>] <verb>
   user add <name> | user ls
   pass new --user <name> --label <text> [--expires <duration>] | pass ls | pass revoke <id>
-  grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>]
+  grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>] [--credential <id>]...
   grant ls [--pass <id>] | grant revoke <id>
-  shop add <dir> | shop test <dir> [--user <name>] | shop ls | shop rm <name>
+  shop add <dir> [--user <name> [--credential <id>]...] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
   type add <name> --origin <url> --header '<Name>: <value with {token}>' | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] (the secret on stdin) | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>]
@@ -45,7 +45,7 @@ interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header"];
+const VALUE_FLAGS = ["data", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];
@@ -119,7 +119,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     store = openStore(data);
     const key = requireKey(store.dataDir, store.sealedRows());
     if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, p, io);
-    return await dispatch(store, noun, verb, args, p, io, now());
+    return await dispatch(store, key, noun, verb, args, p, io, now());
   } catch (err) {
     if (err instanceof UsageError) return usage(io, err.message);
     if (err instanceof StoreError || err instanceof VaultError) {
@@ -141,7 +141,7 @@ function noExtra(args: readonly string[], n: number, what: string): void {
   if (args.length !== n) throw new UsageError(`${what} takes ${n === 0 ? "no words" : n === 1 ? "one word" : `${n} words`}, not ${args.length}`);
 }
 
-async function dispatch(store: Store, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io, now: number): Promise<number> {
+async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io, now: number): Promise<number> {
   const key = `${noun} ${verb ?? ""}`.trim();
   switch (key) {
     case "user add": {
@@ -195,24 +195,35 @@ async function dispatch(store: Store, noun: string, verb: string | undefined, ar
         for (const r of refusals) io.err(`townd admin: grant refused: ${r}\n`);
         return 1;
       }
+      const pass = store.passById(passId);
+      if (!pass) throw new StoreError(`pass ${passId} does not exist; townd admin pass ls lists them`);
+      const bound = bindNeeds(store, store.userByName(pass.userName)!, manifest.name, needsOf(manifest), p.opts.get("credential") ?? []);
+      if (typeof bound === "string") {
+        io.err(`townd admin: grant refused: ${bound}\n`);
+        return 1;
+      }
       const expires = one(p, "expires");
-      const g = store.newGrant({ passId, shop: manifest.name, commands, constraints: parsed.constraints, expiresAt: expires ? now + parseDuration(expires) : null }, now);
+      const g = store.newGrant(
+        { passId, shop: manifest.name, commands, constraints: parsed.constraints, expiresAt: expires ? now + parseDuration(expires) : null, credentials: bound },
+        now,
+      );
       io.out(`${g.id}\n`);
       return 0;
     }
     case "grant ls": {
       noExtra(args, 0, "grant ls");
-      const rows = store.listGrants(one(p, "pass")).map((g) => [
+      const rows = store.listGrants(one(p, "pass"), now).map((g) => [
         g.id,
         g.passId,
         g.shop,
         g.commands.join(","),
         constraintText(g.constraints),
+        bindingText(g.credentials),
         when(g.expiresAt),
-        state(g, now),
+        grantStateText(store, g, g.state),
         when(g.lastUse),
       ]);
-      io.out(table(["id", "pass", "shop", "commands", "constraints", "expires", "state", "last use"], rows));
+      io.out(table(["id", "pass", "shop", "commands", "constraints", "credentials", "expires", "state", "last use"], rows));
       return 0;
     }
     case "grant revoke": {
@@ -224,7 +235,7 @@ async function dispatch(store: Store, noun: string, verb: string | undefined, ar
 
     case "shop add":
       noExtra(args, 1, "shop add");
-      return shopAdd(store, args[0]!, io, now);
+      return shopAdd(store, vaultKey, args[0]!, p, io, now);
     case "shop ls":
       noExtra(args, 0, "shop ls");
       io.out(
@@ -296,8 +307,14 @@ async function dispatch(store: Store, noun: string, verb: string | undefined, ar
     }
     case "credential rm": {
       noExtra(args, 1, "credential rm");
+      const held = store.credentialById(args[0]!);
+      const liveBefore = held ? store.liveOf(held.grants, now) : [];
       const c = store.revokeCredential(args[0]!, now);
       io.out(`revoked ${c.id}\n`);
+      const stillLive = store.liveOf(liveBefore, now);
+      for (const id of liveBefore.filter((g) => !stillLive.includes(g))) {
+        io.out(`${id} at ${store.grantById(id)!.shop} is no longer live\n`);
+      }
       return 0;
     }
 
@@ -313,7 +330,7 @@ async function dispatch(store: Store, noun: string, verb: string | undefined, ar
       });
       io.out(
         table(
-          ["at", "pass", "shop", "command", "argv sha256", "result", "exit", "shop exit", "ms", "notices", "detail"],
+          ["at", "pass", "shop", "command", "argv sha256", "result", "exit", "shop exit", "ms", "notices", "credentials", "detail"],
           rows.map((c) => [
             isoTime(c.at),
             c.passId ?? "-",
@@ -325,6 +342,7 @@ async function dispatch(store: Store, noun: string, verb: string | undefined, ar
             c.shopExit === null ? "-" : String(c.shopExit),
             String(c.latencyMs),
             c.notices.length ? c.notices.join(",") : "-",
+            c.credentials.length ? c.credentials.map((x) => `${x.type}:${x.requests}`).join(",") : "-",
             c.detail ?? "-",
           ]),
         ),
@@ -343,6 +361,57 @@ function state(x: { revokedAt: number | null; expiresAt: number | null }, now: n
   if (x.revokedAt !== null) return "revoked";
   if (x.expiresAt !== null && x.expiresAt <= now) return "expired";
   return "active";
+}
+
+/** A grant's state in `grant ls`: live, revoked, expired, or not live and why. */
+function grantStateText(store: Store, g: Grant, st: GrantState): string {
+  if (st.kind !== "unmet") return st.kind;
+  const id = g.credentials[st.type];
+  if (id === undefined) return `not live: no ${st.type} bound`;
+  return store.credentialById(id)?.revokedAt != null ? `not live: ${id} removed` : `not live: ${st.type} unmet`;
+}
+
+/** A grant's bindings as `<type>=<id>`, comma-separated; `-` when none. */
+function bindingText(b: Record<string, string>): string {
+  const parts = Object.entries(b).map(([type, id]) => `${type}=${id}`);
+  return parts.length ? parts.join(",") : "-";
+}
+
+function needsOf(manifest: { credentials?: Array<{ type: string }> }): string[] {
+  return (manifest.credentials ?? []).map((n) => n.type);
+}
+
+/**
+ * For each need, the credential of `user` that meets it: the one given
+ * with --credential, or the user's one unrevoked credential of the type.
+ * Returns the binding, `{ "<type>": "<credential id>" }`, or the line
+ * refusing: none of the type, several and none picked, or a picked
+ * credential that is not the user's, is removed, or meets no need.
+ */
+function bindNeeds(store: Store, user: User, shop: string, needs: string[], picked: readonly string[]): Record<string, string> | string {
+  if (needs.length === 0 && picked.length) return `${shop} has no credentials to meet, so --credential binds nothing; leave it out`;
+  const chosen = new Map<string, string>();
+  for (const id of picked) {
+    const c = store.credentialById(id);
+    if (!c || c.userId !== user.id) return `--credential ${id} is not a credential of user ${user.name}; townd admin credential ls --user ${user.name} lists them`;
+    if (c.revokedAt !== null) return `--credential ${id} is removed; townd admin credential ls --user ${user.name} lists the ones that are not`;
+    if (!needs.includes(c.type)) return `--credential ${id} is a ${c.type} credential, and ${shop} needs ${needs.join(", ")}`;
+    if (chosen.has(c.type)) return `--credential names two ${c.type} credentials (${chosen.get(c.type)}, ${id}); give one per need`;
+    chosen.set(c.type, id);
+  }
+  const out: Record<string, string> = {};
+  for (const type of needs) {
+    const pick = chosen.get(type);
+    if (pick !== undefined) {
+      out[type] = pick;
+      continue;
+    }
+    const held = store.liveCredentials(user.id, type);
+    if (held.length === 0) return `user ${user.name} holds no ${type} credential; add one with townd admin credential add`;
+    if (held.length > 1) return `user ${user.name} holds ${held.length} ${type} credentials (${held.map((c) => c.id).join(", ")}); pick one with --credential <id>`;
+    out[type] = held[0]!.id;
+  }
+  return out;
 }
 
 function constraintText(c: Constraints): string {
@@ -399,7 +468,7 @@ async function shopTest(town: { store: Store; key: Buffer | null } | null, dir: 
     const { store, key } = town;
     const types = store.listTypes();
     const manifest = await loadShop(dir, types.map((t) => t.name));
-    const met = meetNeeds(store, key, manifest.name, (manifest.credentials ?? []).map((n) => n.type), one(p, "user"));
+    const met = meetNeeds(store, key, manifest.name, needsOf(manifest), one(p, "user"), p.opts.get("credential") ?? []);
     if (typeof met === "string") return refuse(met);
     return report(await testShop(dir, { types: types.map((t) => t.name), credentials: met }), io);
   } catch (err) {
@@ -416,26 +485,24 @@ function report(results: Array<{ name: string; ok: boolean; why?: string }>, io:
   return results.every((r) => r.ok) ? 0 : 1;
 }
 
-/** The credentials that meet `needs` on `userName`'s behalf, opened; or the line refusing. */
-function meetNeeds(store: Store, key: Buffer | null, shop: string, needs: string[], userName: string | undefined): RunCredential[] | string {
+/** The credentials that meet `needs` on `userName`'s behalf (bindNeeds), opened; or the line refusing. */
+function meetNeeds(store: Store, key: Buffer | null, shop: string, needs: string[], userName: string | undefined, picked: readonly string[]): RunCredential[] | string {
   if (needs.length === 0) {
-    return userName === undefined ? [] : `${shop} has no credentials to meet; leave out --user`;
+    if (userName !== undefined) return `${shop} has no credentials to meet; leave out --user`;
+    return picked.length ? `${shop} has no credentials to meet, so --credential binds nothing; leave it out` : [];
   }
   if (userName === undefined) {
     return `${shop} needs ${needs.join(", ")}; write --user <name> for whose credential${needs.length === 1 ? "" : "s"} its tests run on`;
   }
   const user = store.userByName(userName);
   if (!user) return `user ${userName} does not exist; townd admin user ls lists them`;
+  const bound = bindNeeds(store, user, shop, needs, picked);
+  if (typeof bound === "string") return bound;
   const out: RunCredential[] = [];
   for (const type of needs) {
-    const held = store.liveCredentials(user.id, type);
-    if (held.length === 0) return `user ${userName} holds no ${type} credential; add one with townd admin credential add`;
-    if (held.length > 1) {
-      return `user ${userName} holds ${held.length} ${type} credentials (${held.map((c) => c.id).join(", ")}); choosing one with --credential comes with grants in vault phase 1, so remove all but one with townd admin credential rm`;
-    }
     const t = store.getType(type)!;
-    if (!key) throw new VaultError(`the vault's key is missing and credential ${held[0]!.id} is sealed by it`);
-    out.push({ type, origin: t.origin, header: t.header, token: store.openCredential(held[0]!.id, key) });
+    if (!key) throw new VaultError(`the vault's key is missing and credential ${bound[type]!} is sealed by it`);
+    out.push({ type, origin: t.origin, header: t.header, token: store.openCredential(bound[type]!, key) });
   }
   return out;
 }
@@ -460,12 +527,14 @@ export async function strangeEntries(root: string): Promise<string[]> {
 }
 
 /**
- * `shop add <dir>`: refuse links, validate the manifest, copy the
+ * `shop add <dir> [--user <name>]`: refuse links, validate the manifest,
+ * meet its needs with the user's credentials as `shop test` does, copy the
  * directory to a staging place under the data directory, run the shop's
  * tests against the copy (the code that will run), then put the copy in
- * place and upsert the row. Latest only: a second add replaces the first.
+ * place and upsert the row. Latest only: a second add replaces the first,
+ * and when it adds a need, the grants that stop being live are named.
  */
-async function shopAdd(store: Store, dir: string, io: Io, now: number): Promise<number> {
+async function shopAdd(store: Store, key: Buffer | null, dir: string, p: Parsed, io: Io, now: number): Promise<number> {
   const src = path.resolve(dir);
   const refuse = (line: string) => {
     io.err(`townd admin: shop add refused: ${line}\n`);
@@ -478,12 +547,14 @@ async function shopAdd(store: Store, dir: string, io: Io, now: number): Promise<
     return refuse(`${strange.map((s) => path.join(dir, s)).join(", ")} ${strange.length === 1 ? "is" : "are"} not a plain file; a shop is copied whole into the town, so put the file itself there instead of a link`);
   }
   const types = store.listTypes().map((t) => t.name);
+  let needs: string[];
+  let credentials: RunCredential[];
   try {
     const manifest = await loadShop(src, types);
-    const needs = (manifest.credentials ?? []).map((n) => n.type);
-    if (needs.length) {
-      return refuse(`${manifest.name} needs ${needs.join(", ")}, and adding a shop with needs runs its tests on a user's credentials with --user, which comes with vault phase 1`);
-    }
+    needs = needsOf(manifest);
+    const met = meetNeeds(store, key, manifest.name, needs, one(p, "user"), p.opts.get("credential") ?? []);
+    if (typeof met === "string") return refuse(met);
+    credentials = met;
   } catch (err) {
     if (err instanceof ManifestRefused) {
       for (const line of err.refusals) io.err(`${line}\n`);
@@ -507,8 +578,8 @@ async function shopAdd(store: Store, dir: string, io: Io, now: number): Promise<
     const late = await strangeEntries(staging);
     if (late.length) return refuse(`${late.join(", ")} is not a plain file in the copy`);
     const manifest = await loadShop(staging, types);
-    if (manifest.credentials?.length) return refuse(`${manifest.name} gained needs while it was copied`);
-    const results = await testShop(staging, { types });
+    if (needsOf(manifest).join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
+    const results = await testShop(staging, { types, ...(credentials.length ? { credentials } : {}) });
     for (const r of results) io.out(r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`);
     const failing = results.filter((r) => !r.ok);
     if (failing.length) {
@@ -517,11 +588,18 @@ async function shopAdd(store: Store, dir: string, io: Io, now: number): Promise<
     const final = shopDir(store, manifest.name);
     const old = `${staging}-old`;
     const had = await lstat(final).then(() => true, () => false);
+    const liveBefore = store.liveGrantsAt(manifest.name, now).map((g) => g.id);
     if (had) await rename(final, old);
     await rename(staging, final);
     store.upsertShop(manifest, now);
     if (had) await rm(old, { recursive: true, force: true });
     io.out(`added ${manifest.name} ${manifest.version}\n`);
+    const stillLive = store.liveOf(liveBefore, now);
+    const stopped = liveBefore.filter((id) => !stillLive.includes(id));
+    if (stopped.length) {
+      for (const id of stopped) io.out(`${id} at ${manifest.name} is no longer live: it binds no credential for a need the shop gained\n`);
+      io.out(`a grant made again with townd admin grant new binds a credential for each need\n`);
+    }
     return 0;
   } finally {
     await rm(staging, { recursive: true, force: true });

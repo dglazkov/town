@@ -13,8 +13,11 @@ export TOWN_DATA=~/town                         # the whole state: database, sho
 node bin/townd.js serve                         # a town on 127.0.0.1:7000; admin works with it up or down
 node bin/townd.js admin shop add shops/memory   # validates, runs the shop's tests, copies it in
 node bin/townd.js admin user add dimitri
+printf '%s\n' "$TOKEN" | node bin/townd.js admin credential add --user dimitri --type github-token --label "dimitri's PAT"   # the secret on stdin, never an argument; the id on stdout
+node bin/townd.js admin shop add <dir> --user dimitri   # a shop that needs a credential type: its tests run through the town on dimitri's
 node bin/townd.js admin pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the token, shown once; the id on stderr
 node bin/townd.js admin grant new --pass <id> --shop town/memory --commands remember,recall,list --constraint 'remember.key prefix notes/' --expires 30d
+# grant new at a shop with a need binds the user's one credential of its type, or the one named with --credential <id>
 node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices
 node bin/townd.js admin grant revoke <id>       # seen by the next call; pass revoke makes the grant file paper
 # The data directory must never sit in or under a directory an agent works in (one with .town/grant in it or above):

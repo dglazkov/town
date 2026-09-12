@@ -4,15 +4,19 @@
 // marker file, so every denied, malformed, and invalid-pass call can be
 // checked for a process that should not have existed, and every allowed
 // call for one that should. Also journey 1 step 6's notice, a day from
-// expiry, in both forms.
+// expiry, in both forms. And vault's: the teller shop, added on a
+// credential of a fake origin's type, sends nothing to the origin on a
+// denied, malformed, or dead-pass call.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MEMORY, ROOT, agent, assertBuilt, cleanup, serve, tmp, type Agent, type Ran, type Town } from "./helpers/town.js";
+import { MEMORY, ROOT, agent, assertBuilt, cleanup, originProcess, serve, tmp, type Agent, type OriginProcess, type Ran, type Town } from "./helpers/town.js";
 
 const ECHO = path.join(ROOT, "test/fixtures/echo-shop");
+const TELLER = path.join(ROOT, "test/fixtures/teller-shop");
+let origin: OriginProcess;
 
 let town: Town;
 let data: string;
@@ -68,10 +72,16 @@ beforeAll(async () => {
   swapEntry("town%2Fmemory");
   swapEntry("test%2Fecho");
   expect(town.admin("user", "add", "ana").exit).toBe(0);
+  origin = await originProcess();
+  expect(town.admin("type", "add", "test-origin", "--origin", origin.url, "--header", "Authorization: Bearer {token}").exit).toBe(0);
+  expect(town.adminPiped("narrow-test-not-a-token\n", "credential", "add", "--user", "ana", "--type", "test-origin").exit).toBe(0);
+  const teller = town.admin("shop", "add", TELLER, "--user", "ana");
+  expect(teller.exit, teller.stderr).toBe(0);
 }, 60_000);
 
 afterAll(async () => {
   await town?.stop();
+  await origin?.stop();
   cleanup(...made, town?.env.HOME ?? "");
 });
 
@@ -153,7 +163,7 @@ describe("journey 3", () => {
     }
     const rows = town.admin("audit", "--pass", passId).stdout.trim().split("\n").slice(1);
     expect(rows).toHaveLength(4);
-    for (const row of rows.slice(1)) expect(row).toMatch(/\binvalid-pass\s+3\s+-\s+\d+\s+-\s+expired$/);
+    for (const row of rows.slice(1)) expect(row).toMatch(/\binvalid-pass\s+3\s+-\s+\d+\s+-\s+-\s+expired$/);
   });
 
   it("a shop the pass holds no grant for and a shop the town does not have are the same line", () => {
@@ -163,6 +173,31 @@ describe("journey 3", () => {
     const missing = notRun(a.town("echo", "echo", "--zeta", "z"), 2);
     expect(missing).toEqual(held);
     expect(held.stderr).toBe("error: command 'echo echo' is not available to this grant\n");
+  });
+});
+
+describe("vault: a denied, malformed, or dead-pass call on the teller shop sends the origin nothing", () => {
+  it("leaves the fake origin's request count where it was, while an allowed call moves it by one", () => {
+    const { a, passId, grant } = newAgent("ana", "teller, narrowed", ["--shop", "test/teller", "--commands", "get", "--constraint", "get.path prefix /ok/"]);
+    expect(grant.exit, grant.stderr).toBe(0);
+    const before = origin.seen().length;
+    expect(a.town("teller", "get", "--path", "/ok/control")).toEqual({ stdout: "200\nhello from the origin", stderr: "", exit: 0 });
+    expect(origin.seen().length).toBe(before + 1);
+
+    const count = origin.seen().length;
+    const calls: Array<[string[], number]> = [
+      [["teller", "post", "--path", "/ok/a", "--body", "b"], 2],
+      [["teller", "get", "--path", "/elsewhere"], 2],
+      [["teller", "get"], 1],
+      [["teller", "get", "--path", "/ok/a", "--colour", "red"], 1],
+      [["teller"], 1],
+    ];
+    for (const [call, exit] of calls) expect(a.town(...call).exit, call.join(" ")).toBe(exit);
+    expect(town.admin("pass", "revoke", passId).exit).toBe(0);
+    expect(a.town("teller", "get", "--path", "/ok/a").exit).toBe(3);
+    expect(origin.seen().length).toBe(count);
+    const rows = town.admin("audit", "--pass", passId).stdout.trim().split("\n").slice(1);
+    expect(rows.map((r) => r.split(/\s+/)[10])).toEqual(["test-origin:1", "-", "-", "-", "-", "-", "-"]);
   });
 });
 

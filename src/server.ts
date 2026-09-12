@@ -9,10 +9,10 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { denials } from "./denials.js";
-import { argvHash, gate, type CallRequest, type GateDeps, type Outcome } from "./gate.js";
+import { KEY_MISSING, argvHash, gate, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
 import { renderNotices } from "./notices.js";
 import { hashToken, openStore, type Store } from "./store.js";
-import { requireKey } from "./vault.js";
+import { VaultError, readKey, requireKey } from "./vault.js";
 
 export interface WireResponse {
   stdout: string;
@@ -42,7 +42,8 @@ export async function handleCall(deps: GateDeps, req: CallRequest): Promise<Wire
   try {
     outcome = await gate(deps, req);
   } catch (err) {
-    outcome = failed(deps.store, req, denials.townFailed(), "town-error", (err as Error).name);
+    // A VaultError's words are the gate's own and name no credential, path, or value: the operator's detail.
+    outcome = failed(deps.store, req, denials.townFailed(), "town-error", err instanceof VaultError ? err.message : (err as Error).name);
   }
   deps.store.recordCall({
     at,
@@ -58,6 +59,7 @@ export async function handleCall(deps: GateDeps, req: CallRequest): Promise<Wire
     notices: outcome.notices.map((n) => n.kind),
     stderr: outcome.shopStderr,
     detail: outcome.detail,
+    credentials: outcome.credentials,
   });
   return respond(outcome, req.json);
 }
@@ -79,6 +81,7 @@ function failed(store: Store, req: CallRequest, error: string, result: "town-err
     shopExit: null,
     shopStderr: null,
     detail,
+    credentials: [],
   };
 }
 
@@ -98,15 +101,25 @@ export interface TownServer {
 /** Starts a town on 127.0.0.1; `port: 0` picks a free one. */
 export async function startServer(opts: ServerOptions): Promise<TownServer> {
   const store = openStore(opts.dataDir);
-  // The vault's key is read once, at start; a store with sealed rows and
-  // no key is refused here. Vault phase 1 hands the key to the gate.
+  // The vault's key is read at start when it is there; a store with sealed
+  // rows and no key is refused here. When there is none yet, the operator
+  // may make it after the town is up, so it is read on the first call that
+  // opens a binding, and kept.
+  let key: Buffer | null;
   try {
-    requireKey(store.dataDir, store.sealedRows());
+    key = requireKey(store.dataDir, store.sealedRows());
   } catch (err) {
     store.close();
     throw err;
   }
-  const deps: GateDeps = { store, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
+  const vault: Vault = {
+    open(credentialId) {
+      key ??= readKey(store.dataDir);
+      if (!key) throw new VaultError(KEY_MISSING);
+      return store.openCredential(credentialId, key);
+    },
+  };
+  const deps: GateDeps = { store, vault, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
 
   const server = http.createServer((req, res) => {
     const send = (status: number, type: string, body: string) => {
@@ -150,6 +163,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
             notices: [],
             stderr: null,
             detail: o.detail,
+            credentials: [],
           });
           wire = respond(o, false);
         }

@@ -2,10 +2,12 @@
 // The admin's two new nouns, in process over a data directory of the
 // test's own (journey 2 steps 1 to 3, and journey 3 step 6): `type add|ls|rm`,
 // `credential add|ls|rm` with the secret from a pipe and never printed,
-// and `shop test --user` running a shop's tests through a teller.
+// `shop test --user` and `shop add --user` running a shop's tests through
+// a teller, and the binding at `grant new` as `grant ls` and
+// `credential rm` show it.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -212,8 +214,11 @@ describe("shop test --user", () => {
     const b = (await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf("two"))).stdout.trim();
     const two = await admin(["shop", "test", TELLER, "--user", "dimitri"]);
     expect(two.exit).toBe(1);
-    expect(two.stderr).toContain(`user dimitri holds 2 test-origin credentials (${a}, ${b}); choosing one with --credential comes with grants in vault phase 1`);
+    expect(two.stderr).toBe(`townd admin: shop test refused: user dimitri holds 2 test-origin credentials (${a}, ${b}); pick one with --credential <id>\n`);
     expect(origin.seen).toEqual([]);
+    const picked = await admin(["shop", "test", TELLER, "--user", "dimitri", "--credential", b]);
+    expect(picked, picked.stderr).toEqual({ exit: 0, stdout: "ok the origin answers\n", stderr: "" });
+    expect(origin.seen.map((s) => s.headers.authorization)).toEqual(["Bearer two"]);
   });
 
   it("is refused for a shop with no needs given --user, as gate took none", async () => {
@@ -238,12 +243,44 @@ describe("shop test --user", () => {
     expect(t).toEqual({ exit: 1, stdout: "", stderr: "credentials[0].type: 'test-origin' is not a type this town holds; write one of (github-token) instead (spec §8)\n" });
   });
 
-  it("shop add of a shop with needs is refused until vault phase 1 brings --user", async () => {
+  it("shop add that gives a shop with grants a need names the grants that stop being live, and grant ls says why", async () => {
+    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf(SECRET))).exit).toBe(0);
+    expect((await admin(["shop", "add", MEMORY])).exit).toBe(0);
+    const pass = (await admin(["pass", "new", "--user", "dimitri", "--label", "notes"])).stderr.trim();
+    const grant = (await admin(["grant", "new", "--pass", pass, "--shop", "town/memory", "--commands", "recall"])).stdout.trim();
+    expect((await admin(["grant", "ls"])).stdout).toMatch(new RegExp(`^${grant}\\s.*\\s-\\s+-\\s+live\\s+-$`, "m"));
+    const needy = mkdtempSync(path.join(os.tmpdir(), "town-admin-needy-"));
+    try {
+      cpSync(MEMORY, needy, { recursive: true });
+      const text = readFileSync(path.join(needy, "manifest.yaml"), "utf8");
+      writeFileSync(path.join(needy, "manifest.yaml"), text.replace("\ncommands:\n", "\ncredentials:\n  - type: test-origin\ncommands:\n"));
+      const r = await admin(["shop", "add", needy, "--user", "dimitri"]);
+      expect(r.exit, r.stderr).toBe(0);
+      expect(r.stdout).toMatch(new RegExp(
+        `added town/memory \\S+\n${grant} at town/memory is no longer live: it binds no credential for a need the shop gained\na grant made again with townd admin grant new binds a credential for each need\n$`,
+      ));
+      expect((await admin(["grant", "ls"])).stdout).toMatch(new RegExp(`^${grant}\\s.*\\snot live: no test-origin bound\\s+-$`, "m"));
+      // The dead grant does not block the one that binds.
+      const again = await admin(["grant", "new", "--pass", pass, "--shop", "town/memory", "--commands", "recall"]);
+      expect(again.exit, again.stderr).toBe(0);
+      expect((await admin(["grant", "ls", "--pass", pass])).stdout).toMatch(/test-origin=credential_[0-9a-f]{16}\s+-\s+live\s+-$/m);
+      // Adding it again, with the need it already has, names nothing.
+      const same = await admin(["shop", "add", needy, "--user", "dimitri"]);
+      expect(same.stdout).toMatch(/added town\/memory \S+\n$/);
+    } finally {
+      rmSync(needy, { recursive: true, force: true });
+    }
+  });
+
+  it("shop add of a shop with needs is refused without --user, and with it runs the tests through a teller and adds the shop", async () => {
     expect((await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf(SECRET))).exit).toBe(0);
     const r = await admin(["shop", "add", TELLER]);
-    expect(r.exit).toBe(1);
-    expect(r.stderr).toBe("townd admin: shop add refused: test/teller needs test-origin, and adding a shop with needs runs its tests on a user's credentials with --user, which comes with vault phase 1\n");
+    expect(r).toEqual({ exit: 1, stdout: "", stderr: "townd admin: shop add refused: test/teller needs test-origin; write --user <name> for whose credential its tests run on\n" });
     expect(origin.seen).toEqual([]);
     expect((await admin(["shop", "ls"])).stdout).not.toContain("test/teller");
+    const added = await admin(["shop", "add", TELLER, "--user", "dimitri"]);
+    expect(added, added.stderr).toEqual({ exit: 0, stdout: "ok the origin answers\nadded test/teller 0.0.1\n", stderr: "" });
+    expect(origin.seen.map((s) => [s.url, s.headers.authorization])).toEqual([["/hello", `Bearer ${SECRET}`]]);
+    expect((await admin(["shop", "add", MEMORY, "--user", "dimitri"])).stderr).toBe("townd admin: shop add refused: town/memory has no credentials to meet; leave out --user\n");
   });
 });

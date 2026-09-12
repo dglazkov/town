@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Constraints } from "../src/constraints.js";
 import { constraintWords, helpForGrant, helpForPass } from "../src/help.js";
 import { parseManifest } from "../src/manifest.js";
+import { loadShop } from "../src/shoptest.js";
 import { openStore, type Store } from "../src/store.js";
 
 const MEMORY = parseManifest(readFileSync(path.resolve(import.meta.dirname, "../shops/memory/manifest.yaml"), "utf8")).manifest!;
@@ -107,6 +108,28 @@ describe("the grant in words", () => {
     expect(text).toContain("  town memory remember --key <string> [--value <string>]\n      Store a value under a key. (write)\n");
     expect(text).toContain("--key <string>    A path-like key. Required.");
     expect(text).toContain("--value <string>  The value. Reads stdin if omitted.");
+  });
+
+  it("leaves out a shop whose grant is not live: its credential removed, or a need it does not meet, and says nothing about either", async () => {
+    store.addType({ name: "test-origin", origin: "http://127.0.0.1:9", header: "Authorization: Bearer {token}" });
+    const teller = await loadShop(path.resolve(import.meta.dirname, "fixtures/teller-shop"), ["test-origin"]);
+    store.upsertShop(teller);
+    const c = store.addCredential({ userName: "dimitri", type: "test-origin", label: "the label", value: "the value" }, Buffer.alloc(32, 7));
+    const { pass } = store.newPass("dimitri", "bound", null);
+    store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null });
+    store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": c.id } });
+    const live = helpForPass(store, pass);
+    expect(live.split("\n").filter((l) => /^\S+\/\S+\s/.test(l)).map((l) => l.split(" ")[0])).toEqual(["test/teller", "town/memory"]);
+    for (const word of ["credential", "test-origin", c.id, "the label", "the value", "token"]) expect(live, word).not.toContain(word);
+
+    store.revokeCredential(c.id);
+    const dead = helpForPass(store, pass);
+    expect(dead).not.toContain("test/teller");
+    expect(dead).toContain("town/memory");
+
+    const unmet = store.newPass("dimitri", "unbound", null).pass;
+    store.newGrant({ passId: unmet.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null });
+    expect(helpForPass(store, unmet)).toBe("This pass holds no grants.\n");
   });
 
   it("lists no grants for a pass that holds none", () => {

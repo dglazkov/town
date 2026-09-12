@@ -60,7 +60,17 @@ export interface Grant {
   createdAt: number;
   expiresAt: number | null;
   revokedAt: number | null;
+  /** The binding: for each need, the credential that meets it, `{ "<type>": "<credential id>" }`. */
+  credentials: Record<string, string>;
 }
+
+/**
+ * A grant's state: `live` when it is not revoked, not expired, and every
+ * need of its shop's current manifest has a binding of its type to the
+ * pass's user's credential that is not revoked; else why not. `unmet`
+ * names the first need with no such binding.
+ */
+export type GrantState = { kind: "live" } | { kind: "revoked" } | { kind: "expired" } | { kind: "unmet"; type: string };
 
 export interface ShopRow {
   name: string;
@@ -87,6 +97,8 @@ export interface CallRecord {
   stderr: string | null;
   /** Why, for the operator: `expired`, `revoked`, `unknown`, a refusal's kind. */
   detail: string | null;
+  /** Per need the call's tellers served, how many requests each forwarded; empty when the shop did not run. */
+  credentials: Array<{ type: string; requests: number }>;
 }
 
 export interface CallRow extends CallRecord {
@@ -212,6 +224,38 @@ function newId(kind: string): string {
 }
 
 type Row = Record<string, unknown>;
+
+/**
+ * Every grant with its liveness, as one query: `state` is `revoked`,
+ * `expired`, `unmet`, or `live`, and `unmet` the first need of the shop's
+ * current manifest with no binding of its type to an unrevoked credential
+ * of the pass's user. A binding whose type the manifest does not name is
+ * not read. Bound to `:now`. Every reader of a pass's grants reads this.
+ */
+const GRANTS_WITH_STATE = `
+SELECT x.*,
+  CASE
+    WHEN x.revoked_at IS NOT NULL THEN 'revoked'
+    WHEN x.expires_at IS NOT NULL AND x.expires_at <= :now THEN 'expired'
+    WHEN x.unmet IS NOT NULL THEN 'unmet'
+    ELSE 'live'
+  END AS state
+FROM (
+  SELECT g.*, (
+    SELECT json_extract(need.value, '$.type')
+    FROM shops s, json_each(s.manifest, '$.credentials') need
+    WHERE s.name = g.shop AND NOT EXISTS (
+      SELECT 1
+      FROM json_each(g.credentials) b
+      JOIN credentials c ON c.id = b.value
+      JOIN passes p ON p.id = g.pass_id
+      WHERE b.key = json_extract(need.value, '$.type') AND c.type = b.key AND c.user_id = p.user_id AND c.revoked_at IS NULL
+    )
+    ORDER BY need.key
+    LIMIT 1
+  ) AS unmet
+  FROM grants g
+) x`;
 
 export class Store {
   readonly db: Database;
@@ -361,19 +405,20 @@ export class Store {
   // grants
 
   newGrant(
-    g: { passId: string; shop: string; commands: string[]; constraints: Constraints; expiresAt: number | null },
+    g: { passId: string; shop: string; commands: string[]; constraints: Constraints; expiresAt: number | null; credentials?: Record<string, string> },
     now = Date.now(),
   ): Grant {
     const pass = this.passById(g.passId);
     if (!pass) throw new StoreError(`pass ${g.passId} does not exist; townd admin pass ls lists them`);
     if (pass.revokedAt !== null) throw new StoreError(`pass ${g.passId} is revoked; make a new pass`);
     if (!this.getShop(g.shop)) throw new StoreError(`shop ${g.shop} is not in this town; townd admin shop ls lists them`);
+    // Live grants only: a grant dead by its credential or a new need never blocks its replacement.
     const held = this.grantsForPass(g.passId, now).find((x) => x.shop === g.shop);
     if (held) throw new StoreError(`pass ${g.passId} already holds grant ${held.id} at ${g.shop}; revoke it first, since a pass holds one grant per shop`);
     const id = newId("grant");
     this.db
-      .prepare("INSERT INTO grants (id, pass_id, shop, commands, constraints, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(id, g.passId, g.shop, JSON.stringify(g.commands), JSON.stringify(g.constraints), now, g.expiresAt);
+      .prepare("INSERT INTO grants (id, pass_id, shop, commands, constraints, created_at, expires_at, credentials) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, g.passId, g.shop, JSON.stringify(g.commands), JSON.stringify(g.constraints), now, g.expiresAt, JSON.stringify(g.credentials ?? {}));
     return this.grantById(id)!;
   }
 
@@ -382,19 +427,36 @@ export class Store {
     return row ? toGrant(row) : null;
   }
 
-  /** The pass's grants in force at `now`: not revoked, not expired. */
+  /** The pass's live grants at `now` (see GRANTS_WITH_STATE): what the gate, help, and notices read. */
   grantsForPass(passId: string, now = Date.now()): Grant[] {
     const rows = this.db
-      .prepare("SELECT * FROM grants WHERE pass_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?) ORDER BY shop")
-      .all(passId, now) as Row[];
+      .prepare(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE pass_id = :pass AND state = 'live' ORDER BY shop`)
+      .all({ now, pass: passId }) as Row[];
     return rows.map(toGrant);
   }
 
-  listGrants(passId?: string): Array<Grant & { lastUse: number | null }> {
-    const sql = `SELECT g.*, (SELECT MAX(at) FROM calls c WHERE c.grant_id = g.id) AS last_use FROM grants g
-      ${passId ? "WHERE g.pass_id = ?" : ""} ORDER BY g.created_at, g.id`;
-    const rows = (passId ? this.db.prepare(sql).all(passId) : this.db.prepare(sql).all()) as Row[];
-    return rows.map((r) => ({ ...toGrant(r), lastUse: nullableNumber(r.last_use) }));
+  /** One grant's state at `now`, by the same query; null when there is no such grant. */
+  grantState(id: string, now = Date.now()): GrantState | null {
+    const row = this.db.prepare(`SELECT state, unmet FROM (${GRANTS_WITH_STATE}) WHERE id = :id`).get({ now, id }) as Row | undefined;
+    return row ? toState(row) : null;
+  }
+
+  listGrants(passId?: string, now = Date.now()): Array<Grant & { lastUse: number | null; state: GrantState }> {
+    const sql = `SELECT g.*, (SELECT MAX(at) FROM calls c WHERE c.grant_id = g.id) AS last_use FROM (${GRANTS_WITH_STATE}) g
+      ${passId ? "WHERE g.pass_id = :pass" : ""} ORDER BY g.created_at, g.id`;
+    const rows = this.db.prepare(sql).all(passId ? { now, pass: passId } : { now }) as Row[];
+    return rows.map((r) => ({ ...toGrant(r), lastUse: nullableNumber(r.last_use), state: toState(r) }));
+  }
+
+  /** The ids of the grants live at `now`, of those given. */
+  liveOf(grantIds: readonly string[], now = Date.now()): string[] {
+    return grantIds.filter((id) => this.grantState(id, now)?.kind === "live");
+  }
+
+  /** The grants at `shop` live at `now`. */
+  liveGrantsAt(shop: string, now = Date.now()): Grant[] {
+    const rows = this.db.prepare(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE shop = :shop AND state = 'live' ORDER BY created_at, id`).all({ now, shop }) as Row[];
+    return rows.map(toGrant);
   }
 
   revokeGrant(id: string, now = Date.now()): Grant {
@@ -538,8 +600,8 @@ export class Store {
   recordCall(c: CallRecord): number {
     const r = this.db
       .prepare(
-        `INSERT INTO calls (at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO calls (at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         c.at,
@@ -555,6 +617,7 @@ export class Store {
         JSON.stringify(c.notices),
         c.stderr,
         c.detail,
+        JSON.stringify(c.credentials.map((x) => ({ type: x.type, requests: x.requests }))),
       );
     return Number(r.lastInsertRowid);
   }
@@ -611,7 +674,14 @@ function toGrant(r: Row): Grant {
     createdAt: Number(r.created_at),
     expiresAt: nullableNumber(r.expires_at),
     revokedAt: nullableNumber(r.revoked_at),
+    credentials: JSON.parse(String(r.credentials ?? "{}")) as Record<string, string>,
   };
+}
+
+function toState(r: Row): GrantState {
+  const state = String(r.state);
+  if (state === "unmet") return { kind: "unmet", type: String(r.unmet) };
+  return { kind: state as "live" | "revoked" | "expired" };
 }
 
 function toShop(r: Row): ShopRow {
@@ -634,5 +704,6 @@ function toCall(r: Row): CallRow {
     notices: JSON.parse(String(r.notices)) as string[],
     stderr: r.stderr === null ? null : String(r.stderr),
     detail: r.detail === null ? null : String(r.detail),
+    credentials: JSON.parse(String(r.credentials ?? "[]")) as Array<{ type: string; requests: number }>,
   };
 }

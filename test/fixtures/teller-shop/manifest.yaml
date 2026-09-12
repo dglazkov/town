@@ -12,7 +12,14 @@ commands:
     summary: Send a GET through the teller and print the status, then the body.
     effect: read
     args:
-      - { name: path, type: string, required: true, doc: "The path to ask the origin for, starting with /." }
+      - { name: path, type: string, required: true, doc: "The path to ask the origin for, starting with /.", constrainable: [equals, prefix] }
+    output: text
+  - name: post
+    summary: Send a POST with a body through the teller and print the status, then the body.
+    effect: write
+    args:
+      - { name: path, type: string, required: true, doc: "The path to send to, starting with /.", constrainable: [equals, prefix] }
+      - { name: body, type: string, doc: "What to send. Reads stdin if omitted." }
     output: text
 tests:
   - name: the origin answers

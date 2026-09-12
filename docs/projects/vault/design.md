@@ -83,7 +83,9 @@ at rest with per-user keys. This project seals every row under one key
 in `<data>/vault.key`, mode 600, made on first use. That makes a dump
 of `town.db` hold nothing, and keeps the copy in gate's journey 2 step 7
 whole, since the key travels with the directory. It is not a boundary:
-whoever reads the directory reads the key. The boundary is the hosted
+whoever reads the directory reads the key, and on one box that includes
+a shop, whose directory is under it; vault phase 1's exfil test unseals a
+credential from what a swapped entry could read. The boundary is the hosted
 box's, where the key leaves the disk for a service that holds it, and
 per-user keys come with users who are not the operator.
 
@@ -284,8 +286,9 @@ argument; not the values, ever.
   github-token credential; add one with townd admin credential add`.
   `grant ls` shows bindings as `<type>=<id>`.
 - `shop test <dir> --user <name>` and `shop add <dir> --user <name>`:
-  the user's credentials meet the manifest's needs and the tests run
-  through tellers against the real origins. A shop with needs and no
+  the user's credentials meet the manifest's needs, `--credential <id>`
+  picking among several as at `grant new`, and the tests run through
+  tellers against the real origins. A shop with needs and no
   `--user`, or a user who lacks one, is refused with the line. A shop
   without needs takes no `--user`, as in gate.
 

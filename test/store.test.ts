@@ -112,7 +112,8 @@ describe("grants", () => {
     expect(g.id).toMatch(/^grant_[0-9a-f]{16}$/);
     expect(store.grantsForPass(pass.id, 1000)).toEqual([g]);
     expect(() => store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null }, 1000)).toThrow(/one grant per shop/);
-    expect(store.listGrants(pass.id)).toEqual([{ ...g, lastUse: null }]);
+    expect(store.listGrants(pass.id, 1000)).toEqual([{ ...g, lastUse: null, state: { kind: "live" } }]);
+    expect(g.credentials).toEqual({});
   });
 
   it("leaves a revoked or expired grant out of those in force", () => {
@@ -154,14 +155,15 @@ describe("calls", () => {
     const g = store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null }, 1000);
     const row = (at: number, extra = {}) => ({
       at, passId: pass.id, grantId: g.id, shop: "town/memory", command: "recall", argvHash: "h".repeat(64),
-      result: "ok" as const, exit: 0, shopExit: 0, latencyMs: 3.4, notices: [], stderr: "", detail: null, ...extra,
+      result: "ok" as const, exit: 0, shopExit: 0, latencyMs: 3.4, notices: [], stderr: "", detail: null, credentials: [{ type: "github-token", requests: 2 }], ...extra,
     });
     store.recordCall(row(3000));
-    store.recordCall(row(2000, { result: "denied", exit: 2, shopExit: null, stderr: null, notices: ["grant-expires"] }));
+    store.recordCall(row(2000, { result: "denied", exit: 2, shopExit: null, stderr: null, notices: ["grant-expires"], credentials: [] }));
     store.recordCall({ ...row(4000), passId: null, grantId: null, shop: null, command: null, result: "invalid-pass", exit: 3, shopExit: null });
     const all = store.calls();
     expect(all.map((c) => c.at)).toEqual([2000, 3000, 4000]);
-    expect(all[0]).toMatchObject({ result: "denied", shopExit: null, notices: ["grant-expires"], latencyMs: 3 });
+    expect(all[0]).toMatchObject({ result: "denied", shopExit: null, notices: ["grant-expires"], latencyMs: 3, credentials: [] });
+    expect(all[1]!.credentials).toEqual([{ type: "github-token", requests: 2 }]);
     expect(store.calls({ passId: pass.id })).toHaveLength(2);
     expect(store.calls({ shop: "town/memory", since: 2500 })).toHaveLength(1);
     expect(store.listPasses()[0]!.lastUse).toBe(3000);
@@ -300,5 +302,98 @@ describe("credentials", () => {
     expect(() => store.addCredential({ userName: "nobody", type: "github-token", label: "", value: VALUE }, key)).toThrow(/user nobody does not exist/);
     store.addUser("dimitri");
     expect(() => store.addCredential({ userName: "dimitri", type: "github-tokens", label: "", value: VALUE }, key)).toThrow(/write one of \(github-token\)/);
+  });
+});
+
+describe("a grant's liveness", () => {
+  const TELLER = path.resolve(import.meta.dirname, "fixtures/teller-shop");
+  let key: Buffer;
+
+  beforeEach(async () => {
+    key = ensureKey(dir);
+    store.addType({ name: "test-origin", origin: "http://127.0.0.1:9", header: "Authorization: Bearer {token}" }, 1000);
+    store.upsertShop(await loadShop(TELLER, ["github-token", "test-origin"]), 1000);
+  });
+
+  function bound(user = "dimitri") {
+    const { pass } = passFor(user);
+    const c = store.addCredential({ userName: user, type: "test-origin", label: "", value: "a value" }, key, 1000);
+    const g = store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": c.id } }, 1000);
+    return { pass, c, g };
+  }
+
+  it("is live when every need has a binding to an unrevoked credential, and the binding is stored and listed", () => {
+    const { pass, c, g } = bound();
+    expect(g.credentials).toEqual({ "test-origin": c.id });
+    expect(store.grantsForPass(pass.id, 2000)).toEqual([g]);
+    expect(store.grantState(g.id, 2000)).toEqual({ kind: "live" });
+    expect(store.credentialById(c.id)!.grants).toEqual([g.id]);
+    expect(store.listGrants(pass.id, 2000)).toEqual([{ ...g, lastUse: null, state: { kind: "live" } }]);
+  });
+
+  it("ends when the bound credential is revoked, seen through another connection, and the grant row is not touched", () => {
+    const { pass, c, g } = bound();
+    const admin = openStore(dir);
+    admin.revokeCredential(c.id, 3000);
+    admin.close();
+    expect(store.grantsForPass(pass.id, 4000)).toEqual([]);
+    expect(store.grantState(g.id, 4000)).toEqual({ kind: "unmet", type: "test-origin" });
+    expect(store.grantById(g.id)!.revokedAt).toBeNull();
+    expect(store.liveOf([g.id], 4000)).toEqual([]);
+    expect(store.liveGrantsAt("test/teller", 4000)).toEqual([]);
+  });
+
+  it("is not live for a need with no binding, a binding to another user's credential, or one of another type", () => {
+    const { pass } = passFor();
+    const none = store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null }, 1000);
+    expect(store.grantState(none.id, 2000)).toEqual({ kind: "unmet", type: "test-origin" });
+    store.revokeGrant(none.id, 1500);
+    store.addUser("ada", 1000);
+    const theirs = store.addCredential({ userName: "ada", type: "test-origin", label: "", value: "hers" }, key, 1000);
+    const foreign = store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": theirs.id } }, 1000);
+    expect(store.grantState(foreign.id, 2000)).toEqual({ kind: "unmet", type: "test-origin" });
+    store.revokeGrant(foreign.id, 1500);
+    const gh = store.addCredential({ userName: "dimitri", type: "github-token", label: "", value: "gh" }, key, 1000);
+    const wrongType = store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": gh.id } }, 1000);
+    expect(store.grantState(wrongType.id, 2000)).toEqual({ kind: "unmet", type: "test-origin" });
+    expect(store.grantsForPass(pass.id, 2000)).toEqual([]);
+  });
+
+  it("puts revoked and expired before a need unmet, and ignores a binding whose type the manifest no longer names", async () => {
+    const { pass, c, g } = bound();
+    store.revokeCredential(c.id, 1500);
+    store.revokeGrant(g.id, 1600);
+    expect(store.grantState(g.id, 2000)).toEqual({ kind: "revoked" });
+    const later = store.addCredential({ userName: "dimitri", type: "test-origin", label: "", value: "again" }, key, 1700);
+    const soon = store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: 5000, credentials: { "test-origin": later.id } }, 1700);
+    expect(store.grantState(soon.id, 5000)).toEqual({ kind: "expired" });
+    store.revokeCredential(later.id, 1800);
+    expect(store.grantState(soon.id, 4000)).toEqual({ kind: "unmet", type: "test-origin" });
+    // The shop drops its need: the dead binding is not read, and the grant is live again.
+    const teller = await loadShop(TELLER, ["test-origin"]);
+    const { credentials: _dropped, ...noNeeds } = teller;
+    store.upsertShop(noNeeds, 1900);
+    expect(store.grantState(soon.id, 4000)).toEqual({ kind: "live" });
+    expect(store.grantsForPass(pass.id, 4000).map((x) => x.id)).toEqual([soon.id]);
+  });
+
+  it("lets a grant dead by its credential be replaced: one grant per shop counts live grants only", () => {
+    const { pass, c, g } = bound();
+    expect(() => store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": c.id } }, 1000)).toThrow(/already holds grant/);
+    store.revokeCredential(c.id, 1500);
+    const next = store.addCredential({ userName: "dimitri", type: "test-origin", label: "", value: "new" }, key, 1600);
+    const replaced = store.newGrant({ passId: pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": next.id } }, 1600);
+    expect(store.grantsForPass(pass.id, 2000).map((x) => x.id)).toEqual([replaced.id]);
+    expect(store.listGrants(pass.id, 2000).map((x) => [x.id, x.state.kind])).toEqual([[g.id, "unmet"], [replaced.id, "live"]]);
+  });
+
+  it("gives a shop gaining a need the same answer: its grants stop being live", async () => {
+    const { pass } = passFor();
+    const g = store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null }, 1000);
+    expect(store.liveGrantsAt("town/memory", 2000).map((x) => x.id)).toEqual([g.id]);
+    const memory = await loadShop(MEMORY);
+    store.upsertShop({ ...memory, credentials: [{ type: "test-origin" }] }, 1500);
+    expect(store.grantState(g.id, 2000)).toEqual({ kind: "unmet", type: "test-origin" });
+    expect(store.grantsForPass(pass.id, 2000)).toEqual([]);
   });
 });

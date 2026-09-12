@@ -29,7 +29,12 @@ export function typedName(shop: string, grantedShops: readonly string[]): string
   return grantedShops.filter((s) => s.split("/").pop() === last).length === 1 ? last : shop;
 }
 
-/** `town --help` for `pass` at `now`: one line per grant in force, and one line saying where to look next. */
+/**
+ * `town --help` for `pass` at `now`: one line per live grant, and one line
+ * saying where to look next. A grant whose credential was removed, or whose
+ * shop gained a need it does not meet, is not live and not listed; help
+ * never says why, nor anything about credentials.
+ */
 export function helpForPass(store: Store, pass: Pass, now = Date.now()): string {
   const rows: Array<[string, string, string]> = [];
   const held: Array<{ grant: Grant; manifest: Manifest }> = [];

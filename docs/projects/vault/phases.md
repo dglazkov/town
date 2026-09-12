@@ -26,13 +26,13 @@ not `credential`, not `--repo`.
 
 ---
 
-**Where we are: vault phase 0 closed, 12 September 2026.** Next is
-vault phase 1, the binding and the gate, which needs no person. The
-vault seals a credential under `<data>/vault.key`, the operator adds one
-from stdin, and the runtime hands a shop a teller's URL that signs its
-requests to the type's origin, all proven against a fake origin on
-loopback. Nothing waits on a person until vault phase 2, whose walk
-needs a GitHub token the user makes and a repository they name.
+**Where we are: vault phases 0 and 1 closed, 12 September 2026.** Next
+is vault phase 2, the github shop and the walk. Its shop and script need
+no person; its proof needs a GitHub fine-grained token the user makes
+and a repository they name. The town now seals a credential, binds it
+to a grant, opens it only at gate step 6, and hands the shop a teller
+that signs, walked by hand on a fixture shop and a fake origin. One
+debt is open: on one box a shop can read the key and unseal.
 
 The order is dependency order. Phase 0 is the sealing and the window,
 each provable against a fake origin on loopback with no server: the
@@ -198,7 +198,31 @@ terminal, a fake origin from `test/helpers` in another, `type add`,
 one call through `town`, `credential rm`, and the next call exit 2,
 typed as journey 2 writes them.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held: 313 tests with both
+rings named, each mutation failing its tests, and journey 2 steps 1 to 8
+typed by hand against a running town and a fake origin, the secret in
+no byte of the data directory or its copy.
+
+**Findings:**
+
+- **2026-09-12 — The phase took twenty-five minutes of wall clock.** Two
+  doc fixes before the brief, the server's key and the audit column,
+  and one after, the Proof's mutation wording; no return to the builder.
+- **2026-09-12 — Open: on one box a shop can unseal every credential.**
+  `test/exfil.test.ts`'s swapped entry reads `vault.key` and `town.db`
+  from its own directory and the test unseals the value from what it
+  printed. Waits on the containers project or a key held off the box.
+- **2026-09-12 — `credential rm` ends grants without revoking them.**
+  They are dead by the liveness query alone; `grant ls` says `not live:
+  <id> removed`, and a new grant at the shop is not blocked by the dead
+  one.
+- **2026-09-12 — `shop test` and `shop add` take `--credential` too.**
+  A user holding two credentials of a type could otherwise test a shop
+  only by removing one, which now kills grants; the picker is `grant
+  new`'s.
+- **2026-09-12 — A command test's fake origin runs as its own process.**
+  `town` and `townd` run under `spawnSync`, which blocks the test's event
+  loop, so an in-process origin deadlocks the call.
 
 ---
 

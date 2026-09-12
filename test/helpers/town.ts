@@ -6,7 +6,7 @@
 // loudly instead of testing yesterday's build.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -51,8 +51,10 @@ export function cleanEnv(home: string, extra: Record<string, string> = {}): Node
   return env;
 }
 
-export function townd(args: string[], env: NodeJS.ProcessEnv): Ran {
-  const r = spawnSync(process.execPath, [TOWND, ...args], { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 });
+/** `townd` with stdin closed, or with `input` on stdin, as `printf … | townd …` gives a secret. */
+export function townd(args: string[], env: NodeJS.ProcessEnv, input?: string): Ran {
+  const stdin = input === undefined ? "ignore" : "pipe";
+  const r = spawnSync(process.execPath, [TOWND, ...args], { env, encoding: "utf8", stdio: [stdin, "pipe", "pipe"], timeout: 30_000, ...(input === undefined ? {} : { input }) });
   return { stdout: r.stdout, stderr: r.stderr, exit: r.status ?? -1 };
 }
 
@@ -97,6 +99,8 @@ export interface Town {
   dataDir: string;
   env: NodeJS.ProcessEnv;
   admin(...args: string[]): Ran;
+  /** `townd admin` with `input` on stdin. */
+  adminPiped(input: string, ...args: string[]): Ran;
   stop(): Promise<void>;
 }
 
@@ -130,10 +134,59 @@ export async function serve(dataDir: string): Promise<Town> {
     dataDir,
     env,
     admin: (...args) => townd(["admin", "--data", dataDir, ...args], env),
+    adminPiped: (input, ...args) => townd(["admin", "--data", dataDir, ...args], env, input),
     stop: () =>
       new Promise<void>((resolve) => {
         if (child.exitCode !== null) return resolve();
         child.once("exit", () => resolve());
+        child.kill("SIGTERM");
+      }),
+  };
+}
+
+/** A request the fake origin recorded: as test/helpers/origin.ts prints it. */
+export interface SeenRequest {
+  method: string;
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  bodyLength: number;
+  bodySha256: string;
+}
+
+export interface OriginProcess {
+  /** `http://127.0.0.1:<port>` */
+  url: string;
+  /** Every request it has recorded so far, read from its log file. */
+  seen(): SeenRequest[];
+  stop(): Promise<void>;
+}
+
+/**
+ * The fake origin, `node test/helpers/origin.ts`, as a process of its own:
+ * a command test's `town` and `townd` run synchronously and would stall an
+ * origin in this process. It writes its URL, then one JSON line per request
+ * before answering it, to a file, so `seen()` read after a call returns
+ * holds that call's requests.
+ */
+export async function originProcess(): Promise<OriginProcess> {
+  const dir = tmp("origin");
+  const log = path.join(dir, "seen.jsonl");
+  const fd = openSync(log, "w");
+  const child = spawn(process.execPath, ["--no-warnings", path.join(ROOT, "test/helpers/origin.ts")], { stdio: ["ignore", fd, "pipe"] });
+  closeSync(fd);
+  const lines = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  for (let i = 0; lines().length === 0; i++) {
+    if (i > 200 || child.exitCode !== null) throw new Error("the fake origin did not start");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return {
+    url: lines()[0]!,
+    seen: () => lines().slice(1).map((l) => JSON.parse(l) as SeenRequest),
+    stop: () =>
+      new Promise<void>((resolve) => {
+        const done = () => (rmSync(dir, { recursive: true, force: true }), resolve());
+        if (child.exitCode !== null) return done();
+        child.once("exit", done);
         child.kill("SIGTERM");
       }),
   };

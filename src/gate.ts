@@ -3,6 +3,8 @@
 // runtime. Every step before the sixth ends in an outcome with no process;
 // the words come from denials.ts, help from help.ts, notices from
 // notices.ts. The gate reads the store on every call and keeps nothing.
+// A pass's grants are its live grants (store.ts), and the sixth step is
+// the only place a grant's bindings are opened from the vault.
 
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -12,8 +14,9 @@ import { denials } from "./denials.js";
 import { helpForGrant, helpForPass, typedName, usageFor } from "./help.js";
 import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
-import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment } from "./runtime.js";
+import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
 import { hashToken, type Grant, type Pass, type ResultClass, type Store } from "./store.js";
+import { VaultError } from "./vault.js";
 
 export interface CallRequest {
   /** The bearer token; null when the request carried none. */
@@ -25,10 +28,21 @@ export interface CallRequest {
 
 export type Runtime = typeof run;
 
+/** Opens a credential's value for one call. The server's reads the store and the vault's key. */
+export interface Vault {
+  /** Throws a VaultError of KEY_MISSING when there is no key to open with. */
+  open(credentialId: string): string;
+}
+
+/** The audit's words for a call that needed the vault's key and found none. */
+export const KEY_MISSING = "the vault key is missing";
+
 export interface GateDeps {
   store: Store;
   /** The runtime; the real one when omitted. Tests pass one that records whether it ran. */
   runtime?: Runtime;
+  /** Where a grant's bindings are opened; a call that needs one with none here is the town's failure. */
+  vault?: Vault;
   now?: () => number;
   timeoutMs?: number;
 }
@@ -50,6 +64,8 @@ export interface Outcome {
   shopExit: number | null;
   shopStderr: string | null;
   detail: string | null;
+  /** Per need, how many requests its teller forwarded; empty when the shop did not run. */
+  credentials: Array<{ type: string; requests: number }>;
 }
 
 /** SHA-256 of an argv, as the audit keeps it. */
@@ -83,6 +99,7 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
     shopExit: null,
     shopStderr: null,
     detail: null,
+    credentials: [],
   };
 
   // 1. The bearer to a pass.
@@ -152,7 +169,9 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
     return { ...atArgs, error: denials.constraint(miss.arg, miss.kind, miss.rule), exit: 2, result: "denied", detail: `constraint ${command}.${miss.arg} ${miss.kind}` };
   }
 
-  // 6. The runtime. Only now does a process exist.
+  // 6. The bindings, then the runtime. Only now is a credential opened,
+  // and only now does a process exist.
+  const credentials = openBindings(store, deps.vault, grant, manifest);
   const runtime = deps.runtime ?? run;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const r = await runtime(shopDir(store, manifest.name), manifest, command, parsed.values, {
@@ -160,8 +179,9 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
     stateRoot: store.stateRoot,
     stdin: req.stdin,
     timeoutMs,
+    ...(credentials.length ? { credentials } : {}),
   });
-  const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr };
+  const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr, credentials: r.credentials };
   if (r.timedOut) {
     return { ...ran, error: denials.shopTimedOut(manifest.name, command, Math.round(timeoutMs / 1000)), exit: 1, result: "timeout" };
   }
@@ -170,6 +190,32 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
     return { ...ran, error: denials.shopFailed(manifest.name, command, tail), exit: 1, result: "shop-error" };
   }
   return ran;
+}
+
+/**
+ * For each need of the manifest, the grant's binding opened: the type's
+ * origin and header and the credential's value, for the runtime alone. A
+ * live grant has a binding for every need, so a missing one here, a
+ * missing vault, or a credential that does not open is the town's
+ * failure, thrown as a VaultError whose words name no credential, no
+ * path, and no value.
+ */
+function openBindings(store: Store, vault: Vault | undefined, grant: Grant, manifest: Manifest): RunCredential[] {
+  const out: RunCredential[] = [];
+  for (const { type } of manifest.credentials ?? []) {
+    const id = grant.credentials[type];
+    const t = store.getType(type);
+    if (id === undefined || !t) throw new VaultError("a binding was not there to open");
+    if (!vault) throw new VaultError(KEY_MISSING);
+    let token: string;
+    try {
+      token = vault.open(id);
+    } catch (err) {
+      throw new VaultError(err instanceof VaultError && err.message === KEY_MISSING ? KEY_MISSING : "a credential did not open under the vault key");
+    }
+    out.push({ type, origin: t.origin, header: t.header, token });
+  }
+  return out;
 }
 
 /**

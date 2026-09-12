@@ -3,19 +3,24 @@
 // fake runtime that records whether it ran: every denial in order, each
 // step beating the next, the result class per outcome, one audit row per
 // call, and the enumeration of denials.ts, every sentence the agent can
-// be told.
+// be told. Step 6 with a binding: a fake vault counting what it opens and
+// every listener counted, so a denied, malformed, or dead call, and a
+// grant not live, is seen to open nothing.
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArgValues } from "../src/args.js";
 import { denials } from "../src/denials.js";
-import { gate, type CallRequest, type GateDeps, type Runtime } from "../src/gate.js";
+import { gate, shopDir, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
 import { parseManifest, type Manifest } from "../src/manifest.js";
-import type { RunResult } from "../src/runtime.js";
+import type { RunCredential, RunResult } from "../src/runtime.js";
 import { handleCall, respond } from "../src/server.js";
+import { loadShop } from "../src/shoptest.js";
 import { openStore, type Pass, type Store } from "../src/store.js";
+import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
 const DAY = 86_400_000;
@@ -45,6 +50,7 @@ interface Recorded {
   args: ArgValues;
   user: string;
   stdin: string | Buffer | null | undefined;
+  credentials?: RunCredential[] | undefined;
 }
 
 let dir: string;
@@ -54,7 +60,7 @@ let next: RunResult;
 let deps: GateDeps;
 
 const fakeRuntime: Runtime = async (shopDir, manifest: Manifest, command, args, opts) => {
-  runs.push({ shop: manifest.name, command, args, user: opts.user, stdin: opts.stdin });
+  runs.push({ shop: manifest.name, command, args, user: opts.user, stdin: opts.stdin, ...(opts.credentials ? { credentials: opts.credentials } : {}) });
   void shopDir;
   return next;
 };
@@ -339,5 +345,137 @@ describe("denials.ts", () => {
       "error: --key must match the pattern 'a+' as a whole under this grant",
       "error: --key must be at most 4 characters under this grant",
     ]);
+  });
+});
+
+describe("step 6: the bindings", () => {
+  const TELLER_DIR = path.resolve(import.meta.dirname, "fixtures/teller-shop");
+  const TOKEN = "the-gate-test-token-7c1e";
+  let origin: FakeOrigin;
+  let opened: string[];
+  let vault: Vault;
+  let listens: http.Server[];
+
+  beforeAll(async () => {
+    origin = await fakeOrigin();
+  });
+  afterAll(async () => {
+    await origin.close();
+  });
+
+  beforeEach(async () => {
+    store.addType({ name: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}" }, NOW);
+    store.upsertShop(await loadShop(TELLER_DIR, ["test-origin"]), NOW);
+    cpSync(TELLER_DIR, shopDir(store, "test/teller"), { recursive: true });
+    opened = [];
+    vault = { open: (id) => (opened.push(id), `${TOKEN}`) };
+    listens = [];
+    const listen = http.Server.prototype.listen;
+    vi.spyOn(http.Server.prototype, "listen").mockImplementation(function (this: http.Server, ...args: unknown[]) {
+      listens.push(this);
+      return (listen as (...a: unknown[]) => http.Server).apply(this, args);
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A pass whose user holds one test-origin credential, with a grant at test/teller bound to it, or bound to nothing. */
+  function boundPass(opts: { commands?: string[]; constraints?: Record<string, Record<string, unknown>>; bind?: boolean } = {}) {
+    const name = `u${Math.random().toString(16).slice(2, 8)}`;
+    store.addUser(name, NOW);
+    const made = store.newPass(name, "a label", null, NOW);
+    const c = store.addCredential({ userName: name, type: "test-origin", label: "", value: "sealed, never opened by this test" }, Buffer.alloc(32, 1), NOW);
+    const g = store.newGrant(
+      { passId: made.pass.id, shop: "test/teller", commands: opts.commands ?? ["get", "post"], constraints: (opts.constraints ?? {}) as never, expiresAt: null, ...(opts.bind === false ? {} : { credentials: { "test-origin": c.id } }) },
+      NOW,
+    );
+    return { ...made, credential: c, grant: g };
+  }
+
+  it("hands a live grant's bindings to the runtime with the type's origin and header, opened once, at step 6", async () => {
+    const { token, credential } = boundPass();
+    const o = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect(o.exit, o.error).toBe(0);
+    expect(opened).toEqual([credential.id]);
+    expect(runs).toEqual([
+      expect.objectContaining({ shop: "test/teller", command: "get", credentials: [{ type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN }] }),
+    ]);
+    expect(listens).toEqual([]); // the fake runtime opens no teller
+    expect(JSON.stringify(o)).not.toContain(TOKEN);
+  });
+
+  it("through the real runtime, a live call opens one teller, the request arrives signed, and the audit row counts it", async () => {
+    const { token } = boundPass();
+    const before = origin.seen.length;
+    const real: GateDeps = { store, vault, now: () => NOW };
+    const wire = await handleCall(real, call(token, ["teller", "get", "--path", "/signed"]));
+    expect(wire).toEqual({ stdout: "200\nhello from the origin", stderr: "", exit: 0 });
+    expect(listens).toHaveLength(1);
+    expect(listens[0]!.listening).toBe(false);
+    expect(origin.seen.slice(before).map((s) => [s.url, s.headers.authorization])).toEqual([["/signed", `Bearer ${TOKEN}`]]);
+    const row = store.calls().at(-1)!;
+    expect(row.credentials).toEqual([{ type: "test-origin", requests: 1 }]);
+    expect(JSON.stringify(store.calls())).not.toContain(TOKEN);
+  });
+
+  it("opens nothing and listens nowhere on a denied, a malformed, or a dead-pass call, through the real runtime", async () => {
+    const { token, pass } = boundPass({ commands: ["get"], constraints: { "get.path": { prefix: "/ok/" } } });
+    const real: GateDeps = { store, vault, now: () => NOW };
+    const cases: Array<[string, CallRequest, number, string]> = [
+      ["a command not granted", call(token, ["teller", "post", "--path", "/ok/a", "--body", "b"]), 2, denials.notAvailable("post")],
+      ["a constraint missed", call(token, ["teller", "get", "--path", "/elsewhere"]), 2, denials.constraint("path", "prefix", "/ok/")],
+      ["malformed: a missing argument", call(token, ["teller", "get"]), 1, denials.usage(["--path is required"], "town teller get --path <string>")],
+      ["malformed: an unknown argument", call(token, ["teller", "get", "--path", "/ok/a", "--colour", "red"]), 1, denials.usage(["--colour is not an argument of get"], "town teller get --path <string>")],
+    ];
+    for (const [label, req, exit, error] of cases) {
+      const o = await handleCall(real, req);
+      expect([label, o.exit, o.stderr]).toEqual([label, exit, `${error}\n`]);
+    }
+    store.revokePass(pass.id, NOW);
+    expect((await handleCall(real, call(token, ["teller", "get", "--path", "/ok/a"]))).exit).toBe(3);
+    expect(opened).toEqual([]);
+    expect(listens).toEqual([]);
+    expect(store.calls().every((r) => r.credentials.length === 0)).toBe(true);
+  });
+
+  it("makes a grant whose credential is revoked not live: 'not available', nothing opened, nothing listening, help without the shop", async () => {
+    const { token, pass, credential } = boundPass();
+    const real: GateDeps = { store, vault, now: () => NOW };
+    expect((await gate(real, call(token, ["--help"]))).stdout).toContain("test/teller");
+    store.revokeCredential(credential.id, NOW);
+    const o = await gate(real, call(token, ["teller", "get", "--path", "/x"]));
+    expect([o.exit, o.result, o.error]).toEqual([2, "denied", denials.notAvailable("teller get")]);
+    expect((await gate(real, call(token, ["teller", "--help"]))).error).toBe(denials.notAvailable("teller"));
+    expect((await gate(real, call(token, ["--help"]))).stdout).toBe("This pass holds no grants.\n");
+    expect(store.grantById(store.listGrants(pass.id)[0]!.id)!.revokedAt).toBeNull();
+    expect(opened).toEqual([]);
+    expect(listens).toEqual([]);
+  });
+
+  it("makes a grant with a need its bindings do not meet not live, the same way", async () => {
+    const { token } = boundPass({ bind: false });
+    const real: GateDeps = { store, vault, now: () => NOW };
+    const o = await gate(real, call(token, ["teller", "get", "--path", "/x"]));
+    expect([o.exit, o.error]).toEqual([2, denials.notAvailable("teller get")]);
+    expect(opened).toEqual([]);
+    expect(listens).toEqual([]);
+  });
+
+  it("fails on the town's side, in words that name no credential, when there is no vault key to open a binding with", async () => {
+    const { token, credential } = boundPass();
+    const noKey: Vault = { open: () => { throw new Error("/some/data/vault.key cannot be read: EACCES"); } };
+    const wire = await handleCall({ store, vault: noKey, now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
+    expect(wire).toEqual({ stdout: "", stderr: `${denials.townFailed()}\n`, exit: 1 });
+    const row = store.calls().at(-1)!;
+    expect([row.result, row.detail, row.credentials]).toEqual(["town-error", "a credential did not open under the vault key", []]);
+    const none = await handleCall({ store, now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
+    expect(none.stderr).toBe(`${denials.townFailed()}\n`);
+    expect(store.calls().at(-1)!.detail).toBe("the vault key is missing");
+    for (const text of [JSON.stringify(wire), JSON.stringify(store.calls())]) {
+      expect(text).not.toContain(credential.id);
+      expect(text).not.toContain("vault.key");
+    }
+    expect(listens).toEqual([]);
   });
 });

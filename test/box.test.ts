@@ -107,7 +107,7 @@ it("walks the operator's box, journey 2 steps 1 to 7", async () => {
   expect(grantId).toMatch(/^grant_[0-9a-f]+$/);
   const before = admin("grant", "ls").stdout.split("\n").find((l) => l.startsWith(grantId))!;
   expect(before).toContain("remember,recall,list");
-  expect(before).toMatch(/active\s+-$/);
+  expect(before).toMatch(/\s-\s+\S+\s+live\s+-$/);
 
   // Step 5: the agent of journey 1 works.
   const a: Agent = agent();
@@ -151,7 +151,7 @@ it("walks the operator's box, journey 2 steps 1 to 7", async () => {
   const audit = admin("audit", "--pass", passId);
   expect(audit.exit).toBe(0);
   const rows = audit.stdout.trim().split("\n");
-  expect(rows[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+detail$/);
+  expect(rows[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+detail$/);
   const body = rows.slice(1);
   expect(body.map((r) => r.split(/\s+/)[5])).toEqual(["ok", "ok", "ok", "ok", "denied", "ok", "ok", "ok", "usage", "usage", "usage"]);
   expect(body[4]).toMatch(/town\/memory\s+forget\s+[0-9a-f]{64}\s+denied\s+2\s+-/);
@@ -162,7 +162,7 @@ it("walks the operator's box, journey 2 steps 1 to 7", async () => {
   expect(stored.includes(Buffer.from(grantFile.token))).toBe(false);
   expect(stored.includes(Buffer.from("tacos, Thursday"))).toBe(true); // the shop's state is here; the audit is not
   const lastUse = admin("grant", "ls").stdout.split("\n").find((l) => l.startsWith(grantId))!;
-  expect(lastUse).toMatch(/active\s+\d{4}-\d\d-\d\dT[\d:]+Z$/);
+  expect(lastUse).toMatch(/live\s+\d{4}-\d\d-\d\dT[\d:]+Z$/);
 
   // A second pass for the same user, to find the town whole in step 7.
   const pass2 = admin("pass", "new", "--user", "dimitri", "--label", "second");

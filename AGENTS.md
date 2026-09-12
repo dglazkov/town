@@ -13,6 +13,9 @@ built, one short body of work at a time. The first was
 directory, the `town` command, and one shop, on one box. The second is
 [project vault](docs/projects/vault/design.md): a credential sealed in
 the town and used on a shop's behalf, with the shop never holding it.
+The third is [project compose](docs/projects/compose/design.md): a shop
+calling other shops through the town as the agent that called it, and
+never as more.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

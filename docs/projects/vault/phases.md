@@ -190,9 +190,9 @@ walk. The shop with a need that exists is a fixture.
 last line naming both rings. Falsified by at least one mutation: help
 listing a grant whose credential was removed (journey 2 step 7's
 `--help` check fails), the gate opening bindings before step 3 (the
-denial test's listen count fails), and `grant new` binding nothing
-(the fixture shop's call fails with no teller and journey 2 step 5's
-test with it). Then by hand, from this checkout: `townd serve` in one
+denial test's count of vault opens fails), and `grant new` binding
+nothing (the grant is not live, so the fixture shop's call is "not
+available", and journey 2 step 5's test fails with it). Then by hand, from this checkout: `townd serve` in one
 terminal, a fake origin from `test/helpers` in another, `type add`,
 `credential add`, `shop add --user` of the fixture shop, `grant new`,
 one call through `town`, `credential rm`, and the next call exit 2,

@@ -188,8 +188,11 @@ the listener is 404; `GET /` answers `town`; anything else is 404.
 aborts every answer in flight, then resolves; after it, the port
 refuses.
 
-`answer({ argv, stdin, json })` is the town's: the gate, run for a
-caller, with one audit row per call. The clerk knows nothing of grants;
+`answer({ argv, stdin, json }, signal)` is the town's: the gate, run
+for a caller, with one audit row per call. It returns what the clerk
+writes back and `denial`, the gate's line when it denied and null
+otherwise, which the clerk passes to its opener and never sends; the
+`signal` is aborted by `close()`. The clerk knows nothing of grants;
 it is a window with a nonce, as the teller is, and the nonce is the
 bearer so that `town` needs no change: `new URL("/call", grant.town)`
 keeps the port and drops any path.
@@ -213,7 +216,7 @@ file's path, and PATH is the call's `bin` first, then the town's own.
 After the process is gone, by exit, failure, or the limit, the clerk is
 closed, the call directory is removed, and the result carries `{
 calls, denied }`: how many calls the clerk answered and the first
-denial's line among them, or null. A shop without dependencies gets no
+`denial` among them, or null. A shop without dependencies gets no
 clerk, no directory, and no `TOWN_GRANT`, so a shop that calls the town
 without declaring it finds no `town` to call.
 
@@ -245,6 +248,14 @@ over those grants: help renders them, "not available" covers a shop or
 command outside them, constraints are checked, bindings are opened
 from the agent's grant at the dependency, and only then does a process
 exist. A shop is an agent with a smaller pass.
+
+`shop test` has no pass and writes nothing to the town. Its caller
+carries the grants instead of a pass id: at every shop in the tree, the
+commands declared of it anywhere in the tree, no constraints, bound to
+the credentials the test was given; the test user, and the test's
+scratch state root. Each call is still cut by its calling shop's
+manifest, so the tree a test runs is the tree an agent holding exactly
+the declared commands would run.
 
 `effective(agentGrants, manifest)` is a pure function in `src/gate.ts`,
 and a test enumerates it: commands intersected, constraints kept,

@@ -113,8 +113,9 @@ store in a temporary directory.
 **Proof:** `pnpm build && pnpm test && pnpm typecheck` exit 0. `node
 bin/townd.js spec | wc -l` under three hundred, and `node bin/townd.js
 spec | grep -c TOWN_GRANT` at least 1. Then by hand against a temporary
-data directory: `townd admin shop add test/fixtures/echo-shop`, then
-`townd admin shop test test/fixtures/recipe-shop --data <tmp>` prints
+data directory: `townd admin --data <tmp> shop add
+test/fixtures/echo-shop`, then `townd admin shop test
+test/fixtures/recipe-shop --data <tmp>` prints
 one `ok` line per test, and the same without `--data` is refused naming
 it. Falsified by at least one mutation: `effective` keeping a command
 the manifest did not declare (the enumeration and the "not available"

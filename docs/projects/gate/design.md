@@ -87,10 +87,11 @@ refuses:
 ```yaml
 name: town/memory
 version: 0.1.0
-summary: Remember and recall short notes by key.
+summary: Short notes, kept by key.
 guidance: |
-  Keys are paths, `notes/lunch`; `list --prefix notes/` shows what is
-  under one. Values are one line; for more, pipe stdin to `remember`.
+  Keys are paths, like `notes/lunch`, and a prefix such as `notes/`
+  gathers the keys under it. A value is one line; a longer one comes on
+  stdin.
 runtime: subprocess
 entry: ./main.mjs
 commands:
@@ -150,7 +151,11 @@ tests:
 
 Types are `string`, `int`, `bool`, `enum` with `values`. `effect` is
 `read`, `write`, or `destructive`. `output` is `text` or `json`.
-`constrainable` names which of the built-in kinds a grant may put on the
+A shop's `summary` and `guidance` never name one of its commands, in
+any case: a grant may hide any command, help prints the prose whole, and
+a word about one command belongs in that command's `summary` or an
+argument's `doc`. The validator refuses a command's name as a whole word
+in either. `constrainable` names which of the built-in kinds a grant may put on the
 argument; a grant naming any other is refused when made. `tests[].run`
 is lines of `<command> <args>`, words split as a shell would with quotes
 and nothing expanded, each parsed against the manifest and run in order
@@ -185,7 +190,8 @@ process:
   the call is refused before the entry runs, since a truncated value is
   a corrupt one.
 - **stdout**: the result, passed to the agent as it is.
-- **stderr**: the shop's own log, kept on the audit row. On a nonzero
+- **stderr**: the shop's own log, kept on the audit row, so a shop
+  never writes an argument's value to it; the spec says so. On a nonzero
   exit the agent sees `error: town/memory recall failed` and the last
   lines of it on stderr, exit 1.
 - **exit code**: 0 is success; anything else is exit 1 at the agent.
@@ -251,12 +257,15 @@ kinds, `grant-expires` and `pass-expires`, each when under seven days
 remain, and the
 channel is built to the draft's §8.3 so `deprecated` and
 `better-shop-exists` are rows added later. In `--json` mode the envelope
-is `{ "ok", "output", "notices": [...], "exit" }` and stderr is empty.
+is `{ "ok", "output", "notices": [...], "exit" }`, with `error` holding
+the line stderr would have carried when `ok` is false, and stderr is
+empty.
 
 **The audit** is one row per call: the pass, the shop, the command, a
 SHA-256 of the canonical argv, the result class (`ok`, `denied`,
-`invalid-pass`, `usage`, `shop-error`, `timeout`), the exit, the
-latency, the notices, and the shop's stderr. Arguments are never stored;
+`invalid-pass`, `usage`, `shop-error`, `timeout`, and `town-error` for
+the town's own failure), the exit, the latency, the notices, and the
+shop's stderr. Arguments are never stored;
 the draft's telemetry (§12.3) needs the shape of failures, not their
 content.
 
@@ -264,7 +273,9 @@ content.
 
 `bin/town.js` reads the grant file, in the draft's order: `--grant
 <path>`, `$TOWN_GRANT`, `./.town/grant` walking up, `~/.town/grant`. It
-posts argv, stdin when stdin is not a terminal, and the `--json` flag,
+posts argv, stdin when stdin is a pipe or a file (a harness may hand a
+command a socket it never closes, and a terminal or `/dev/null` carries
+nothing), and the `--json` flag,
 prints stdout to stdout and stderr to stderr, and exits with the code
 it was given. Its two flags are taken wherever they stand in argv, so
 `--json` at the end of a call is the command's; the spec reserves
@@ -316,7 +327,8 @@ after its second step:
 - `grant new --pass <id> --shop <name> [--commands a,b] [--constraint
   '<command>.<arg> <kind> <value>']… [--expires <duration>]`; `grant ls
   [--pass <id>]`; `grant revoke <id>`. A grant with no `--commands` is
-  every command, as the draft says; a constraint on an argument that is
+  every command the shop has when the grant is made, as the draft says,
+  and a later `shop add` that adds one does not widen it; a constraint on an argument that is
   not `constrainable` for that kind is refused here.
 - `shop add <dir>`: validate, run the shop's tests through the runtime
   against a scratch state, copy the directory under `<data>/shops/`,
@@ -336,7 +348,7 @@ have.
 `shops/memory/`: the manifest above and `main.mjs`, about sixty lines: a
 file per key under `TOWN_STATE`, keys as relative paths kept under the
 directory, `list` walking it, `forget` unlinking, `recall` of a missing
-key exit 1 with a line on stderr. It is written to the contract and
+key exit 1 with a line on stderr that does not repeat the key. It is written to the contract and
 reads no environment but `TOWN_STATE`. It is the draft's second seed
 shop with its cloud storage swapped for the box's disk; a later project
 gives it a private credential and the storage the draft names, and the

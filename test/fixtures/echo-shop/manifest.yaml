@@ -15,7 +15,7 @@ commands:
       - { name: note, type: string }
     output: json
   - name: sleep
-    summary: Start a shell that sleeps, write its pid under TOWN_STATE, and wait for it.
+    summary: Write the environment and a sleeping shell's pid under TOWN_STATE, and wait for it.
     effect: read
     output: text
   - name: fail

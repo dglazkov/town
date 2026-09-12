@@ -61,7 +61,11 @@ accepted.
     tests:
       a non-empty list of tests, §6.
 
-    credentials, depends:
+    credentials:
+      optional list of needs: the credential types the shop calls
+      through, §8.
+
+    depends:
       not held by this town yet, §8.
 
 ## 3. Commands
@@ -167,7 +171,11 @@ How a test runs:
 
 The tests are the shop's only tests. They must pass for the shop to be
 added to a town; \`townd admin shop test <dir>\` runs them and prints one
-line per test, "ok <name>" or "not ok <name>: <why>".
+line per test, "ok <name>" or "not ok <name>: <why>". A shop with needs
+(§8) is tested with \`--data <dir> --user <name>\`: its tests run through
+the town on that user's credentials, against the real origins. So a
+test must be one its author could run a thousand times: it reads and
+never writes.
 
 ## 7. The runtime contract
 
@@ -181,12 +189,16 @@ per call:
   process.argv.slice(2) is the canonical argv. Any other file is
   executed directly and must be executable; its arguments are the
   canonical argv.
-- environment: exactly three names, and nothing else:
+- environment: exactly three names, plus one per need (§8), and
+  nothing else:
     TOWN_STATE  a directory made before the call, private to this shop
                 and this user. Keep all state here; it persists across
                 calls. Nothing outside it is yours.
     TOWN_USER   an opaque id for the calling user.
     PATH        the town's own.
+    TOWN_CREDENTIAL_<TYPE>
+                per need, the type upper-cased with "-" as "_": a base
+                URL on loopback that lives as long as the call.
 - stdin: the call's stdin, as sent, empty when none. Over one megabyte
   is refused before the entry runs.
 - stdout: the result, passed to the agent as it is.
@@ -199,17 +211,33 @@ per call:
 - time: thirty seconds. Then the entry and every process it started
   are killed, and the call fails.
 
-## 8. Not in this town yet: credentials and dependencies
+## 8. Credentials and dependencies
 
-This town holds neither credentials nor dependencies. A manifest with a
-non-empty credentials or depends field is refused:
+A shop never holds a credential. It names the types it needs, and on
+each call the town opens a window per need that signs and forwards:
 
-    credentials  typed credentials the town would use on the shop's
-                 behalf. Project vault brings them.
-    depends      other shops this one calls through the town. Project
-                 compose brings them.
+    credentials:
+      - type: github-token
 
-Leave both out. A shop that needs either cannot be added here yet.
+    credentials  optional list of needs, each { type: <name> } and no
+                 other key, one per type. A type is the town's: the
+                 origin its secret may be sent to and the header it
+                 rides in. A type the town does not hold is refused,
+                 naming the ones it does.
+
+The shop's side: send to $TOWN_CREDENTIAL_<TYPE> (§7) the request you
+would have sent to the type's origin, path and all, with no credential
+of your own; the town adds it. A GET of
+$TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World reaches
+https://api.github.com/repos/octocat/Hello-World signed. Method, query,
+headers, and body go both ways, streamed, and the origin's status comes
+back as it is. An Authorization the shop sets is replaced by the
+type's. Do not write the URL to stderr: stderr is kept in the audit, and
+the URL, though dead by then, is the shape of a secret.
+
+    depends      other shops this one calls through the town. Not held
+                 by this town yet: a non-empty depends is refused, and
+                 project compose brings them.
 
 ## 9. A full example
 

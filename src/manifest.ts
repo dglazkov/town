@@ -37,6 +37,11 @@ export interface ShopTest {
   expect: Expect;
 }
 
+/** A need: a credential type the shop calls through (spec §8). */
+export interface Need {
+  type: string;
+}
+
 export interface Manifest {
   name: string;
   version: string;
@@ -44,6 +49,7 @@ export interface Manifest {
   guidance?: string;
   runtime: "subprocess";
   entry: string;
+  credentials?: Need[];
   commands: Command[];
   tests: ShopTest[];
 }
@@ -83,6 +89,7 @@ const COMMAND_FIELDS = ["name", "summary", "effect", "args", "output"];
 const ARG_FIELDS = ["name", "type", "required", "doc", "default", "values", "constrainable"];
 const TEST_FIELDS = ["name", "run", "expect"];
 const EXPECT_FIELDS = ["contains", "equals", "exit"];
+const NEED_FIELDS = ["type"];
 
 const SHOP_NAME = /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/;
 const WORD_NAME = /^[a-z][a-z0-9-]*$/;
@@ -111,9 +118,10 @@ function isEmpty(v: unknown): boolean {
 
 /**
  * Parses manifest YAML and validates it. `manifest` is set only when
- * there are no refusals.
+ * there are no refusals. `types` is the credential types the town holds;
+ * omitted when no store is at hand, and then a need is refused.
  */
-export function parseManifest(text: string): { manifest: Manifest | null; refusals: string[] } {
+export function parseManifest(text: string, types?: readonly string[]): { manifest: Manifest | null; refusals: string[] } {
   let raw: unknown;
   try {
     raw = parseYaml(text);
@@ -124,12 +132,16 @@ export function parseManifest(text: string): { manifest: Manifest | null; refusa
       refusals: [refusal("manifest.yaml", `is not YAML (${why})`, "a YAML mapping of the fields in §2", 2)],
     };
   }
-  const refusals = validateManifest(raw);
+  const refusals = validateManifest(raw, types);
   return { manifest: refusals.length === 0 ? (raw as Manifest) : null, refusals };
 }
 
-/** Every way `m` is not a v0 manifest, one line each; empty when it is one. */
-export function validateManifest(m: unknown): string[] {
+/**
+ * Every way `m` is not a v0 manifest, one line each; empty when it is one.
+ * `types` is the credential types the town holds; omitted when no store
+ * is at hand, and then a need is refused naming --data.
+ */
+export function validateManifest(m: unknown, types?: readonly string[]): string[] {
   const out: string[] = [];
   if (!isRecord(m)) {
     return [refusal("manifest.yaml", "is not a mapping", "a YAML mapping of the fields in §2", 2)];
@@ -137,7 +149,7 @@ export function validateManifest(m: unknown): string[] {
 
   for (const key of Object.keys(m)) {
     if (!TOP_FIELDS.includes(key)) {
-      out.push(refusal(key, "is not a manifest field", `only the fields in §2 (${TOP_FIELDS.filter((f) => f !== "credentials" && f !== "depends").join(", ")})`, 2));
+      out.push(refusal(key, "is not a manifest field", `only the fields in §2 (${TOP_FIELDS.filter((f) => f !== "depends").join(", ")})`, 2));
     }
   }
 
@@ -162,21 +174,12 @@ export function validateManifest(m: unknown): string[] {
     out.push(refusal("entry", describe(m.entry, "a relative path inside the shop"), "a path like ./main.mjs", 2));
   }
 
-  if (!isEmpty(m.credentials)) {
-    out.push(
-      refusal(
-        "credentials",
-        "this town holds neither credentials nor dependencies yet, and project vault brings credentials",
-        "the manifest without credentials",
-        8,
-      ),
-    );
-  }
+  validateNeeds(m.credentials, types, out);
   if (!isEmpty(m.depends)) {
     out.push(
       refusal(
         "depends",
-        "this town holds neither credentials nor dependencies yet, and project compose brings dependencies",
+        "this town holds no dependencies yet, and project compose brings them",
         "the manifest without depends",
         8,
       ),
@@ -213,6 +216,40 @@ function validateProse(m: Record<string, unknown>, out: string[]): void {
       );
     }
   }
+}
+
+/** `credentials`: a list of `{ type }`, one per type, each a type the town holds (spec §8). */
+function validateNeeds(needs: unknown, types: readonly string[] | undefined, out: string[]): void {
+  if (needs === undefined || needs === null) return;
+  if (!Array.isArray(needs)) {
+    out.push(refusal("credentials", "is not a list", "a list of needs like - type: github-token, or leave credentials out", 8));
+    return;
+  }
+  const seen = new Set<string>();
+  needs.forEach((n, i) => {
+    const at = `credentials[${i}]`;
+    if (!isRecord(n)) {
+      out.push(refusal(at, "is not a mapping", "a need like { type: github-token }", 8));
+      return;
+    }
+    for (const key of Object.keys(n)) {
+      if (!NEED_FIELDS.includes(key)) out.push(refusal(`${at}.${key}`, "is not a need field", `only ${NEED_FIELDS.join(", ")}`, 8));
+    }
+    if (typeof n.type !== "string" || n.type === "") {
+      out.push(refusal(`${at}.type`, describe(n.type, "a type name"), "a type like github-token", 8));
+      return;
+    }
+    if (seen.has(n.type)) {
+      out.push(refusal(`${at}.type`, `repeats the type ${n.type}`, "each type once", 8));
+      return;
+    }
+    seen.add(n.type);
+    if (types === undefined) {
+      out.push(refusal(`${at}.type`, `'${n.type}' cannot be checked with no data directory at hand`, "the verb again with --data <dir>, so the town's types are read,", 8));
+    } else if (!types.includes(n.type)) {
+      out.push(refusal(`${at}.type`, `'${n.type}' is not a type this town holds`, `one of (${types.join(", ")})`, 8));
+    }
+  });
 }
 
 function describe(v: unknown, what: string): string {

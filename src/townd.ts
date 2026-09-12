@@ -1,16 +1,17 @@
-// townd, the operator's binary: `serve`, `admin`, and `spec`. `spec` and
-// `admin shop test` read no data directory; every other verb needs
-// --data, or $TOWN_DATA.
+// townd, the operator's binary: `serve`, `admin`, and `spec`. `spec` reads
+// no data directory and `admin shop test` reads one only when given one;
+// every other verb needs --data, or $TOWN_DATA.
 
 import { main as admin } from "./admin.js";
 import { agentGrantAbove, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
+import { VaultError } from "./vault.js";
 
 const USAGE = "usage: townd serve [--data <dir>] [--port <n>] | townd admin [--data <dir>] <verb> | townd spec";
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [verb, ...rest] = argv;
-  const io = { out: (s: string) => void process.stdout.write(s), err: (s: string) => void process.stderr.write(s), env: process.env };
+  const io = { out: (s: string) => void process.stdout.write(s), err: (s: string) => void process.stderr.write(s), env: process.env, stdin: process.stdin };
   if (verb === "spec" && rest.length === 0) {
     process.stdout.write(SPEC);
     return 0;
@@ -48,6 +49,7 @@ async function serve(argv: readonly string[]): Promise<number> {
   try {
     town = await startServer({ dataDir: data, port });
   } catch (err) {
+    if (err instanceof VaultError) return fail(err.message);
     return fail(`could not listen on 127.0.0.1:${port}: ${(err as Error).message}`);
   }
   process.stdout.write(`town listening on ${town.url}\n`);

@@ -26,11 +26,13 @@ not `credential`, not `--repo`.
 
 ---
 
-**Where we are: nothing built, 12 September 2026.** Gate is closed and
-this project is cut from what it left. Next is vault phase 0, the vault
-and the teller, provable with no server. Nothing waits on a person
-until vault phase 2, whose walk needs a GitHub token the user makes and
-a repository they name.
+**Where we are: vault phase 0 closed, 12 September 2026.** Next is
+vault phase 1, the binding and the gate, which needs no person. The
+vault seals a credential under `<data>/vault.key`, the operator adds one
+from stdin, and the runtime hands a shop a teller's URL that signs its
+requests to the type's origin, all proven against a fake origin on
+loopback. Nothing waits on a person until vault phase 2, whose walk
+needs a GitHub token the user makes and a repository they name.
 
 The order is dependency order. Phase 0 is the sealing and the window,
 each provable against a fake origin on loopback with no server: the
@@ -114,7 +116,28 @@ in the environment (the names test fails), and the vault writing the
 value unsealed (the roundtrip still passes and the store test that
 searches the database for it fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held as written: 296 tests
+in both rings, a 290-line spec, the credential in no byte of `town.db`,
+`vault.key` mode 600, and each of the three mutations failing its named
+test.
+
+**Findings:**
+
+- **2026-09-12 — The phase took twenty-seven minutes of wall clock.**
+  Three doc fixes came first, a store test the Proof named and the list
+  did not, and two fixture and ring clashes in vault phase 1; no return
+  to the builder.
+- **2026-09-12 — `github-token` is seeded once, by the migration to
+  schema 2.** Seeding on every open would undo an operator's `type rm`;
+  a removed type stays removed. `type rm` waits only on unrevoked
+  credentials of the type.
+- **2026-09-12 — The spec is at 290 of its 300 lines.** §8's shop side
+  of the teller took most of the room; vault phase 1 has about nine
+  lines, and changes to help or the spec must pay for themselves.
+- **2026-09-12 — A checkout test counts teller listens by spying on
+  `http.Server.prototype.listen`.** The runtime test does it for an
+  oversized stdin, bad arguments, and a spawn failure; vault phase 1's
+  gate test can count denials the same way.
 
 ---
 

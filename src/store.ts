@@ -11,6 +11,8 @@ import type { DatabaseSync as Database } from "node:sqlite";
 import { createRequire } from "node:module";
 import type { Constraints } from "./constraints.js";
 import type { Manifest } from "./manifest.js";
+import { parseHeaderTemplate, parseOrigin } from "./teller.js";
+import { openCredential, sealCredential } from "./vault.js";
 
 // node:sqlite prints an ExperimentalWarning when it loads; the town's
 // binaries speak on stderr to people and agents, so that one line is
@@ -91,8 +93,39 @@ export interface CallRow extends CallRecord {
   id: number;
 }
 
+/** A credential type: where its secret may be sent, and the header it rides in. */
+export interface CredentialType {
+  name: string;
+  origin: string;
+  header: string;
+  addedAt: number;
+}
+
+/** A credential as every verb may show it: never its value, never its sealed bytes. */
+export interface Credential {
+  id: string;
+  userId: string;
+  userName: string;
+  type: string;
+  label: string;
+  createdAt: number;
+  revokedAt: number | null;
+  /** The grants whose bindings name it. */
+  grants: string[];
+}
+
 /** A refusal the admin can print as it is. */
 export class StoreError extends Error {}
+
+/** The schema this code writes to `meta.schema`. Gate's store wrote none. */
+export const SCHEMA_VERSION = 2;
+
+/** The type every store is made with. */
+export const SEEDED_TYPES: ReadonlyArray<Omit<CredentialType, "addedAt">> = [
+  { name: "github-token", origin: "https://api.github.com", header: "Authorization: Bearer {token}" },
+];
+
+const TYPE_NAME = /^[a-z][a-z0-9-]*$/;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -149,6 +182,27 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
+// Schema 2, vault's: made on a new store and on a store gate made, the
+// same way, in one transaction on open.
+const VAULT_TABLES = `
+CREATE TABLE IF NOT EXISTS credential_types (
+  name TEXT PRIMARY KEY,
+  origin TEXT NOT NULL,
+  header TEXT NOT NULL,
+  added_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS credentials (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  type TEXT NOT NULL,
+  label TEXT NOT NULL,
+  sealed BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS credentials_user ON credentials(user_id, type);
+`;
+
 export function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
@@ -170,7 +224,47 @@ export class Store {
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this.db.exec(SCHEMA);
+    try {
+      this.db.exec(SCHEMA);
+      this.migrate();
+    } catch (err) {
+      this.db.close();
+      throw err;
+    }
+  }
+
+  /**
+   * Brings a store gate made (no `meta.schema`) to schema 2: the two
+   * tables, the two columns, the seeded type, then the version. Done
+   * under a write lock, so a second process opening the same file at the
+   * same moment finds the work done.
+   */
+  private migrate(now = Date.now()): void {
+    const version = () => Number(this.getMeta("schema") ?? "1");
+    if (version() === SCHEMA_VERSION) return;
+    if (version() > SCHEMA_VERSION) {
+      throw new StoreError(`${path.join(this.dataDir, "town.db")} is schema ${version()}, newer than this town's ${SCHEMA_VERSION}; run the town that made it`);
+    }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (version() < SCHEMA_VERSION) {
+        this.db.exec(VAULT_TABLES);
+        const addColumn = (table: string, column: string, decl: string) => {
+          const cols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => String(r.name));
+          if (!cols.includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+        };
+        addColumn("grants", "credentials", "TEXT NOT NULL DEFAULT '{}'");
+        addColumn("calls", "credentials", "TEXT NOT NULL DEFAULT '[]'");
+        for (const t of SEEDED_TYPES) {
+          this.db.prepare("INSERT OR IGNORE INTO credential_types (name, origin, header, added_at) VALUES (?, ?, ?, ?)").run(t.name, t.origin, t.header, now);
+        }
+        this.setMeta("schema", String(SCHEMA_VERSION));
+      }
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   get shopsDir(): string {
@@ -334,6 +428,111 @@ export class Store {
     return Number(this.db.prepare("DELETE FROM shops WHERE name = ?").run(name).changes) > 0;
   }
 
+  // credential types
+
+  listTypes(): CredentialType[] {
+    return (this.db.prepare("SELECT * FROM credential_types ORDER BY name").all() as Row[]).map(toType);
+  }
+
+  getType(name: string): CredentialType | null {
+    const row = this.db.prepare("SELECT * FROM credential_types WHERE name = ?").get(name) as Row | undefined;
+    return row ? toType(row) : null;
+  }
+
+  addType(t: { name: string; origin: string; header: string }, now = Date.now()): CredentialType {
+    if (!TYPE_NAME.test(t.name)) {
+      throw new StoreError(`type name ${JSON.stringify(t.name)} is not a name; write lowercase letters, digits, and "-", starting with a letter`);
+    }
+    if (!parseOrigin(t.origin)) {
+      throw new StoreError(`--origin ${JSON.stringify(t.origin)} is not an origin; write an absolute http: or https: URL with no query or fragment, like https://api.github.com`);
+    }
+    if (!parseHeaderTemplate(t.header)) {
+      throw new StoreError(`--header ${JSON.stringify(t.header)} is not a header; write '<Name>: <value>' with {token} where the secret goes, like 'Authorization: Bearer {token}'`);
+    }
+    if (this.getType(t.name)) throw new StoreError(`type ${t.name} already exists; townd admin type ls lists them`);
+    this.db.prepare("INSERT INTO credential_types (name, origin, header, added_at) VALUES (?, ?, ?, ?)").run(t.name, t.origin, t.header, now);
+    return this.getType(t.name)!;
+  }
+
+  /** Removes a type; refused while a credential of it is not revoked. */
+  removeType(name: string): void {
+    if (!this.getType(name)) throw new StoreError(`type ${name} is not in this town; townd admin type ls lists them`);
+    const held = (this.db.prepare("SELECT id FROM credentials WHERE type = ? AND revoked_at IS NULL ORDER BY created_at, id").all(name) as Row[]).map((r) => String(r.id));
+    if (held.length) {
+      const many = held.length !== 1;
+      throw new StoreError(`type ${name} is held by ${many ? `${held.length} credentials` : "a credential"} (${held.join(", ")}); remove ${many ? "them" : "it"} with townd admin credential rm first`);
+    }
+    this.db.prepare("DELETE FROM credential_types WHERE name = ?").run(name);
+  }
+
+  // credentials
+
+  /** Seals `value` under `key` for a new credential and stores the sealed row; returns the credential, never the value. */
+  addCredential(c: { userName: string; type: string; label: string; value: string }, key: Buffer, now = Date.now()): Credential {
+    const user = this.userByName(c.userName);
+    if (!user) throw new StoreError(`user ${c.userName} does not exist; add it with townd admin user add ${c.userName}`);
+    if (!this.getType(c.type)) {
+      throw new StoreError(`type ${c.type} is not a type this town holds; write one of (${this.listTypes().map((t) => t.name).join(", ")}), or add it with townd admin type add`);
+    }
+    const id = newId("credential");
+    this.db
+      .prepare("INSERT INTO credentials (id, user_id, type, label, sealed, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, user.id, c.type, c.label, sealCredential(key, id, c.value), now);
+    return this.credentialById(id)!;
+  }
+
+  credentialById(id: string): Credential | null {
+    const row = this.db.prepare(`${CREDENTIAL_SELECT} WHERE c.id = ?`).get(id) as Row | undefined;
+    return row ? this.toCredential(row) : null;
+  }
+
+  /** Every credential, or one user's, oldest first, revoked ones included. */
+  listCredentials(userName?: string): Credential[] {
+    const rows = (userName === undefined
+      ? this.db.prepare(`${CREDENTIAL_SELECT} ORDER BY c.created_at, c.id`).all()
+      : this.db.prepare(`${CREDENTIAL_SELECT} WHERE u.name = ? ORDER BY c.created_at, c.id`).all(userName)) as Row[];
+    return rows.map((r) => this.toCredential(r));
+  }
+
+  /** A user's credentials of a type that are not revoked. */
+  liveCredentials(userId: string, type: string): Credential[] {
+    const rows = this.db.prepare(`${CREDENTIAL_SELECT} WHERE c.user_id = ? AND c.type = ? AND c.revoked_at IS NULL ORDER BY c.created_at, c.id`).all(userId, type) as Row[];
+    return rows.map((r) => this.toCredential(r));
+  }
+
+  /** A credential's value, opened from its sealed row for one use in memory. */
+  openCredential(id: string, key: Buffer): string {
+    const row = this.db.prepare("SELECT sealed FROM credentials WHERE id = ?").get(id) as Row | undefined;
+    if (!row) throw new StoreError(`credential ${id} does not exist; townd admin credential ls lists them`);
+    return openCredential(key, id, row.sealed as Uint8Array);
+  }
+
+  revokeCredential(id: string, now = Date.now()): Credential {
+    const c = this.credentialById(id);
+    if (!c) throw new StoreError(`credential ${id} does not exist; townd admin credential ls lists them`);
+    if (c.revokedAt === null) this.db.prepare("UPDATE credentials SET revoked_at = ? WHERE id = ?").run(now, id);
+    return this.credentialById(id)!;
+  }
+
+  /** How many sealed rows there are, revoked ones included: rows the vault's key must be there to open. */
+  sealedRows(): number {
+    return Number((this.db.prepare("SELECT COUNT(*) AS n FROM credentials").get() as Row).n);
+  }
+
+  private toCredential(r: Row): Credential {
+    const grants = (this.db.prepare("SELECT DISTINCT g.id FROM grants g, json_each(g.credentials) j WHERE j.value = ? ORDER BY g.id").all(String(r.id)) as Row[]).map((g) => String(g.id));
+    return {
+      id: String(r.id),
+      userId: String(r.user_id),
+      userName: String(r.user_name),
+      type: String(r.type),
+      label: String(r.label),
+      createdAt: Number(r.created_at),
+      revokedAt: nullableNumber(r.revoked_at),
+      grants,
+    };
+  }
+
   // calls
 
   recordCall(c: CallRecord): number {
@@ -372,12 +571,18 @@ export class Store {
   }
 }
 
+const CREDENTIAL_SELECT = "SELECT c.id, c.user_id, c.type, c.label, c.created_at, c.revoked_at, u.name AS user_name FROM credentials c JOIN users u ON u.id = c.user_id";
+
 export function openStore(dataDir: string): Store {
   return new Store(dataDir);
 }
 
 function nullableNumber(v: unknown): number | null {
   return v === null || v === undefined ? null : Number(v);
+}
+
+function toType(r: Row): CredentialType {
+  return { name: String(r.name), origin: String(r.origin), header: String(r.header), addedAt: Number(r.added_at) };
 }
 
 function toUser(r: Row): User {

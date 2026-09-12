@@ -1,13 +1,14 @@
 // A shop's own tests, run through the runtime: each test's lines parsed
 // against the manifest and run in order against one scratch state made
-// for that test (spec §6).
+// for that test (spec §6). A shop with needs has its tests run through
+// tellers on the credentials it is given, against the types' origins.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs, splitWords } from "./args.js";
 import { parseManifest, type Manifest, type ShopTest } from "./manifest.js";
-import { run, type RunResult } from "./runtime.js";
+import { run, type RunCredential, type RunResult } from "./runtime.js";
 
 export interface TestResult {
   name: string;
@@ -27,27 +28,36 @@ export class ManifestRefused extends Error {
 export interface TestShopOptions {
   /** The limit each line runs under; the runtime's thirty seconds when omitted. */
   timeoutMs?: number;
+  /** The credential types the town holds; omitted when no store is at hand, and then a need is refused. */
+  types?: readonly string[];
+  /** One per need of the manifest, each opened as a teller for every line. */
+  credentials?: RunCredential[];
 }
 
 /** The opaque user every shop test runs as. */
 export const TEST_USER = "shop-test";
 
-/** Reads and validates `dir/manifest.yaml`, throwing ManifestRefused when it is not v0. */
-export async function loadShop(dir: string): Promise<Manifest> {
+/** Reads and validates `dir/manifest.yaml` against the town's `types`, throwing ManifestRefused when it is not v0. */
+export async function loadShop(dir: string, types?: readonly string[]): Promise<Manifest> {
   let text: string;
   try {
     text = await readFile(path.join(dir, "manifest.yaml"), "utf8");
   } catch {
     throw new ManifestRefused([`manifest.yaml: is not in ${dir}; write a manifest.yaml there instead (spec §1)`]);
   }
-  const { manifest, refusals } = parseManifest(text);
+  const { manifest, refusals } = parseManifest(text, types);
   if (!manifest) throw new ManifestRefused(refusals);
   return manifest;
 }
 
 /** Runs every test in the shop's manifest; one result per test, in order. */
 export async function testShop(dir: string, opts: TestShopOptions = {}): Promise<TestResult[]> {
-  const manifest = await loadShop(dir);
+  const manifest = await loadShop(dir, opts.types);
+  const needs = (manifest.credentials ?? []).map((n) => n.type);
+  const given = (opts.credentials ?? []).map((c) => c.type);
+  if (needs.length !== given.length || !needs.every((t) => given.includes(t))) {
+    throw new Error(`${manifest.name}'s tests need credentials of (${needs.join(", ")}) and were given (${given.join(", ")})`);
+  }
   const results: TestResult[] = [];
   for (const test of manifest.tests) {
     results.push(await runTest(dir, manifest, test, opts));
@@ -67,7 +77,13 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
       const [command = "", ...words] = split.words;
       const parsed = parseArgs(manifest, command, words);
       if (!parsed.ok) return fail(`is refused: ${parsed.refusals.map((r) => r.message).join("; ")}`);
-      const runOpts = { user: TEST_USER, stateRoot, stdin: "", ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) };
+      const runOpts = {
+        user: TEST_USER,
+        stateRoot,
+        stdin: "",
+        ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
+        ...(opts.credentials?.length ? { credentials: opts.credentials } : {}),
+      };
       const result = await run(dir, manifest, command, parsed.values, runOpts);
       if (result.timedOut) return fail("ran out of time");
       if (i < lines.length - 1 && result.exit !== 0) return fail(`exited ${result.exit}${lastLine(result.stderr)}`);

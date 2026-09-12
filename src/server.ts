@@ -12,6 +12,7 @@ import { denials } from "./denials.js";
 import { argvHash, gate, type CallRequest, type GateDeps, type Outcome } from "./gate.js";
 import { renderNotices } from "./notices.js";
 import { hashToken, openStore, type Store } from "./store.js";
+import { requireKey } from "./vault.js";
 
 export interface WireResponse {
   stdout: string;
@@ -97,6 +98,14 @@ export interface TownServer {
 /** Starts a town on 127.0.0.1; `port: 0` picks a free one. */
 export async function startServer(opts: ServerOptions): Promise<TownServer> {
   const store = openStore(opts.dataDir);
+  // The vault's key is read once, at start; a store with sealed rows and
+  // no key is refused here. Vault phase 1 hands the key to the gate.
+  try {
+    requireKey(store.dataDir, store.sealedRows());
+  } catch (err) {
+    store.close();
+    throw err;
+  }
   const deps: GateDeps = { store, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
 
   const server = http.createServer((req, res) => {

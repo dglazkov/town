@@ -1,19 +1,25 @@
 // ring: checkout
 // The runtime contract (spec §7): canonical argv, exactly three
-// environment names, private state, stdin, and the time limit.
+// environment names plus one per credential, private state, stdin, and
+// the time limit. A credential reaches the entry as a teller's URL and
+// never as its value, and the teller is closed when the process is gone.
 
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as realDelay } from "node:timers/promises";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadShop } from "../src/shoptest.js";
 import type { Manifest } from "../src/manifest.js";
-import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, stateDir } from "../src/runtime.js";
+import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, credentialEnvName, run, stateDir, type RunCredential } from "../src/runtime.js";
+import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const ECHO = path.resolve(import.meta.dirname, "fixtures/echo-shop");
 const SH = path.resolve(import.meta.dirname, "fixtures/sh-shop");
+const TELLER = path.resolve(import.meta.dirname, "fixtures/teller-shop");
 
 interface Echo {
   argv: string[];
@@ -178,7 +184,7 @@ describe("stdin", () => {
 describe("stdout, stderr, exit", () => {
   it("returns stderr and a nonzero exit as the entry gave them", async () => {
     const r = await run(ECHO, manifest, "fail", {}, { user: "u1", stateRoot });
-    expect(r).toEqual({ stdout: "", stderr: "the fixture failed on purpose\n", exit: 3, timedOut: false });
+    expect(r).toEqual({ stdout: "", stderr: "the fixture failed on purpose\n", exit: 3, timedOut: false, credentials: [] });
   });
 });
 
@@ -214,6 +220,133 @@ describe("time", () => {
     const r = await call;
     expect(r.timedOut).toBe(true);
     expect(await gone(pid)).toBe(true);
+  });
+});
+
+describe("credentials", () => {
+  // What the tests hand the runtime: a token that must turn up nowhere the
+  // process can see, and a fake origin on loopback standing in for the type's.
+  const TOKEN = `tok_${randomBytes(16).toString("hex")}`;
+  const URL_SHAPE = /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}$/;
+  let origin: FakeOrigin;
+  const cred = (type: string): RunCredential => ({ type, origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN });
+
+  beforeAll(async () => {
+    origin = await fakeOrigin();
+  });
+  afterAll(async () => {
+    await origin.close();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Counts every listener opened from here on, and keeps them to ask whether each is still listening. */
+  function countListens(): http.Server[] {
+    const servers: http.Server[] = [];
+    const listen = http.Server.prototype.listen;
+    vi.spyOn(http.Server.prototype, "listen").mockImplementation(function (this: http.Server, ...args: unknown[]) {
+      servers.push(this);
+      return (listen as (...a: unknown[]) => http.Server).apply(this, args);
+    });
+    return servers;
+  }
+
+  function refused(url: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const req = http.get(url, { agent: false }, (res) => {
+        res.resume();
+        resolve(false);
+      });
+      req.on("error", (e: NodeJS.ErrnoException) => resolve(e.code === "ECONNREFUSED"));
+    });
+  }
+
+  it("names the environment TOWN_CREDENTIAL_<TYPE>, upper-cased with - as _", () => {
+    expect(credentialEnvName("github-token")).toBe("TOWN_CREDENTIAL_GITHUB_TOKEN");
+    expect(credentialEnvName("test-origin")).toBe("TOWN_CREDENTIAL_TEST_ORIGIN");
+    expect(credentialEnvName("a1-b-c")).toBe("TOWN_CREDENTIAL_A1_B_C");
+  });
+
+  it("makes the environment exactly the three names plus one per need, each a teller's URL, the token in no name and no value", async () => {
+    const added = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(Object.keys(process.env)))"], { env: {} });
+    const selfAdded = JSON.parse(added.stdout.toString("utf8")) as string[];
+    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, stdin: "the call's stdin", credentials: [cred("github-token"), cred("test-origin")] });
+    expect(r.exit, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as Echo;
+    expect(Object.keys(out.env).filter((k) => !selfAdded.includes(k)).sort()).toEqual([
+      "PATH",
+      "TOWN_CREDENTIAL_GITHUB_TOKEN",
+      "TOWN_CREDENTIAL_TEST_ORIGIN",
+      "TOWN_STATE",
+      "TOWN_USER",
+    ]);
+    expect(out.env.TOWN_CREDENTIAL_GITHUB_TOKEN).toMatch(URL_SHAPE);
+    expect(out.env.TOWN_CREDENTIAL_TEST_ORIGIN).toMatch(URL_SHAPE);
+    expect(out.env.TOWN_CREDENTIAL_GITHUB_TOKEN).not.toBe(out.env.TOWN_CREDENTIAL_TEST_ORIGIN);
+    for (const [name, value] of Object.entries(out.env)) {
+      expect(name).not.toContain(TOKEN);
+      expect(value, name).not.toContain(TOKEN);
+    }
+    expect(r.stdout).not.toContain(TOKEN);
+    expect(r.stderr).not.toContain(TOKEN);
+    expect(out.argv.join(" ")).not.toContain(TOKEN);
+    expect(r.credentials).toEqual([
+      { type: "github-token", requests: 0 },
+      { type: "test-origin", requests: 0 },
+    ]);
+  });
+
+  it("closes the teller after the process exits: its URL refuses at the socket", async () => {
+    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, credentials: [cred("test-origin")] });
+    const url = (JSON.parse(r.stdout) as Echo).env.TOWN_CREDENTIAL_TEST_ORIGIN!;
+    expect(url).toMatch(URL_SHAPE);
+    expect(await refused(`${url}/after`)).toBe(true);
+  });
+
+  it("closes the teller after the limit", async () => {
+    const user = "teller-sleeper";
+    const r = await run(ECHO, manifest, "sleep", {}, { user, stateRoot, timeoutMs: 1500, credentials: [cred("test-origin")] });
+    expect(r.timedOut).toBe(true);
+    const env = JSON.parse(await readFile(path.join(stateDir(stateRoot, manifest.name, user), "env.json"), "utf8")) as Record<string, string>;
+    expect(env.TOWN_CREDENTIAL_TEST_ORIGIN).toMatch(URL_SHAPE);
+    expect(await refused(`${env.TOWN_CREDENTIAL_TEST_ORIGIN}/after`)).toBe(true);
+    expect(r.credentials).toEqual([{ type: "test-origin", requests: 0 }]);
+  });
+
+  it("closes the teller when the entry cannot be started", async () => {
+    const servers = countListens();
+    const missing: Manifest = { ...manifest, entry: "./no-such-entry.sh" };
+    const r = await run(ECHO, missing, "fail", {}, { user: "u1", stateRoot, credentials: [cred("test-origin")] });
+    expect(r.exit).toBe(1);
+    expect(r.stderr).toMatch(/^town: could not start \.\/no-such-entry\.sh/);
+    expect(r.stderr).not.toContain(TOKEN);
+    expect(servers).toHaveLength(1);
+    expect(servers[0]!.listening).toBe(false);
+  });
+
+  it("opens no teller for a call refused before a process exists", async () => {
+    const servers = countListens();
+    const over = Buffer.alloc(STDIN_LIMIT_BYTES + 1, "a");
+    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, stdin: over, credentials: [cred("test-origin")] })).rejects.toThrow(RangeError);
+    await expect(run(ECHO, manifest, "echo", {}, { user: "u1", stateRoot, credentials: [cred("test-origin")] })).rejects.toThrow(/--zeta is required/);
+    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, credentials: [cred("test-origin"), cred("test-origin")] })).rejects.toThrow(/two credentials of one type/);
+    expect(servers).toEqual([]);
+  });
+
+  it("carries a request from the teller shop to the origin, signed, and counts it", async () => {
+    const teller = await loadShop(TELLER, ["test-origin"]);
+    expect(teller.credentials).toEqual([{ type: "test-origin" }]);
+    const before = origin.seen.length;
+    const r = await run(TELLER, teller, "get", { path: "/hello?from=shop" }, { user: "u1", stateRoot, credentials: [cred("test-origin")] });
+    expect(r.exit, r.stderr).toBe(0);
+    expect(r.stdout).toBe("200\nhello from the origin");
+    const seen = origin.seen.slice(before);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ method: "GET", url: "/hello?from=shop" });
+    expect(seen[0]!.headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(r.credentials).toEqual([{ type: "test-origin", requests: 1 }]);
+    expect(r.stdout + r.stderr).not.toContain(TOKEN);
   });
 });
 

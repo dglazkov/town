@@ -143,26 +143,69 @@ describe("prose that names a command", () => {
   });
 });
 
-describe("credentials and dependencies", () => {
-  it("refuses credentials, saying this town holds neither yet and project vault brings them", () => {
-    const text = `${MEMORY}credentials:\n  - type: google-oauth\n    scopes: [drive.file]\n`;
-    const { manifest, refusals } = parseManifest(text);
-    expect(manifest).toBeNull();
-    expectWellFormed(refusals);
-    expect(refusals).toHaveLength(1);
-    expect(refusals[0]).toMatch(/^credentials: this town holds neither credentials nor dependencies yet, and project vault brings/);
+describe("credentials", () => {
+  const TYPES = ["github-token"];
+  const withNeeds = (credentials: unknown) => memoryWith((m) => (m.credentials = credentials));
+
+  it("parses a need of a type the town holds", () => {
+    const { manifest, refusals } = parseManifest(`${MEMORY}credentials:\n  - type: github-token\n`, TYPES);
+    expect(refusals).toEqual([]);
+    expect(manifest?.credentials).toEqual([{ type: "github-token" }]);
   });
 
-  it("refuses depends, saying this town holds neither yet and project compose brings them", () => {
-    const { manifest, refusals } = parseManifest(`${MEMORY}depends:\n  - shop: town/other\n`);
-    expect(manifest).toBeNull();
+  it("refuses a type the town does not hold, naming the ones it does", () => {
+    const refusals = validateManifest(withNeeds([{ type: "github-tokens" }]), ["github-token", "internal"]);
     expectWellFormed(refusals);
-    expect(refusals).toHaveLength(1);
-    expect(refusals[0]).toMatch(/^depends: this town holds neither credentials nor dependencies yet, and project compose brings/);
+    expect(refusals).toEqual(["credentials[0].type: 'github-tokens' is not a type this town holds; write one of (github-token, internal) instead (spec §8)"]);
   });
 
-  it("accepts both when present and empty", () => {
-    expect(validateManifest(memoryWith((m) => ((m.credentials = []), (m.depends = null))))).toEqual([]);
+  it("writes the design's line for one type held", () => {
+    expect(validateManifest(withNeeds([{ type: "github-tokens" }]), TYPES)).toEqual([
+      "credentials[0].type: 'github-tokens' is not a type this town holds; write one of (github-token) instead (spec §8)",
+    ]);
+  });
+
+  it("refuses a need when no store is at hand, naming --data", () => {
+    const refusals = validateManifest(withNeeds([{ type: "github-token" }]));
+    expectWellFormed(refusals);
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toMatch(/^credentials\[0\]\.type: 'github-token' cannot be checked with no data directory at hand; write .*--data <dir>.* instead \(spec §8\)$/);
+  });
+
+  it("refuses a need with another key, a type given twice, a need that is not a mapping, and a list that is not one", () => {
+    const cases: Array<[unknown, string]> = [
+      [[{ type: "github-token", scopes: ["repo"] }], "credentials[0].scopes"],
+      [[{ type: "github-token" }, { type: "github-token" }], "credentials[1].type"],
+      [["github-token"], "credentials[0]"],
+      [[{}], "credentials[0].type"],
+      [{ type: "github-token" }, "credentials"],
+    ];
+    for (const [credentials, field] of cases) {
+      const refusals = validateManifest(withNeeds(credentials), TYPES);
+      expectWellFormed(refusals);
+      expect(refusals.map((r) => r.split(": ")[0]), JSON.stringify(credentials)).toEqual([field]);
+    }
+  });
+
+  it("accepts none: absent, null, or empty, with or without a store", () => {
+    for (const credentials of [undefined, null, []]) {
+      expect(validateManifest(withNeeds(credentials))).toEqual([]);
+      expect(validateManifest(withNeeds(credentials), [])).toEqual([]);
+    }
+  });
+});
+
+describe("dependencies", () => {
+  it("still refuses depends, naming project compose", () => {
+    const { manifest, refusals } = parseManifest(`${MEMORY}depends:\n  - shop: town/other\n`, ["github-token"]);
+    expect(manifest).toBeNull();
+    expectWellFormed(refusals);
+    expect(refusals).toEqual(["depends: this town holds no dependencies yet, and project compose brings them; write the manifest without depends instead (spec §8)"]);
+  });
+
+  it("accepts depends when present and empty", () => {
+    expect(validateManifest(memoryWith((m) => (m.depends = null)))).toEqual([]);
+    expect(validateManifest(memoryWith((m) => (m.depends = [])))).toEqual([]);
   });
 });
 

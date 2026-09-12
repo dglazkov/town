@@ -2,14 +2,17 @@
 // The store: its tables over node:sqlite, every query the gate and the
 // admin use, tokens kept only as hashes, and nothing cached, so a second
 // connection to the same file, as `townd admin` is to `townd serve`, is
-// seen by the first on its next read.
+// seen by the first on its next read. Vault's schema 2: credential types
+// and sealed credentials, and a store gate made migrated in place.
 
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadShop } from "../src/shoptest.js";
 import { StoreError, hashToken, openStore, type Store } from "../src/store.js";
+import { ensureKey } from "../src/vault.js";
 
 let dir: string;
 let store: Store;
@@ -26,15 +29,22 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+function columns(s: Store, table: string): string[] {
+  return (s.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+}
+
 function passFor(user = "dimitri", now = 1000) {
   if (!store.userByName(user)) store.addUser(user, now);
   return store.newPass(user, "research assistant", null, now);
 }
 
 describe("the schema", () => {
-  it("lives at <data>/town.db with the five tables and a meta row", () => {
+  it("lives at <data>/town.db with gate's tables, vault's two, and meta.schema 2", () => {
     const tables = (store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
-    expect(tables).toEqual(["calls", "grants", "meta", "passes", "shops", "users"]);
+    expect(tables).toEqual(["calls", "credential_types", "credentials", "grants", "meta", "passes", "shops", "users"]);
+    expect(store.getMeta("schema")).toBe("2");
+    expect(columns(store, "grants")).toContain("credentials");
+    expect(columns(store, "calls")).toContain("credentials");
     expect(readdirSync(dir)).toContain("town.db");
     expect((store.db.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("wal");
   });
@@ -156,5 +166,139 @@ describe("calls", () => {
     expect(store.calls({ shop: "town/memory", since: 2500 })).toHaveLength(1);
     expect(store.listPasses()[0]!.lastUse).toBe(3000);
     expect(store.listGrants()[0]!.lastUse).toBe(3000);
+  });
+});
+
+describe("a store gate made", () => {
+  it("opens with its users, passes, grants, shops, and audit intact, and gains the new tables and columns", async () => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(path.join(os.tmpdir(), "town-store-gate-"));
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+    const gate = new DatabaseSync(path.join(dir, "town.db"));
+    gate.exec("PRAGMA journal_mode = WAL;");
+    gate.exec(readFileSync(path.resolve(import.meta.dirname, "fixtures/gate-store.sql"), "utf8"));
+    const memory = await loadShop(MEMORY);
+    gate.prepare("INSERT INTO users (id, name, created_at) VALUES ('user_1', 'dimitri', 10)").run();
+    gate.prepare("INSERT INTO passes (id, user_id, label, token_hash, created_at) VALUES ('pass_1', 'user_1', 'assistant', ?, 20)").run(hashToken("the pass token"));
+    gate.prepare(`INSERT INTO grants (id, pass_id, shop, commands, constraints, created_at) VALUES ('grant_1', 'pass_1', 'town/memory', '["recall"]', '{"recall.key":{"prefix":"notes/"}}', 30)`).run();
+    gate.prepare("INSERT INTO shops (name, version, manifest, added_at) VALUES ('town/memory', ?, ?, 5)").run(memory.version, JSON.stringify(memory));
+    gate.prepare(`INSERT INTO calls (at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail)
+      VALUES (40, 'pass_1', 'grant_1', 'town/memory', 'recall', 'h', 'ok', 0, 0, 3, '[]', '', NULL)`).run();
+    gate.prepare("INSERT INTO meta (key, value) VALUES ('address', 'http://127.0.0.1:7000')").run();
+    gate.close();
+
+    store = openStore(dir);
+    expect(store.listUsers()).toEqual([{ id: "user_1", name: "dimitri", createdAt: 10 }]);
+    expect(store.passByTokenHash(hashToken("the pass token"))).toMatchObject({ id: "pass_1", userName: "dimitri", label: "assistant" });
+    expect(store.grantsForPass("pass_1", 50)).toMatchObject([{ id: "grant_1", commands: ["recall"], constraints: { "recall.key": { prefix: "notes/" } } }]);
+    expect(store.getShop("town/memory")?.manifest).toEqual(memory);
+    expect(store.calls()).toMatchObject([{ at: 40, passId: "pass_1", result: "ok", command: "recall" }]);
+    expect(store.getMeta("address")).toBe("http://127.0.0.1:7000");
+
+    expect(store.getMeta("schema")).toBe("2");
+    expect(store.listTypes().map((t) => [t.name, t.origin, t.header])).toEqual([["github-token", "https://api.github.com", "Authorization: Bearer {token}"]]);
+    expect(columns(store, "credentials")).toEqual(["id", "user_id", "type", "label", "sealed", "created_at", "revoked_at"]);
+    expect(store.db.prepare("SELECT credentials FROM grants WHERE id = 'grant_1'").get()).toEqual({ credentials: "{}" });
+    expect(store.db.prepare("SELECT credentials FROM calls").get()).toEqual({ credentials: "[]" });
+
+    store.close();
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("2");
+    expect(store.listUsers()).toHaveLength(1);
+  });
+
+  it("refuses a store a newer town made", () => {
+    store.setMeta("schema", "3");
+    store.close();
+    expect(() => openStore(dir)).toThrow(/is schema 3, newer than this town's 2/);
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+    const db = new DatabaseSync(path.join(dir, "town.db"));
+    db.prepare("UPDATE meta SET value = '2' WHERE key = 'schema'").run();
+    db.close();
+    store = openStore(dir);
+  });
+});
+
+describe("credential types", () => {
+  it("are seeded with github-token, and added, listed, and removed by the operator", () => {
+    expect(store.getType("github-token")).toMatchObject({ origin: "https://api.github.com", header: "Authorization: Bearer {token}" });
+    store.addType({ name: "internal", origin: "https://api.example.internal", header: "Authorization: Bearer {token}" }, 5);
+    expect(store.listTypes().map((t) => t.name)).toEqual(["github-token", "internal"]);
+    expect(() => store.addType({ name: "internal", origin: "https://x.example", header: "X-Key: {token}" })).toThrow(/already exists/);
+    store.removeType("internal");
+    expect(store.getType("internal")).toBeNull();
+  });
+
+  it("refuses a name, an origin, or a header of the wrong shape", () => {
+    const ok = { name: "ok-type", origin: "https://api.example", header: "X-Key: {token}" };
+    for (const name of ["Upper", "1abc", "a_b", "", "a/b"]) expect(() => store.addType({ ...ok, name }), name).toThrow(/is not a name/);
+    for (const origin of ["api.example", "ftp://api.example", "https://api.example/?q=1", "https://api.example/#x", "/relative"]) {
+      expect(() => store.addType({ ...ok, origin }), origin).toThrow(/is not an origin/);
+    }
+    for (const header of ["X-Key {token}", "X-Key: no placeholder", ": {token}", "X Key: {token}"]) {
+      expect(() => store.addType({ ...ok, header }), header).toThrow(/is not a header/);
+    }
+    expect(store.addType({ ...ok, origin: "http://127.0.0.1:9/base" }).origin).toBe("http://127.0.0.1:9/base");
+  });
+
+  it("stay removed: github-token removed is not seeded again on the next open", () => {
+    store.removeType("github-token");
+    store.close();
+    store = openStore(dir);
+    expect(store.listTypes()).toEqual([]);
+  });
+});
+
+describe("credentials", () => {
+  const VALUE = "ghp_not_a_real_token_store_test";
+
+  it("are sealed: the value added is in neither town.db nor its WAL, searched as bytes", () => {
+    store.addUser("dimitri");
+    const key = ensureKey(dir);
+    const c = store.addCredential({ userName: "dimitri", type: "github-token", label: "dimitri's PAT", value: VALUE }, key, 100);
+    expect(store.openCredential(c.id, key)).toBe(VALUE);
+    const needle = Buffer.from(VALUE);
+    const files = ["town.db", "town.db-wal"].map((f) => path.join(dir, f));
+    expect(existsSync(files[1]!)).toBe(true);
+    for (const f of files) expect(readFileSync(f).includes(needle), `${path.basename(f)} before a checkpoint`).toBe(false);
+    store.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    store.close();
+    for (const f of files.filter((x) => existsSync(x))) expect(readFileSync(f).includes(needle), `${path.basename(f)} after close`).toBe(false);
+    store = openStore(dir);
+  });
+
+  it("list the id, user, type, label, creation, state, and bound grants, and never the value", () => {
+    store.addUser("dimitri");
+    store.addUser("ada");
+    const key = ensureKey(dir);
+    const a = store.addCredential({ userName: "dimitri", type: "github-token", label: "PAT", value: VALUE }, key, 100);
+    const b = store.addCredential({ userName: "ada", type: "github-token", label: "", value: "another" }, key, 200);
+    expect(a.id).toMatch(/^credential_[0-9a-f]{16}$/);
+    expect(store.listCredentials()).toEqual([
+      { id: a.id, userId: a.userId, userName: "dimitri", type: "github-token", label: "PAT", createdAt: 100, revokedAt: null, grants: [] },
+      { id: b.id, userId: b.userId, userName: "ada", type: "github-token", label: "", createdAt: 200, revokedAt: null, grants: [] },
+    ]);
+    expect(store.listCredentials("ada").map((c) => c.id)).toEqual([b.id]);
+    expect(JSON.stringify(store.listCredentials())).not.toContain(VALUE);
+  });
+
+  it("are revoked by marking the row, which leaves them out of a user's live credentials and frees the type", () => {
+    const user = store.addUser("dimitri");
+    store.addType({ name: "internal", origin: "https://api.example.internal", header: "Authorization: Bearer {token}" });
+    const c = store.addCredential({ userName: "dimitri", type: "internal", label: "", value: VALUE }, ensureKey(dir), 100);
+    expect(store.liveCredentials(user.id, "internal").map((x) => x.id)).toEqual([c.id]);
+    expect(() => store.removeType("internal")).toThrow(new RegExp(`type internal is held by a credential \\(${c.id}\\)`));
+    expect(store.revokeCredential(c.id, 300).revokedAt).toBe(300);
+    expect(store.liveCredentials(user.id, "internal")).toEqual([]);
+    expect(store.sealedRows()).toBe(1);
+    store.removeType("internal");
+  });
+
+  it("are refused for a user or a type the town lacks", () => {
+    const key = ensureKey(dir);
+    expect(() => store.addCredential({ userName: "nobody", type: "github-token", label: "", value: VALUE }, key)).toThrow(/user nobody does not exist/);
+    store.addUser("dimitri");
+    expect(() => store.addCredential({ userName: "dimitri", type: "github-tokens", label: "", value: VALUE }, key)).toThrow(/write one of \(github-token\)/);
   });
 });

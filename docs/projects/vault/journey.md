@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-12
 see: vault
-note: "written 12 Sep 2026, the day gate closed: the town's vault, where a credential is kept and used on a shop's behalf without the shop ever holding it. Nothing built yet; vault phase 0 is next."
+note: "written 12 Sep 2026, the day gate closed: the town's vault, where a credential is kept and used on a shop's behalf without the shop ever holding it. Vault phase 0 closed the same day: the vault seals under a key file, the operator adds a credential from stdin, and a shop's teller signs its requests, proven on a fake origin. Vault phase 1, the binding and the gate, is next."
 ---
 
 # Vault — the journeys

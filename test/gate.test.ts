@@ -78,7 +78,7 @@ beforeEach(() => {
   store.upsertShop(MEMORY, NOW);
   store.upsertShop(KINDS, NOW);
   runs = [];
-  next = { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false };
+  next = { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, credentials: [] };
   deps = { store, runtime: fakeRuntime, now: () => NOW };
 });
 
@@ -207,12 +207,12 @@ describe("step 6 and after: the result class per outcome", () => {
     const req = call(token, ["memory", "recall", "--key", "k"]);
     expect((await gate(deps, req)).result).toBe("ok");
 
-    next = { stdout: "partial\n", stderr: "line one\nno value under k\n", exit: 7, timedOut: false };
+    next = { stdout: "partial\n", stderr: "line one\nno value under k\n", exit: 7, timedOut: false, credentials: [] };
     const failed = await gate(deps, req);
     expect(failed).toMatchObject({ result: "shop-error", exit: 1, shopExit: 7, stdout: "partial\n", shopStderr: next.stderr });
     expect(failed.error).toBe(denials.shopFailed("town/memory", "recall", "line one\nno value under k"));
 
-    next = { stdout: "", stderr: "", exit: 1, timedOut: true };
+    next = { stdout: "", stderr: "", exit: 1, timedOut: true, credentials: [] };
     const slow = await gate({ ...deps, timeoutMs: 30_000 }, req);
     expect(slow).toMatchObject({ result: "timeout", exit: 1, error: denials.shopTimedOut("town/memory", "recall", 30) });
   });

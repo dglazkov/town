@@ -1,0 +1,20 @@
+name: test/teller
+version: 0.0.1
+summary: Sends one request through the town's window, for the vault's tests.
+guidance: |
+  The origin is whatever the test-origin type names; the town signs.
+runtime: subprocess
+entry: ./main.mjs
+credentials:
+  - type: test-origin
+commands:
+  - name: get
+    summary: Send a GET through the teller and print the status, then the body.
+    effect: read
+    args:
+      - { name: path, type: string, required: true, doc: "The path to ask the origin for, starting with /." }
+    output: text
+tests:
+  - name: the origin answers
+    run: get --path /hello
+    expect: { contains: "200" }

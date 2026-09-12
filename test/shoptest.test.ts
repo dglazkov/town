@@ -1,7 +1,8 @@
 // ring: checkout
 // The shop test runner: the memory shop's own tests pass through
 // testShop, and a test that must fail fails. Nothing here asserts
-// anything about memory's internals; its manifest's tests do that.
+// anything about memory's internals; its manifest's tests do that. A shop
+// with a need has its tests run through a teller on the credential given.
 
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -9,9 +10,31 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { ManifestRefused, testShop } from "../src/shoptest.js";
+import { fakeOrigin } from "./helpers/origin.js";
 
 const MEMORY = path.resolve(import.meta.dirname, "../shops/memory");
 const VERDICTS = path.resolve(import.meta.dirname, "fixtures/verdicts-shop");
+const TELLER = path.resolve(import.meta.dirname, "fixtures/teller-shop");
+
+describe("a shop with a need", () => {
+  it("runs its tests through a teller on the credential given, against the type's origin", async () => {
+    const origin = await fakeOrigin();
+    try {
+      const credentials = [{ type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: "tok_shoptest" }];
+      expect(await testShop(TELLER, { types: ["test-origin"], credentials })).toEqual([{ name: "the origin answers", ok: true }]);
+      expect(origin.seen.map((s) => [s.url, s.headers.authorization])).toEqual([["/hello", "Bearer tok_shoptest"]]);
+    } finally {
+      await origin.close();
+    }
+  });
+
+  it("is refused with no store at hand, naming --data, and runs nothing without the credential", async () => {
+    const err = await testShop(TELLER).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ManifestRefused);
+    expect((err as ManifestRefused).refusals).toEqual([expect.stringMatching(/^credentials\[0\]\.type: 'test-origin' cannot be checked with no data directory at hand; write .*--data/)]);
+    await expect(testShop(TELLER, { types: ["test-origin"] })).rejects.toThrow(/need credentials of \(test-origin\) and were given \(\)/);
+  });
+});
 
 describe("the memory shop", () => {
   it("passes its own tests, one result per test in the manifest", async () => {
@@ -64,9 +87,11 @@ describe("verdicts", () => {
       await cp(VERDICTS, dir, { recursive: true });
       const text = await readFile(path.join(dir, "manifest.yaml"), "utf8");
       await writeFile(path.join(dir, "manifest.yaml"), `${text}credentials:\n  - type: api-key\n`);
-      const err = await testShop(dir).catch((e: unknown) => e);
+      const err = await testShop(dir, { types: ["github-token"] }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ManifestRefused);
-      expect((err as ManifestRefused).refusals).toEqual([expect.stringMatching(/^credentials: .*project vault/)]);
+      expect((err as ManifestRefused).refusals).toEqual([
+        "credentials[0].type: 'api-key' is not a type this town holds; write one of (github-token) instead (spec §8)",
+      ]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

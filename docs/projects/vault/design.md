@@ -173,7 +173,9 @@ names.
 fresh 12-byte nonce per row and the credential's id as associated data,
 so a row moved to another id does not open. The key is
 `<data>/vault.key`, made with mode 600 by the first verb that needs it,
-read by `townd serve` and `townd admin`; a data directory whose
+read by `townd admin` when a verb needs it and by `townd serve` at
+start, or, when the operator made the key after the server started, on
+the first call that opens a binding, then kept; a data directory whose
 `credentials` table has rows and no key is refused by both with the one
 line that says the key is missing and what it is.
 

@@ -158,8 +158,10 @@ new` binding by type, `--credential <id>` repeatable, the refusal
 naming the type and the verb; `grant ls` showing `<type>=<id>`;
 `credential rm` printing the grants; `shop add --user`, the tests run
 as in vault phase 0, and, when the new manifest adds a need, the grants
-that stopped being live printed. `src/server.ts`: the key read once at
-start, `calls.credentials` written per call. `README.md`: the
+that stopped being live printed; `audit` printing each row's
+`credentials` as `<type>:<requests>`. `src/server.ts`: the key read at
+start when it exists and on the first call that opens a binding when it
+does not, then kept, and `calls.credentials` written per call. `README.md`: the
 operator's lines gain `credential add` and `shop add --user`; the
 agent's sentence is unchanged.
 

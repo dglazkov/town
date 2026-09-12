@@ -5,13 +5,20 @@
 // notices.ts. The gate reads the store on every call and keeps nothing.
 // A pass's grants are its live grants (store.ts), and the sixth step is
 // the only place a grant's bindings are opened from the vault.
+//
+// A shop's own call comes from its clerk with a caller in place of a
+// bearer, and its grants are computed, not read: the agent's live grants
+// cut by the calling shop's manifest (`effective`). Steps 2 to 6 run over
+// them unchanged, and a shop with dependencies is handed `answerFor`, this
+// gate for the caller one deeper.
 
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { canonicalArgv, parseArgs } from "./args.js";
-import { firstMiss } from "./constraints.js";
+import { respond, type Answer } from "./clerk.js";
+import { firstMiss, splitTarget } from "./constraints.js";
 import { denials } from "./denials.js";
-import { helpForGrant, helpForPass, typedName, usageFor } from "./help.js";
+import { helpForGrant, helpForGrants, typedName, usageFor } from "./help.js";
 import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
@@ -24,7 +31,30 @@ export interface CallRequest {
   argv: string[];
   stdin: string | null;
   json: boolean;
+  /** Set for a shop's own call, from its clerk: who called, in place of the bearer. */
+  caller?: Caller;
 }
+
+/**
+ * Who makes a shop's call, and the calling shop's manifest. An agent's
+ * call carries its pass by id, re-read on every call. A shop test carries
+ * no pass: the tree's grants, the test's user, scratch state root, and the
+ * credentials it was given.
+ */
+export type Caller = { passId: string; manifest: Manifest } | { test: TestTree; manifest: Manifest };
+
+/** What a shop test hands the gate for its tree, in place of a pass. */
+export interface TestTree {
+  /** At every shop in the tree, the commands declared of it anywhere in the tree, no constraints. */
+  grants: Grant[];
+  user: string;
+  stateRoot: string;
+  /** The credentials the test was given, opened, one per type; each call is bound to its shop's needs among them. */
+  credentials: RunCredential[];
+}
+
+/** The words a shop test's help gives as the grant's label. */
+export const TEST_LABEL = "a shop test";
 
 export type Runtime = typeof run;
 
@@ -80,8 +110,45 @@ export function shopDir(store: Store, shop: string): string {
 
 const STDERR_TAIL_LINES = 10;
 
-/** Decides one call, in the design's six steps. Never throws for anything the agent sent. */
-export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
+/**
+ * The agent's grants at the shops `manifest` depends on: for each
+ * dependency, the grant at that shop with its commands cut to the declared
+ * ones, and its constraints on those commands kept, its bindings its own.
+ * A shop not declared, a command not declared, and a dependency with no
+ * grant here are absent. Pure.
+ */
+export function effective(agentGrants: readonly Grant[], manifest: Manifest): Grant[] {
+  const out: Grant[] = [];
+  for (const g of agentGrants) {
+    const dep = (manifest.depends ?? []).find((d) => d.shop === g.shop);
+    if (!dep) continue;
+    const commands = g.commands.filter((c) => dep.commands.includes(c));
+    if (commands.length === 0) continue;
+    const constraints = Object.fromEntries(Object.entries(g.constraints).filter(([target]) => commands.includes(splitTarget(target)[0])));
+    out.push({ ...g, commands, constraints });
+  }
+  return out;
+}
+
+/**
+ * The town's answer to the calls of a shop run for `caller`: this gate,
+ * with the answer's wire as the server writes it and the gate's line when
+ * it denied. A failure on the town's side is the town's failure line.
+ */
+export function answerFor(deps: GateDeps, caller: Caller): Answer {
+  return async (call, signal) => {
+    let o: Outcome;
+    try {
+      o = await gate(deps, { token: null, argv: call.argv, stdin: call.stdin, json: call.json, caller }, signal);
+    } catch {
+      return { ...respond({ stdout: "", error: denials.townFailed(), exit: 1, notices: [] }, call.json), denial: null };
+    }
+    return { ...respond(o, call.json), denial: o.result === "denied" ? o.error : null };
+  };
+}
+
+/** Decides one call, in the design's six steps. Never throws for anything the agent sent. `signal` ends the call's process when it aborts. */
+export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSignal): Promise<Outcome> {
   const { store } = deps;
   const now = (deps.now ?? Date.now)();
   const argv = req.argv;
@@ -102,31 +169,43 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
     credentials: [],
   };
 
-  // 1. The bearer to a pass.
-  const pass = req.token ? store.passByTokenHash(hashToken(req.token)) : null;
-  const invalid = !req.token ? "no-token" : !pass ? "unknown" : pass.revokedAt !== null ? "revoked" : pass.expiresAt !== null && pass.expiresAt <= now ? "expired" : null;
-  if (invalid || !pass) {
-    return { ...base, passId: pass?.id ?? null, error: denials.invalidPass(), exit: 3, result: "invalid-pass", detail: invalid };
+  // 1. The bearer, or the caller, to a pass and its grants. A shop test's
+  // caller has no pass and brings its tree's grants.
+  const caller = req.caller;
+  const test = caller && "test" in caller ? caller.test : null;
+  let pass: Pass | null = null;
+  let grants: Grant[];
+  if (test) {
+    grants = effective(test.grants, caller!.manifest);
+  } else {
+    const byId = caller && "passId" in caller;
+    pass = byId ? store.passById(caller.passId) : req.token ? store.passByTokenHash(hashToken(req.token)) : null;
+    const invalid = !byId && !req.token ? "no-token" : !pass ? "unknown" : pass.revokedAt !== null ? "revoked" : pass.expiresAt !== null && pass.expiresAt <= now ? "expired" : null;
+    if (invalid || !pass) {
+      return { ...base, passId: pass?.id ?? null, error: denials.invalidPass(), exit: 3, result: "invalid-pass", detail: invalid };
+    }
+    const live = store.grantsForPass(pass.id, now);
+    grants = caller ? effective(live, caller.manifest) : live;
   }
-  const withPass: Outcome = { ...base, passId: pass.id, notices: noticesFor(now, pass, []) };
+  const notices = (touched: readonly Grant[]) => (pass ? noticesFor(now, pass, touched) : []);
+  const withPass: Outcome = { ...base, passId: pass?.id ?? null, notices: notices([]) };
 
   // 2. The argv to a shop and a command.
   const first = argv[0];
   if (first === undefined || first === "--help") {
-    const grants = store.grantsForPass(pass.id, now);
-    return { ...withPass, notices: noticesFor(now, pass, grants), stdout: helpForPass(store, pass, now), detail: "help" };
+    return { ...withPass, notices: notices(grants), stdout: helpForGrants(store, grants), detail: "help" };
   }
   if (RESERVED_SHOP_WORDS.includes(first)) {
     return { ...withPass, error: denials.noSuchCommand(first), exit: 1, result: "usage", detail: "reserved-word" };
   }
-  const resolved = resolveShop(store, pass, first, now);
+  const resolved = resolveShop(store, grants, first);
   if (!resolved) {
     const second = argv[1];
     const subject = second !== undefined && !second.startsWith("-") ? `${first} ${second}` : first;
     return { ...withPass, error: denials.notAvailable(subject), exit: 2, result: "denied", detail: "no-grant" };
   }
   const { grant, manifest } = resolved;
-  const atShop: Outcome = { ...withPass, grantId: grant.id, shop: manifest.name, notices: noticesFor(now, pass, [grant]) };
+  const atShop: Outcome = { ...withPass, grantId: grant.id, shop: manifest.name, notices: notices([grant]) };
   const allowed = (name: string) => grant.commands.includes(name) && manifest.commands.some((c) => c.name === name);
 
   // 3. The command to the grant.
@@ -137,7 +216,7 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
     return { ...atShop, command: known, error: denials.notAvailable(command), exit: 2, result: "denied", detail: "command" };
   }
   if (rest.includes("--help")) {
-    return { ...atShop, command, stdout: helpForGrant(manifest, { ...grant, label: pass.label }, first), detail: "help" };
+    return { ...atShop, command, stdout: helpForGrant(manifest, { ...grant, label: pass?.label ?? TEST_LABEL }, first), detail: "help" };
   }
   if (command === null) {
     return { ...atShop, error: denials.usage(["no command given"], usageFor(manifest, grant, first, null)), exit: 1, result: "usage", detail: "no-command" };
@@ -170,18 +249,25 @@ export async function gate(deps: GateDeps, req: CallRequest): Promise<Outcome> {
   }
 
   // 6. The bindings, then the runtime. Only now is a credential opened,
-  // and only now does a process exist.
-  const credentials = openBindings(store, deps.vault, grant, manifest);
+  // and only now does a process exist. A shop with dependencies is given
+  // this gate to answer its calls, for the caller one deeper.
+  const credentials = test ? testBindings(test.credentials, manifest) : openBindings(store, deps.vault, grant, manifest);
   const runtime = deps.runtime ?? run;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const deeper: Caller = test ? { test, manifest } : { passId: pass!.id, manifest };
   const r = await runtime(shopDir(store, manifest.name), manifest, command, parsed.values, {
-    user: pass.userId,
-    stateRoot: store.stateRoot,
+    user: test ? test.user : pass!.userId,
+    stateRoot: test ? test.stateRoot : store.stateRoot,
     stdin: req.stdin,
     timeoutMs,
     ...(credentials.length ? { credentials } : {}),
+    ...((manifest.depends ?? []).length ? { town: { answer: answerFor(deps, deeper) } } : {}),
+    ...(signal ? { signal } : {}),
   });
   const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr, credentials: r.credentials };
+  if (r.aborted) {
+    return { ...ran, error: denials.townFailed(), exit: 1, result: "town-error", detail: "aborted" };
+  }
   if (r.timedOut) {
     return { ...ran, error: denials.shopTimedOut(manifest.name, command, Math.round(timeoutMs / 1000)), exit: 1, result: "timeout" };
   }
@@ -218,15 +304,24 @@ function openBindings(store: Store, vault: Vault | undefined, grant: Grant, mani
   return out;
 }
 
+/** For each need of the manifest, the test's credential of its type; one missing is the town's failure. */
+function testBindings(given: readonly RunCredential[], manifest: Manifest): RunCredential[] {
+  return (manifest.credentials ?? []).map(({ type }) => {
+    const c = given.find((x) => x.type === type);
+    if (!c) throw new VaultError("a binding was not there to open");
+    return c;
+  });
+}
+
 /**
- * The grant of `pass` a typed shop name reaches, by full name, or by
- * last segment when no other grant of the pass shares it, with the
- * shop's manifest; null when there is none. A shop that does not exist
- * and a shop the pass holds no grant for are the same null.
+ * The grant among `grants` a typed shop name reaches, by full name, or by
+ * last segment when no other of them shares it, with the shop's manifest;
+ * null when there is none. A shop that does not exist and a shop held by
+ * no grant are the same null.
  */
-function resolveShop(store: Store, pass: Pass, typed: string, now: number): { grant: Grant; manifest: Manifest } | null {
+function resolveShop(store: Store, grants: readonly Grant[], typed: string): { grant: Grant; manifest: Manifest } | null {
   const held: Array<{ grant: Grant; manifest: Manifest }> = [];
-  for (const grant of store.grantsForPass(pass.id, now)) {
+  for (const grant of grants) {
     const shop = store.getShop(grant.shop);
     if (shop) held.push({ grant, manifest: shop.manifest });
   }

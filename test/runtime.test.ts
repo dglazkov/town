@@ -3,10 +3,14 @@
 // environment names plus one per credential, private state, stdin, and
 // the time limit. A credential reaches the entry as a teller's URL and
 // never as its value, and the teller is closed when the process is gone.
+// A shop with dependencies gets TOWN_GRANT and `town` first on PATH, from
+// a call directory holding those two alone, over a clerk that answers
+// with the fake answer the test gives; both are gone after, and an abort
+// or the limit ends every call the clerk was answering.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +18,7 @@ import { setTimeout as realDelay } from "node:timers/promises";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadShop } from "../src/shoptest.js";
 import type { Manifest } from "../src/manifest.js";
+import type { Answer, ClerkCall } from "../src/clerk.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, credentialEnvName, run, stateDir, type RunCredential } from "../src/runtime.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
@@ -184,7 +189,7 @@ describe("stdin", () => {
 describe("stdout, stderr, exit", () => {
   it("returns stderr and a nonzero exit as the entry gave them", async () => {
     const r = await run(ECHO, manifest, "fail", {}, { user: "u1", stateRoot });
-    expect(r).toEqual({ stdout: "", stderr: "the fixture failed on purpose\n", exit: 3, timedOut: false, credentials: [] });
+    expect(r).toEqual({ stdout: "", stderr: "the fixture failed on purpose\n", exit: 3, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null });
   });
 });
 
@@ -349,6 +354,209 @@ describe("credentials", () => {
     expect(r.stdout + r.stderr).not.toContain(TOKEN);
   });
 });
+
+describe("dependencies", () => {
+  // A shop written for this test: it reports its environment, the call
+  // directory under TOWN_GRANT with each entry's mode, and the grant file,
+  // then runs `town` from its PATH (probe), or runs `town` and waits (hang).
+  const PROBE_MAIN = `
+import { spawn } from "node:child_process";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+const [command] = process.argv.slice(2);
+const grant = process.env.TOWN_GRANT;
+const walk = (dir, pre = "") => readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+  const rel = pre + e.name;
+  const mode = (statSync(path.join(dir, e.name)).mode & 0o777).toString(8);
+  return e.isDirectory() ? [[rel + "/", mode], ...walk(path.join(dir, e.name), rel + "/")] : [[rel, mode]];
+});
+const seen = { env: process.env, dir: grant ? (statSync(path.dirname(grant)).mode & 0o777).toString(8) : null, files: grant ? walk(path.dirname(grant)) : null, grant: grant ? readFileSync(grant, "utf8") : null };
+if (command === "hang") process.stdout.write(JSON.stringify(seen) + "\\n");
+const child = spawn("town", ["echo", "echo", "--zeta", "from-the-probe"], { stdio: ["ignore", "pipe", "pipe"] });
+const out = [], err = [];
+child.stdout.on("data", (b) => out.push(b));
+child.stderr.on("data", (b) => err.push(b));
+child.on("error", (e) => { seen.town = { error: e.code }; process.stdout.write(JSON.stringify(seen)); });
+child.on("close", (code) => {
+  seen.town = { exit: code, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") };
+  if (command === "probe") process.stdout.write(JSON.stringify(seen));
+});
+`;
+  const command = (name: string) => ({ name, summary: `The ${name} command.`, effect: "read" as const, output: "json" as const });
+  const PROBE: Manifest = {
+    name: "test/probe",
+    version: "0.0.1",
+    summary: "Reports what a composed shop is given.",
+    runtime: "subprocess",
+    entry: "./main.mjs",
+    depends: [{ shop: "test/echo", commands: ["echo"] }],
+    commands: [command("probe"), command("hang")],
+    tests: [{ name: "t", run: "probe", expect: { exit: 0 } }],
+  };
+  const TOKEN = `tok_${randomBytes(16).toString("hex")}`;
+  const GRANT_URL = /^http:\/\/127\.0\.0\.1:\d+$/;
+
+  interface Probe {
+    env: Record<string, string>;
+    dir: string | null;
+    files: Array<[string, string]> | null;
+    grant: string | null;
+    town?: { exit?: number; stdout?: string; stderr?: string; error?: string };
+  }
+
+  let probeDir: string;
+  let origin: FakeOrigin;
+  let asked: ClerkCall[];
+  const answered: Answer = async (call) => {
+    asked.push(call);
+    return { stdout: "the town's answer\n", stderr: "", exit: 0, denial: null };
+  };
+
+  beforeAll(async () => {
+    probeDir = await mkdtemp(path.join(os.tmpdir(), "town-probe-shop-"));
+    await writeFile(path.join(probeDir, "main.mjs"), PROBE_MAIN);
+    origin = await fakeOrigin();
+  });
+  afterAll(async () => {
+    await rm(probeDir, { recursive: true, force: true });
+    await origin.close();
+  });
+  afterEach(() => {
+    asked = [];
+  });
+  asked = [];
+
+  const selfAdded = (): string[] => {
+    const r = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(Object.keys(process.env)))"], { env: {} });
+    return JSON.parse(r.stdout.toString("utf8")) as string[];
+  };
+  const exists = (p: string) => stat(p).then(() => true, () => false);
+
+  it("makes the environment exactly three names, plus one per need, plus TOWN_GRANT when and only when there are dependencies", async () => {
+    const added = selfAdded();
+    const names = (env: Record<string, string>) => Object.keys(env).filter((k) => !added.includes(k)).sort();
+    const cred: RunCredential = { type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN };
+
+    // No dependencies: no TOWN_GRANT, whatever town it is handed.
+    const plain = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, town: { answer: answered } });
+    expect(names((JSON.parse(plain.stdout) as Echo).env)).toEqual(["PATH", "TOWN_STATE", "TOWN_USER"]);
+    expect((JSON.parse(plain.stdout) as Echo).env.PATH).toBe(process.env.PATH);
+    const plainNeed = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, credentials: [cred], town: { answer: answered } });
+    expect(names((JSON.parse(plainNeed.stdout) as Echo).env)).toEqual(["PATH", "TOWN_CREDENTIAL_TEST_ORIGIN", "TOWN_STATE", "TOWN_USER"]);
+    expect([plain.calls, plain.denied, plainNeed.calls]).toEqual([0, null, 0]);
+
+    // Dependencies: TOWN_GRANT, and the call's bin first on PATH.
+    const composed = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: answered } });
+    expect(composed.exit, composed.stderr).toBe(0);
+    const seen = JSON.parse(composed.stdout) as Probe;
+    expect(names(seen.env)).toEqual(["PATH", "TOWN_GRANT", "TOWN_STATE", "TOWN_USER"]);
+    const callDir = path.dirname(seen.env.TOWN_GRANT!);
+    expect(seen.env.PATH).toBe(`${path.join(callDir, "bin")}${path.delimiter}${process.env.PATH}`);
+    const withNeed = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, credentials: [cred], town: { answer: answered } });
+    expect(names((JSON.parse(withNeed.stdout) as Probe).env)).toEqual(["PATH", "TOWN_CREDENTIAL_TEST_ORIGIN", "TOWN_GRANT", "TOWN_STATE", "TOWN_USER"]);
+  });
+
+  it("makes a call directory, mode 700, holding bin/town and grant and nothing else, and removes it after", async () => {
+    const r = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: answered } });
+    const seen = JSON.parse(r.stdout) as Probe;
+    const callDir = path.dirname(seen.env.TOWN_GRANT!);
+    expect(path.basename(callDir)).toMatch(/^town-call-/);
+    expect(seen.dir).toBe("700");
+    expect(seen.files).toEqual([
+      ["bin/", "700"],
+      ["bin/town", "700"],
+      ["grant", "600"],
+    ]);
+    expect(seen.env.TOWN_GRANT).toBe(path.join(callDir, "grant"));
+    expect(await exists(callDir)).toBe(false);
+    const again = JSON.parse((await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: answered } })).stdout) as Probe;
+    expect(path.dirname(again.env.TOWN_GRANT!)).not.toBe(callDir);
+    expect(again.grant).not.toBe(seen.grant);
+  });
+
+  it("writes a grant file whose town is the clerk and whose token is none the test holds; town from the process reaches the clerk, dead after", async () => {
+    const cred: RunCredential = { type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN };
+    const r = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, credentials: [cred], town: { answer: answered } });
+    const seen = JSON.parse(r.stdout) as Probe;
+    const grant = JSON.parse(seen.grant!) as { town: string; token: string };
+    expect(Object.keys(grant).sort()).toEqual(["token", "town"]);
+    expect(grant.town).toMatch(GRANT_URL);
+    expect(grant.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(grant.token).not.toBe(TOKEN);
+    expect(seen.grant).not.toContain(TOKEN);
+    expect(seen.town).toEqual({ exit: 0, stdout: "the town's answer\n", stderr: "" });
+    expect(asked).toEqual([{ argv: ["echo", "echo", "--zeta", "from-the-probe"], stdin: null, json: false }]);
+    expect([r.calls, r.denied]).toEqual([1, null]);
+    expect(await refusedAt(`${grant.town}/`)).toBe(true);
+  });
+
+  it("carries the first denial among the clerk's answers on the result", async () => {
+    const denying: Answer = async () => ({ stdout: "", stderr: "error: command 'echo' is not available to this grant\n", exit: 2, denial: "error: command 'echo' is not available to this grant" });
+    const r = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: denying } });
+    expect((JSON.parse(r.stdout) as Probe).town).toEqual({ exit: 2, stdout: "", stderr: "error: command 'echo' is not available to this grant\n" });
+    expect([r.calls, r.denied]).toEqual([1, "error: command 'echo' is not available to this grant"]);
+  });
+
+  it("refuses a shop with dependencies and no town before anything is opened", async () => {
+    await expect(run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot })).rejects.toThrow(/has dependencies and run was given no town/);
+  });
+
+  it("kills the group on abort, says aborted, and aborts every call its clerk was answering", async () => {
+    const user = "abort-sleeper";
+    const controller = new AbortController();
+    const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot, signal: controller.signal });
+    const pid = Number(await waitForFile(path.join(stateDir(stateRoot, manifest.name, user), "grandchild.pid")));
+    controller.abort();
+    const r = await call;
+    expect([r.aborted, r.timedOut, r.exit]).toEqual([true, false, 1]);
+    expect(await gone(pid)).toBe(true);
+
+    let inner: AbortSignal | null = null;
+    const hanging: Answer = (_call, signal) =>
+      new Promise((resolve) => {
+        inner = signal;
+        signal.addEventListener("abort", () => resolve({ stdout: "", stderr: "", exit: 1, denial: null }));
+      });
+    const outer = new AbortController();
+    const tree = run(probeDir, PROBE, "hang", {}, { user: "u1", stateRoot, signal: outer.signal, town: { answer: hanging } });
+    for (let i = 0; i < 250 && !inner; i++) await realDelay(20);
+    expect(inner).not.toBeNull();
+    outer.abort();
+    const t = await tree;
+    expect([t.aborted, t.exit]).toEqual([true, 1]);
+    expect(inner!.aborted).toBe(true);
+    const seen = JSON.parse(t.stdout.split("\n")[0]!) as Probe;
+    expect(await exists(path.dirname(seen.env.TOWN_GRANT!))).toBe(false);
+    expect(await refusedAt(`${JSON.parse(seen.grant!).town}/`)).toBe(true);
+
+    const before = new AbortController();
+    before.abort();
+    expect(await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, signal: before.signal })).toMatchObject({ aborted: true, exit: 1, stdout: "" });
+  });
+
+  it("ends every call its clerk was answering at the limit", async () => {
+    let inner: AbortSignal | null = null;
+    const hanging: Answer = (_call, signal) =>
+      new Promise((resolve) => {
+        inner = signal;
+        signal.addEventListener("abort", () => resolve({ stdout: "", stderr: "", exit: 1, denial: null }));
+      });
+    const r = await run(probeDir, PROBE, "hang", {}, { user: "u1", stateRoot, timeoutMs: 1500, town: { answer: hanging } });
+    expect([r.timedOut, r.aborted, r.exit]).toEqual([true, false, 1]);
+    expect(inner).not.toBeNull();
+    expect(inner!.aborted).toBe(true);
+  });
+});
+
+function refusedAt(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get(url, { agent: false }, (res) => {
+      res.resume();
+      resolve(false);
+    });
+    req.on("error", (e: NodeJS.ErrnoException) => resolve(e.code === "ECONNREFUSED"));
+  });
+}
 
 async function realPath(p: string): Promise<string> {
   const { realpath } = await import("node:fs/promises");

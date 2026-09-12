@@ -5,21 +5,25 @@
 // call, and the enumeration of denials.ts, every sentence the agent can
 // be told. Step 6 with a binding: a fake vault counting what it opens and
 // every listener counted, so a denied, malformed, or dead call, and a
-// grant not live, is seen to open nothing.
+// grant not live, is seen to open nothing. A caller in place of a bearer:
+// `effective` enumerated, a caller's grants the effective ones through a
+// fake runtime, and through the real one a recipe and a deep shop over
+// fixtures, each call cut from the agent's own grants by its calling
+// shop's manifest.
 
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArgValues } from "../src/args.js";
 import { denials } from "../src/denials.js";
-import { gate, shopDir, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
+import { effective, gate, shopDir, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
 import { parseManifest, type Manifest } from "../src/manifest.js";
-import type { RunCredential, RunResult } from "../src/runtime.js";
+import { stateDir, type RunCredential, type RunOptions, type RunResult } from "../src/runtime.js";
 import { handleCall, respond } from "../src/server.js";
 import { loadShop } from "../src/shoptest.js";
-import { openStore, type Pass, type Store } from "../src/store.js";
+import { hashToken, openStore, type Grant, type Pass, type Store } from "../src/store.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
@@ -51,6 +55,7 @@ interface Recorded {
   user: string;
   stdin: string | Buffer | null | undefined;
   credentials?: RunCredential[] | undefined;
+  town?: RunOptions["town"];
 }
 
 let dir: string;
@@ -60,7 +65,7 @@ let next: RunResult;
 let deps: GateDeps;
 
 const fakeRuntime: Runtime = async (shopDir, manifest: Manifest, command, args, opts) => {
-  runs.push({ shop: manifest.name, command, args, user: opts.user, stdin: opts.stdin, ...(opts.credentials ? { credentials: opts.credentials } : {}) });
+  runs.push({ shop: manifest.name, command, args, user: opts.user, stdin: opts.stdin, ...(opts.credentials ? { credentials: opts.credentials } : {}), ...(opts.town ? { town: opts.town } : {}) });
   void shopDir;
   return next;
 };
@@ -84,7 +89,7 @@ beforeEach(() => {
   store.upsertShop(MEMORY, NOW);
   store.upsertShop(KINDS, NOW);
   runs = [];
-  next = { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, credentials: [] };
+  next = { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null };
   deps = { store, runtime: fakeRuntime, now: () => NOW };
 });
 
@@ -213,12 +218,12 @@ describe("step 6 and after: the result class per outcome", () => {
     const req = call(token, ["memory", "recall", "--key", "k"]);
     expect((await gate(deps, req)).result).toBe("ok");
 
-    next = { stdout: "partial\n", stderr: "line one\nno value under k\n", exit: 7, timedOut: false, credentials: [] };
+    next = { stdout: "partial\n", stderr: "line one\nno value under k\n", exit: 7, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null };
     const failed = await gate(deps, req);
     expect(failed).toMatchObject({ result: "shop-error", exit: 1, shopExit: 7, stdout: "partial\n", shopStderr: next.stderr });
     expect(failed.error).toBe(denials.shopFailed("town/memory", "recall", "line one\nno value under k"));
 
-    next = { stdout: "", stderr: "", exit: 1, timedOut: true, credentials: [] };
+    next = { stdout: "", stderr: "", exit: 1, timedOut: true, aborted: false, credentials: [], calls: 0, denied: null };
     const slow = await gate({ ...deps, timeoutMs: 30_000 }, req);
     expect(slow).toMatchObject({ result: "timeout", exit: 1, error: denials.shopTimedOut("town/memory", "recall", 30) });
   });
@@ -478,4 +483,259 @@ describe("step 6: the bindings", () => {
     }
     expect(listens).toEqual([]);
   });
+});
+
+describe("effective", () => {
+  const grant = (shop: string, commands: string[], extra: Partial<Grant> = {}): Grant => ({
+    id: `grant_${shop.replace("/", "_")}`,
+    passId: "pass_1",
+    shop,
+    commands,
+    constraints: {},
+    createdAt: NOW,
+    expiresAt: null,
+    revokedAt: null,
+    credentials: {},
+    ...extra,
+  });
+  const composed = (depends: Manifest["depends"]): Manifest => ({ ...MEMORY, name: "test/composed", depends });
+
+  it("is the agent's grant at each dependency, commands intersected, constraints on them kept, bindings its own; the rest absent", () => {
+    const agent = [
+      grant("town/memory", ["remember", "recall", "list", "forget"], {
+        constraints: { "recall.key": { prefix: "notes/" }, "forget.key": { prefix: "tmp/" }, "remember.key": { max_length: 8 } },
+        expiresAt: NOW + DAY,
+      }),
+      grant("test/kinds", ["pick"], { constraints: { "pick.word": { equals: "a" } } }),
+      grant("test/teller", ["get", "post"], { credentials: { "test-origin": "cred_1" } }),
+      grant("test/undeclared", ["anything"]),
+    ];
+    const m = composed([
+      { shop: "town/memory", commands: ["recall", "remember", "shout"] },
+      { shop: "test/teller", commands: ["get"] },
+      { shop: "test/lacking", commands: ["read"] },
+    ]);
+    expect(effective(agent, m)).toEqual([
+      grant("town/memory", ["remember", "recall"], { constraints: { "recall.key": { prefix: "notes/" }, "remember.key": { max_length: 8 } }, expiresAt: NOW + DAY }),
+      grant("test/teller", ["get"], { credentials: { "test-origin": "cred_1" } }),
+    ]);
+  });
+
+  it("cases, one at a time: an undeclared command, an undeclared shop, a dependency the agent lacks, a declared command the agent lacks", () => {
+    const memory = grant("town/memory", ["recall", "forget"], { constraints: { "recall.key": { prefix: "notes/" } } });
+    const cases: Array<[string, Grant[], Manifest["depends"], Array<{ shop: string; commands: string[] }>]> = [
+      ["the declared command alone", [memory], [{ shop: "town/memory", commands: ["recall"] }], [{ shop: "town/memory", commands: ["recall"] }]],
+      ["an undeclared command is cut", [memory], [{ shop: "town/memory", commands: ["list"] }], []],
+      ["an undeclared shop is absent", [memory], [{ shop: "test/kinds", commands: ["pick"] }], []],
+      ["a dependency the agent lacks is absent", [], [{ shop: "town/memory", commands: ["recall"] }], []],
+      ["no dependencies, nothing", [memory], undefined, []],
+      ["never wider than the agent", [memory], [{ shop: "town/memory", commands: ["recall", "forget", "remember", "list"] }], [{ shop: "town/memory", commands: ["recall", "forget"] }]],
+    ];
+    for (const [label, agent, depends, want] of cases) {
+      expect(effective(agent, composed(depends)).map((g) => ({ shop: g.shop, commands: g.commands })), label).toEqual(want);
+    }
+  });
+
+  it("is a subset of the agent's grants in commands and in constraints, and pure", () => {
+    const agent = [grant("town/memory", ["recall", "forget", "list"], { constraints: { "recall.key": { prefix: "n/" }, "list.prefix": { prefix: "n/" } } })];
+    const before = JSON.stringify(agent);
+    const m = composed([{ shop: "town/memory", commands: ["recall", "remember"] }]);
+    const out = effective(agent, m);
+    expect(JSON.stringify(agent)).toBe(before);
+    expect(effective(agent, m)).toEqual(out);
+    for (const g of out) {
+      const a = agent.find((x) => x.shop === g.shop)!;
+      for (const c of g.commands) expect(a.commands).toContain(c);
+      for (const [target, rules] of Object.entries(g.constraints)) expect(a.constraints[target]).toEqual(rules);
+      expect(Object.keys(a.constraints).filter((t) => g.commands.includes(t.split(".")[0]!)).sort()).toEqual(Object.keys(g.constraints).sort());
+    }
+  });
+});
+
+describe("a caller, with a fake runtime", () => {
+  const COMPOSED: Manifest = { ...KINDS, name: "test/composed", depends: [{ shop: "town/memory", commands: ["recall", "list"] }] };
+
+  beforeEach(() => {
+    store.upsertShop(COMPOSED, NOW);
+  });
+
+  const inner = (pass: Pass, argv: string[], manifest = COMPOSED): CallRequest => ({ token: null, argv, stdin: null, json: false, caller: { passId: pass.id, manifest } });
+
+  it("has the effective grants: help lists them, not available covers the rest, constraints are checked, and the runtime runs as the agent's user", async () => {
+    const { pass } = passWith([
+      { shop: "town/memory", constraints: { "recall.key": { prefix: "notes/" }, "forget.key": { prefix: "notes/" } } },
+      { shop: "test/kinds" },
+      { shop: "test/composed" },
+    ]);
+    const help = await gate(deps, inner(pass, ["--help"]));
+    expect(help.stdout).toContain("town/memory");
+    expect(help.stdout).toContain("[recall, list]");
+    expect(help.stdout).not.toContain("test/kinds");
+    expect(help.stdout).not.toContain("test/composed");
+    const shopHelp = await gate(deps, inner(pass, ["memory", "--help"]));
+    expect(shopHelp.stdout).toContain("town memory recall --key <string>");
+    expect(shopHelp.stdout).not.toContain("forget");
+    expect(shopHelp.stdout).toContain("recall --key: keys under `notes/` only");
+
+    const cases: Array<[string[], number, string]> = [
+      [["memory", "forget", "--key", "notes/a"], 2, denials.notAvailable("forget")],
+      [["memory", "remember", "--key", "notes/a"], 2, denials.notAvailable("remember")],
+      [["kinds", "pick", "--word", "a"], 2, denials.notAvailable("kinds pick")],
+      [["composed", "pick", "--word", "a"], 2, denials.notAvailable("composed pick")],
+      [["memory", "recall", "--key", "secret/a"], 2, denials.constraint("key", "prefix", "notes/")],
+    ];
+    for (const [argv, exit, error] of cases) {
+      const o = await gate(deps, inner(pass, argv));
+      expect([argv.join(" "), o.exit, o.result, o.error]).toEqual([argv.join(" "), exit, "denied", error]);
+    }
+    expect(runs).toEqual([]);
+    const ok = await gate(deps, inner(pass, ["memory", "recall", "--key", "notes/a"]));
+    expect(ok).toMatchObject({ exit: 0, result: "ok", passId: pass.id, shop: "town/memory", command: "recall" });
+    expect(runs).toEqual([{ shop: "town/memory", command: "recall", args: { key: "notes/a" }, user: pass.userId, stdin: null }]);
+  });
+
+  it("reads the pass by id on every call: revoked or expired is exit 3", async () => {
+    const { pass } = passWith([{ shop: "town/memory" }]);
+    expect((await gate(deps, inner(pass, ["memory", "list"]))).exit).toBe(0);
+    store.revokePass(pass.id, NOW);
+    const revoked = await gate(deps, inner(pass, ["memory", "list"]));
+    expect([revoked.exit, revoked.result, revoked.error, revoked.detail]).toEqual([3, "invalid-pass", denials.invalidPass(), "revoked"]);
+    const expired = passWith([{ shop: "town/memory" }], NOW - 1);
+    expect((await gate(deps, inner(expired.pass, ["--help"]))).exit).toBe(3);
+    expect((await gate(deps, { ...inner(expired.pass, ["--help"]), caller: { passId: "pass_nope", manifest: COMPOSED } })).detail).toBe("unknown");
+    expect(runs).toHaveLength(1);
+  });
+
+  it("hands the runtime answer for a shop with dependencies, and nothing for one without; answer is this gate for the caller one deeper", async () => {
+    const { token, pass } = passWith([{ shop: "town/memory", commands: ["recall"] }, { shop: "test/composed" }, { shop: "test/kinds" }]);
+    expect((await gate(deps, call(token, ["kinds", "pick", "--word", "a"]))).exit).toBe(0);
+    expect(runs[0]!.town).toBeUndefined();
+    expect((await gate(deps, call(token, ["composed", "pick", "--word", "a"]))).exit).toBe(0);
+    const answer = runs[1]!.town!.answer;
+    const signal = new AbortController().signal;
+    expect(await answer({ argv: ["memory", "recall", "--key", "k"], stdin: null, json: false }, signal)).toEqual({ stdout: "the shop's output\n", stderr: "", exit: 0, denial: null });
+    expect(runs[2]).toMatchObject({ shop: "town/memory", command: "recall", user: pass.userId });
+    expect(await answer({ argv: ["memory", "list"], stdin: null, json: false }, signal)).toEqual({ stdout: "", stderr: `${denials.notAvailable("list")}\n`, exit: 2, denial: denials.notAvailable("list") });
+    expect(await answer({ argv: ["kinds", "pick", "--word", "a"], stdin: null, json: true }, signal)).toEqual({
+      stdout: `${JSON.stringify({ ok: false, output: "", notices: [], exit: 2, error: denials.notAvailable("kinds pick") })}\n`,
+      stderr: "",
+      exit: 2,
+      denial: denials.notAvailable("kinds pick"),
+    });
+    expect(await answer({ argv: ["memory"], stdin: null, json: false }, signal)).toMatchObject({ exit: 1, denial: null });
+    store.revokePass(pass.id, NOW);
+    expect(await answer({ argv: ["memory", "recall", "--key", "k"], stdin: null, json: false }, signal)).toEqual({ stdout: "", stderr: `${denials.invalidPass()}\n`, exit: 3, denial: null });
+    expect(runs).toHaveLength(3);
+  });
+});
+
+describe("a caller, through the real runtime", () => {
+  const FIX = path.resolve(import.meta.dirname, "fixtures");
+  interface Relayed {
+    exit: number;
+    stdout: string;
+    stderr: string;
+  }
+  let deepManifest: Manifest;
+
+  beforeEach(async () => {
+    const shops = () => store.listShops().map((s) => ({ name: s.name, commands: s.manifest.commands.map((c) => c.name) }));
+    for (const dirName of ["echo-shop", "recipe-shop", "deep-shop"]) {
+      const m = await loadShop(path.join(FIX, dirName), [], shops());
+      store.upsertShop(m, NOW);
+      cpSync(path.join(FIX, dirName), shopDir(store, m.name), { recursive: true });
+      if (m.name === "test/deep") deepManifest = m;
+    }
+    store.addType({ name: "test-origin", origin: "http://127.0.0.1:9", header: "Authorization: Bearer {token}" }, NOW);
+    store.upsertShop(await loadShop(path.join(FIX, "teller-shop"), ["test-origin"]), NOW);
+    cpSync(path.join(FIX, "teller-shop"), shopDir(store, "test/teller"), { recursive: true });
+  });
+
+  /** A pass holding every command at echo, teller (bound), recipe, and deep. */
+  function agent() {
+    const name = `u${Math.random().toString(16).slice(2, 8)}`;
+    store.addUser(name, NOW);
+    const made = store.newPass(name, "the agent's pass", null, NOW);
+    const c = store.addCredential({ userName: name, type: "test-origin", label: "", value: "never opened" }, Buffer.alloc(32, 2), NOW);
+    for (const shop of ["test/echo", "test/recipe", "test/deep", "test/teller"]) {
+      const m = store.getShop(shop)!.manifest;
+      store.newGrant({ passId: made.pass.id, shop, commands: m.commands.map((x) => x.name), constraints: {}, expiresAt: null, ...(shop === "test/teller" ? { credentials: { "test-origin": c.id } } : {}) }, NOW);
+    }
+    return made;
+  }
+
+  const opened: string[] = [];
+  const vault: Vault = { open: (id) => (opened.push(id), "never-this") };
+  const real = (): GateDeps => ({ store, vault, now: () => NOW, timeoutMs: 10_000 });
+
+  it("lets the recipe call echo at echo, and tells it echo sleep and test/teller get are not available whatever the agent holds", async () => {
+    opened.length = 0;
+    const { token } = agent();
+    const relay = async (words: string) => {
+      // --words=<words>, so a word that is --help alone is the recipe's to send, not the agent's help.
+      const o = await gate(real(), call(token, ["recipe", "relay", `--words=${words}`]));
+      return { o, inner: JSON.parse(o.stdout) as Relayed };
+    };
+
+    const ok = await relay("echo echo --zeta z");
+    expect([ok.o.exit, ok.o.result, ok.inner.exit, ok.inner.stderr]).toEqual([0, "ok", 0, ""]);
+    expect((JSON.parse(ok.inner.stdout) as { argv: string[] }).argv).toEqual(["echo", "--zeta", "z", "--alpha", "7", "--mode", "slow", "--loud", "false"]);
+
+    const sleep = await relay("echo sleep");
+    expect([sleep.o.result, sleep.o.shopExit, sleep.inner]).toEqual(["shop-error", 2, { exit: 2, stdout: "", stderr: `${denials.notAvailable("sleep")}\n` }]);
+    const teller = await relay("test/teller get --path /x");
+    expect(teller.inner).toEqual({ exit: 2, stdout: "", stderr: `${denials.notAvailable("test/teller get")}\n` });
+    const itself = await relay("recipe relay --words x");
+    expect(itself.inner.stderr).toBe(`${denials.notAvailable("recipe relay")}\n`);
+    expect(opened).toEqual([]);
+    expect(existsSync(path.join(store.stateRoot, "test%2Fecho"))).toBe(true);
+    expect(existsSync(path.join(stateDirOf("test/echo", store.passById(passOf(token))!.userId), "grandchild.pid"))).toBe(false);
+
+    const help = await relay("--help");
+    expect(help.inner.stdout).toMatch(/^test\/echo +Prints what the runtime gave it, for the runtime's tests\. \[echo\]\n/);
+    expect(help.inner.stdout.split("\n").filter((l) => l.startsWith("test/"))).toHaveLength(1);
+    const shopHelp = await relay("echo --help");
+    expect(shopHelp.inner.stdout).toContain("town echo echo --zeta <string>");
+    expect(shopHelp.inner.stdout).not.toContain("town echo sleep");
+    expect(shopHelp.inner.stdout).toContain("this grant: the agent's pass; does not expire");
+  }, 30_000);
+
+  it("at depth two, cuts echo by the recipe's manifest, and nothing of the deep shop's widens it", async () => {
+    const { token } = agent();
+    const hop = async (args: string[]) => {
+      const o = await gate(real(), call(token, ["deep", "hop", ...args]));
+      const outer = JSON.parse(o.stdout) as Relayed;
+      return { o, outer, recipe: args.includes("--via") && outer.stdout ? (JSON.parse(outer.stdout) as Relayed) : null };
+    };
+
+    const ok = await hop(["--via", "recipe", "--words", "echo echo --zeta z"]);
+    expect([ok.o.exit, ok.outer.exit, ok.recipe!.exit]).toEqual([0, 0, 0]);
+    expect((JSON.parse(ok.recipe!.stdout) as { argv: string[] }).argv.slice(0, 3)).toEqual(["echo", "--zeta", "z"]);
+
+    // The deep shop declared only the recipe: echo is not its to call.
+    expect((await hop(["--words", "echo echo --zeta z"])).outer.stderr).toBe(`${denials.notAvailable("echo echo")}\n`);
+
+    // The deep shop now declares echo at echo and fail itself; at depth one it reaches fail.
+    store.upsertShop({ ...deepManifest, depends: [...deepManifest.depends!, { shop: "test/echo", commands: ["echo", "fail"] }] }, NOW);
+    const own = await hop(["--words", "echo fail"]);
+    expect([own.outer.exit, own.outer.stderr]).toEqual([1, `${denials.shopFailed("test/echo", "fail", "the fixture failed on purpose")}\n`]);
+    // At depth two the recipe's call is cut by the recipe's manifest alone.
+    const cut = await hop(["--via", "recipe", "--words", "echo fail"]);
+    expect(cut.recipe).toEqual({ exit: 2, stdout: "", stderr: `${denials.notAvailable("fail")}\n` });
+    const help = await hop(["--via", "recipe", "--words", "echo --help"]);
+    expect(help.recipe!.stdout).not.toContain("fail");
+
+    // The agent's own grant decides: with echo revoked, the recipe two deep holds nothing there.
+    const echoGrant = store.listGrants(passOf(token)).find((g) => g.shop === "test/echo")!;
+    store.revokeGrant(echoGrant.id, NOW);
+    const gone = await hop(["--via", "recipe", "--words", "echo echo --zeta z"]);
+    expect(gone.recipe).toEqual({ exit: 2, stdout: "", stderr: `${denials.notAvailable("echo echo")}\n` });
+  }, 30_000);
+
+  function passOf(token: string): string {
+    return store.passByTokenHash(hashToken(token))!.id;
+  }
+  function stateDirOf(shop: string, user: string): string {
+    return stateDir(store.stateRoot, shop, user);
+  }
 });

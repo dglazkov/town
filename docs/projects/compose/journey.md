@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-12
 see: compose
-note: "written 12 Sep 2026, the day vault closed: the town's compose, where a shop calls other shops through the town as the agent that called it, cut to what its manifest declared and never more. Nothing built yet; compose phase 0 is next."
+note: "written 12 Sep 2026, the day vault closed: the town's compose, where a shop calls other shops through the town as the agent that called it, cut to what its manifest declared and never more. Compose phase 0 closed the same day: `depends` validated, the clerk, `TOWN_GRANT` and `town` on a shop's PATH, `effective` cutting every depth from the agent's own, and `shop test` running the tree in scratch, all in process. Compose phase 1, the server, liveness, and the admin, is next."
 ---
 
 # Compose — the journeys

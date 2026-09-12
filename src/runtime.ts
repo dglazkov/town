@@ -4,17 +4,25 @@
 // as sent, and a time limit after which the entry and everything it
 // started are killed. A credential reaches the process as a teller's URL,
 // opened before the process exists and closed after it is gone; the
-// token stays in this process's memory.
+// token stays in this process's memory. A shop with dependencies gets a
+// clerk and a call directory for the call, `town` first on its PATH and
+// the grant file at TOWN_GRANT, both gone when the process is.
 
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { canonicalArgv, type ArgValues } from "./args.js";
+import { openClerk, type Answer, type Clerk } from "./clerk.js";
 import type { Manifest } from "./manifest.js";
 import { openTeller, type Teller } from "./teller.js";
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const STDIN_LIMIT_BYTES = 1024 * 1024;
+
+/** The agent's binary, as the town's own Node runs it: what `town` in a call directory execs. */
+export const TOWN_BIN = fileURLToPath(new URL("../bin/town.js", import.meta.url));
 
 export interface RunOptions {
   /** The calling user's opaque id; becomes TOWN_USER. */
@@ -27,6 +35,10 @@ export interface RunOptions {
   timeoutMs?: number;
   /** One per need the call meets: a teller is opened for each. */
   credentials?: RunCredential[];
+  /** The town's answer to the shop's own calls; required when the manifest has dependencies, and unused when it has none. */
+  town?: { answer: Answer };
+  /** On abort, the process group is killed as at the limit, and the result says aborted. */
+  signal?: AbortSignal;
 }
 
 export interface RunCredential {
@@ -41,8 +53,14 @@ export interface RunResult {
   stderr: string;
   exit: number;
   timedOut: boolean;
+  /** Whether `signal` ended the call. */
+  aborted: boolean;
   /** Per credential, how many requests its teller forwarded; empty when there were none. */
   credentials: Array<{ type: string; requests: number }>;
+  /** How many calls the shop's clerk answered; 0 with no dependencies. */
+  calls: number;
+  /** The first denial among those calls, or null. */
+  denied: string | null;
 }
 
 /** The environment name a credential type's teller URL is handed in: `TOWN_CREDENTIAL_<TYPE>`, "-" as "_". */
@@ -94,6 +112,9 @@ export async function run(
   const names = credentials.map((c) => credentialEnvName(c.type));
   if (new Set(names).size !== names.length) throw new Error("run was given two credentials of one type");
 
+  const composed = (manifest.depends ?? []).length > 0;
+  if (composed && !opts.town) throw new Error(`${manifest.name} has dependencies and run was given no town to answer its calls`);
+
   const state = stateDir(path.resolve(opts.stateRoot), manifest.name, opts.user);
   await mkdir(state, { recursive: true, mode: 0o700 });
 
@@ -104,20 +125,38 @@ export async function run(
   };
 
   // Every check that can refuse the call is above: from here on a
-  // teller is open, and every path below closes it.
+  // teller, a clerk, or a call directory is open, and every path below
+  // closes and removes them.
   const tellers: Teller[] = [];
+  let clerk: Clerk | null = null;
+  let callDir: string | null = null;
+  const finish = async () => {
+    const counts = credentials.map((c, i) => ({ type: c.type, requests: tellers[i]?.requests ?? 0 }));
+    await Promise.all([...tellers.map((t) => t.close()), clerk?.close()]);
+    if (callDir) await rm(callDir, { recursive: true, force: true });
+    return { credentials: counts, calls: clerk?.calls ?? 0, denied: clerk?.denied ?? null };
+  };
+  if (opts.signal?.aborted) {
+    return { stdout: "", stderr: "", exit: 1, timedOut: false, aborted: true, ...(await finish()) };
+  }
   try {
     for (const c of credentials) tellers.push(await openTeller({ origin: c.origin, header: c.header, token: c.token }));
+    if (composed) {
+      clerk = await openClerk({ answer: opts.town!.answer });
+      callDir = await mkdtemp(path.join(os.tmpdir(), "town-call-"));
+      await mkdir(path.join(callDir, "bin"), { mode: 0o700 });
+      await writeFile(path.join(callDir, "grant"), `${JSON.stringify({ town: clerk.url, token: clerk.token })}\n`, { mode: 0o600 });
+      await writeFile(path.join(callDir, "bin", "town"), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(TOWN_BIN)} "$@"\n`, { mode: 0o700 });
+    }
   } catch (err) {
-    await Promise.all(tellers.map((t) => t.close()));
+    await finish();
     throw err;
   }
   credentials.forEach((c, i) => (env[names[i]!] = tellers[i]!.url));
-  const closeTellers = async () => {
-    const counts = credentials.map((c, i) => ({ type: c.type, requests: tellers[i]!.requests }));
-    await Promise.all(tellers.map((t) => t.close()));
-    return counts;
-  };
+  if (callDir) {
+    env.TOWN_GRANT = path.join(callDir, "grant");
+    env.PATH = [path.join(callDir, "bin"), process.env.PATH].filter(Boolean).join(path.delimiter);
+  }
 
   const isNode = /\.m?js$/.test(entry);
   const file = isNode ? process.execPath : entry;
@@ -134,14 +173,15 @@ export async function run(
         detached: true, // its own process group, so a kill reaches what it started
       });
     } catch (e) {
-      void closeTellers().then((counts) =>
-        resolve({ stdout: "", stderr: `town: could not start ${manifest.entry}: ${(e as Error).message}\n`, exit: 1, timedOut: false, credentials: counts }),
+      void finish().then((done) =>
+        resolve({ stdout: "", stderr: `town: could not start ${manifest.entry}: ${(e as Error).message}\n`, exit: 1, timedOut: false, aborted: false, ...done }),
       );
       return;
     }
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     let timedOut = false;
+    let aborted = false;
     let spawnError: Error | null = null;
     let exitCode: number | null = null;
 
@@ -158,6 +198,12 @@ export async function run(
       timedOut = true;
       killGroup();
     }, limit);
+    const onAbort = () => {
+      aborted = true;
+      killGroup();
+    };
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    if (opts.signal?.aborted) onAbort();
 
     child.stdout!.on("data", (b: Buffer) => out.push(b));
     child.stderr!.on("data", (b: Buffer) => err.push(b));
@@ -174,16 +220,22 @@ export async function run(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
       let stderr = Buffer.concat(err).toString("utf8");
       let exit = exitCode ?? code ?? 1; // killed by a signal: no code
       if (spawnError) {
         stderr += `town: could not start ${manifest.entry}: ${(spawnError as Error).message}\n`;
         exit = 1;
       }
-      if (timedOut) exit = 1;
-      void closeTellers().then((counts) => resolve({ stdout: Buffer.concat(out).toString("utf8"), stderr, exit, timedOut, credentials: counts }));
+      if (timedOut || aborted) exit = 1;
+      void finish().then((done) => resolve({ stdout: Buffer.concat(out).toString("utf8"), stderr, exit, timedOut, aborted, ...done }));
     });
 
     child.stdin!.end(stdin);
   });
+}
+
+/** A word the shell reads as itself: single-quoted, each ' as '\''. */
+function shellQuote(word: string): string {
+  return `'${word.replace(/'/g, "'\\''")}'`;
 }

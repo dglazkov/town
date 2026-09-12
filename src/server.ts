@@ -8,31 +8,14 @@ import { existsSync, realpathSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { BODY_LIMIT_BYTES, parseCall, respond, type WireResponse } from "./clerk.js";
 import { denials } from "./denials.js";
 import { KEY_MISSING, argvHash, gate, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
-import { renderNotices } from "./notices.js";
 import { hashToken, openStore, type Store } from "./store.js";
 import { VaultError, readKey, requireKey } from "./vault.js";
 
-export interface WireResponse {
-  stdout: string;
-  stderr: string;
-  exit: number;
-}
-
-/** The largest request body read; a call's stdin is refused past one megabyte by the gate, and JSON escaping can grow it. */
-export const BODY_LIMIT_BYTES = 8 * 1024 * 1024;
-
-/** The response the agent's binary prints: plain, or the `--json` envelope. */
-export function respond(o: Outcome, json: boolean): WireResponse {
-  if (json) {
-    const envelope: Record<string, unknown> = { ok: o.exit === 0, output: o.stdout, notices: o.notices, exit: o.exit };
-    if (o.exit !== 0) envelope.error = o.error;
-    return { stdout: `${JSON.stringify(envelope)}\n`, stderr: "", exit: o.exit };
-  }
-  const error = o.error === "" ? "" : o.error.endsWith("\n") ? o.error : `${o.error}\n`;
-  return { stdout: o.stdout, stderr: renderNotices(o.notices) + error, exit: o.exit };
-}
+// The wire is the clerk's too, so it lives in clerk.ts; the server's names for it stay.
+export { BODY_LIMIT_BYTES, respond, type WireResponse };
 
 /** One call: the gate, one audit row, the response. */
 export async function handleCall(deps: GateDeps, req: CallRequest): Promise<WireResponse> {
@@ -194,20 +177,6 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
         });
       }),
   };
-}
-
-function parseCall(token: string | null, body: string): CallRequest | null {
-  let v: unknown;
-  try {
-    v = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  if (typeof v !== "object" || v === null) return null;
-  const o = v as Record<string, unknown>;
-  if (!Array.isArray(o.argv) || !o.argv.every((a) => typeof a === "string")) return null;
-  if (o.stdin !== undefined && o.stdin !== null && typeof o.stdin !== "string") return null;
-  return { token, argv: o.argv as string[], stdin: (o.stdin as string | null | undefined) ?? null, json: o.json === true };
 }
 
 /**

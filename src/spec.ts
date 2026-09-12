@@ -5,10 +5,9 @@
 export const SPEC = `# Shop manifest v0
 
 A shop is a capability handed to an agent as a command. This document
-is everything needed to write one: the manifest's fields, their types,
-an example of each, the contract the entry runs under, and how the
-shop's tests are run. Validator refusals name a section below, as
-"(spec §n)"; reread that section and write what the refusal says.
+is everything needed to write one: the manifest's fields, the contract
+the entry runs under, and how its tests run. A validator refusal names
+a section, "(spec §n)"; reread it and write what the refusal says.
 
 ## 1. What a shop is
 
@@ -43,10 +42,9 @@ accepted.
       optional string, any number of lines: when to use the shop,
       recipes, pitfalls. Shown in the shop's help.
 
-    summary and guidance never name one of the shop's commands as a
-    whole word, in any case. A grant may hide any command and help
-    prints this prose whole, so a word about one command belongs in
-    that command's summary or an argument's doc.
+    summary and guidance never name a command of the shop as a whole
+    word, in any case: a grant may hide any command and help prints
+    this prose whole, so say it in a command's summary or an arg's doc.
 
     runtime: subprocess
       the only value in v0.
@@ -62,11 +60,10 @@ accepted.
       a non-empty list of tests, §6.
 
     credentials:
-      optional list of needs: the credential types the shop calls
-      through, §8.
+      optional list of needs: the credential types it calls through, §8.
 
     depends:
-      not held by this town yet, §8.
+      optional list of dependencies: the shops it calls through, §8.
 
 ## 3. Commands
 
@@ -169,13 +166,12 @@ How a test runs:
 - Every line but the last must exit 0, or the test fails naming it.
 - Lines get empty stdin.
 
-The tests are the shop's only tests. They must pass for the shop to be
-added to a town; \`townd admin shop test <dir>\` runs them and prints one
-line per test, "ok <name>" or "not ok <name>: <why>". A shop with needs
-(§8) is tested with \`--data <dir> --user <name>\`: its tests run through
-the town on that user's credentials, against the real origins. So a
-test must be one its author could run a thousand times: it reads and
-never writes.
+These are the shop's only tests, and must pass for it to join a town;
+\`townd admin shop test <dir>\` prints "ok <name>" or "not ok <name>: <why>"
+for each. With needs or dependencies (§8) it takes \`--data <dir>\`, and
+\`--user <name>\` when the shop or a dependency has needs: the tests run
+on that user's credentials against the real origins, so a test reads
+and never writes. Dependencies run in the test's scratch state.
 
 ## 7. The runtime contract
 
@@ -186,58 +182,67 @@ per call:
   arguments are already checked; parse "--name value" pairs and nothing
   more clever. The command is argv's first word after the entry.
 - entry: a .mjs or .js entry runs under the town's own Node, so
-  process.argv.slice(2) is the canonical argv. Any other file is
-  executed directly and must be executable; its arguments are the
-  canonical argv.
-- environment: exactly three names, plus one per need (§8), and
-  nothing else:
+  process.argv.slice(2) is the canonical argv. Any other file must be
+  executable, and is executed directly with the canonical argv.
+- environment: exactly three names, plus one per need, plus TOWN_GRANT
+  when the shop has dependencies (§8), and nothing else:
     TOWN_STATE  a directory made before the call, private to this shop
                 and this user. Keep all state here; it persists across
                 calls. Nothing outside it is yours.
     TOWN_USER   an opaque id for the calling user.
-    PATH        the town's own.
+    PATH        the town's own; with dependencies, \`town\` comes first.
     TOWN_CREDENTIAL_<TYPE>
                 per need, the type upper-cased with "-" as "_": a base
                 URL on loopback that lives as long as the call.
+    TOWN_GRANT  with dependencies, the path of a grant file only this
+                call can use, gone when it ends.
 - stdin: the call's stdin, as sent, empty when none. Over one megabyte
   is refused before the entry runs.
 - stdout: the result, passed to the agent as it is.
-- stderr: the shop's own log. Kept by the town in its audit, and shown
-  to the agent only when the call fails. The audit never holds an
-  argument, so never write an argument's value to stderr: say "no value
-  under that key", not the key.
-- exit code: 0 is success; anything else is a failure, and the agent
-  sees exit 1.
+- stderr: the shop's own log, kept in the town's audit and shown to the
+  agent only when the call fails. The audit never holds an argument, so
+  never write a value there: say "no value under that key", not the key.
+- exit code: 0 is success; anything else fails, and the agent sees exit 1.
 - time: thirty seconds. Then the entry and every process it started
   are killed, and the call fails.
 
 ## 8. Credentials and dependencies
 
-A shop never holds a credential. It names the types it needs, and on
-each call the town opens a window per need that signs and forwards:
+A shop never holds a credential, and calls other shops only through the
+town. It names the credential types it needs and the shops it calls:
 
     credentials:
       - type: github-token
+    depends:
+      - shop: town/memory
+        commands: [remember, recall]
 
     credentials  optional list of needs, each { type: <name> } and no
                  other key, one per type. A type is the town's: the
                  origin its secret may be sent to and the header it
                  rides in. A type the town does not hold is refused,
                  naming the ones it does.
+    depends      optional list of dependencies, each { shop, commands }
+                 and no other key, one per shop, never this shop: a
+                 shop the town holds, and a non-empty list of commands
+                 that shop has. Refusals name what the town holds.
 
-The shop's side: send to $TOWN_CREDENTIAL_<TYPE> (§7) the request you
-would have sent to the type's origin, path and all, with no credential
-of your own; the town adds it. A GET of
-$TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World reaches
-https://api.github.com/repos/octocat/Hello-World signed. Method, query,
-headers, and body go both ways, streamed, and the origin's status comes
-back as it is. An Authorization the shop sets is replaced by the
-type's. Do not write the URL to stderr: stderr is kept in the audit, and
-the URL, though dead by then, is the shape of a secret.
+A need: on each call the town opens a window per need that signs and
+forwards. Send $TOWN_CREDENTIAL_<TYPE> (§7) the request you would send
+the type's origin, path and all, with no credential; the town adds it.
+A GET of $TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World
+reaches https://api.github.com/repos/octocat/Hello-World signed.
+Method, query, headers, body, and status pass both ways as they are,
+streamed; an Authorization you set is replaced. Keep the URL out of
+stderr, which the audit keeps: dead by then, it is a secret's shape.
 
-    depends      other shops this one calls through the town. Not held
-                 by this town yet: a non-empty depends is refused, and
-                 project compose brings them.
+A dependency: call it as an agent would, \`town <shop> <command> …\`, and
+read \`town --help\` for what you were given: the calling agent's grant,
+cut to what you declared. A shop or command you did not declare is "not
+available to this grant", exit 2; a value outside the agent's
+constraints is exit 2 with the constraint's line. Pass those lines on,
+since they carry no value, and no other stderr of town's. Every call
+still running ends with yours.
 
 ## 9. A full example
 
@@ -290,8 +295,8 @@ the URL, though dead by then, is the shape of a secret.
         expect: { exit: 1 }
 
 The entry, main.mjs, reads process.argv.slice(2), keeps one file per key
-under TOWN_STATE, writes the value to stdout for recall, and exits 1
-with a line on stderr, naming no key, when a key has no value.
+under TOWN_STATE, writes the value to stdout for recall, and exits 1 with
+a line on stderr, naming no key, when a key has no value.
 `;
 
 /** The numbered sections the spec holds, e.g. [1, 2, ..., 9]. */

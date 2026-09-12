@@ -42,6 +42,18 @@ export interface Need {
   type: string;
 }
 
+/** A dependency: a shop this one calls through the town, and the commands it calls there (spec §8). */
+export interface Dependency {
+  shop: string;
+  commands: string[];
+}
+
+/** What the validator needs of a shop the town holds: its name and its commands' names. */
+export interface TownShop {
+  name: string;
+  commands: readonly string[];
+}
+
 export interface Manifest {
   name: string;
   version: string;
@@ -50,6 +62,7 @@ export interface Manifest {
   runtime: "subprocess";
   entry: string;
   credentials?: Need[];
+  depends?: Dependency[];
   commands: Command[];
   tests: ShopTest[];
 }
@@ -90,6 +103,7 @@ const ARG_FIELDS = ["name", "type", "required", "doc", "default", "values", "con
 const TEST_FIELDS = ["name", "run", "expect"];
 const EXPECT_FIELDS = ["contains", "equals", "exit"];
 const NEED_FIELDS = ["type"];
+const DEPENDENCY_FIELDS = ["shop", "commands"];
 
 const SHOP_NAME = /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/;
 const WORD_NAME = /^[a-z][a-z0-9-]*$/;
@@ -112,16 +126,17 @@ function isLine(v: unknown): v is string {
   return typeof v === "string" && v.trim() !== "" && !v.trim().includes("\n");
 }
 
-function isEmpty(v: unknown): boolean {
-  return v === undefined || v === null || (Array.isArray(v) && v.length === 0);
-}
-
 /**
  * Parses manifest YAML and validates it. `manifest` is set only when
- * there are no refusals. `types` is the credential types the town holds;
- * omitted when no store is at hand, and then a need is refused.
+ * there are no refusals. `types` is the credential types the town holds
+ * and `shops` the shops it holds; each omitted when no store is at hand,
+ * and then a need, or a dependency, is refused.
  */
-export function parseManifest(text: string, types?: readonly string[]): { manifest: Manifest | null; refusals: string[] } {
+export function parseManifest(
+  text: string,
+  types?: readonly string[],
+  shops?: readonly TownShop[],
+): { manifest: Manifest | null; refusals: string[] } {
   let raw: unknown;
   try {
     raw = parseYaml(text);
@@ -132,16 +147,17 @@ export function parseManifest(text: string, types?: readonly string[]): { manife
       refusals: [refusal("manifest.yaml", `is not YAML (${why})`, "a YAML mapping of the fields in §2", 2)],
     };
   }
-  const refusals = validateManifest(raw, types);
+  const refusals = validateManifest(raw, types, shops);
   return { manifest: refusals.length === 0 ? (raw as Manifest) : null, refusals };
 }
 
 /**
  * Every way `m` is not a v0 manifest, one line each; empty when it is one.
- * `types` is the credential types the town holds; omitted when no store
- * is at hand, and then a need is refused naming --data.
+ * `types` is the credential types the town holds and `shops` the shops it
+ * holds; each omitted when no store is at hand, and then a need, or a
+ * dependency, is refused naming --data.
  */
-export function validateManifest(m: unknown, types?: readonly string[]): string[] {
+export function validateManifest(m: unknown, types?: readonly string[], shops?: readonly TownShop[]): string[] {
   const out: string[] = [];
   if (!isRecord(m)) {
     return [refusal("manifest.yaml", "is not a mapping", "a YAML mapping of the fields in §2", 2)];
@@ -149,7 +165,7 @@ export function validateManifest(m: unknown, types?: readonly string[]): string[
 
   for (const key of Object.keys(m)) {
     if (!TOP_FIELDS.includes(key)) {
-      out.push(refusal(key, "is not a manifest field", `only the fields in §2 (${TOP_FIELDS.filter((f) => f !== "depends").join(", ")})`, 2));
+      out.push(refusal(key, "is not a manifest field", `only the fields in §2 (${TOP_FIELDS.join(", ")})`, 2));
     }
   }
 
@@ -175,16 +191,7 @@ export function validateManifest(m: unknown, types?: readonly string[]): string[
   }
 
   validateNeeds(m.credentials, types, out);
-  if (!isEmpty(m.depends)) {
-    out.push(
-      refusal(
-        "depends",
-        "this town holds no dependencies yet, and project compose brings them",
-        "the manifest without depends",
-        8,
-      ),
-    );
-  }
+  validateDepends(m.depends, typeof m.name === "string" ? m.name : null, shops, out);
 
   const commandsOk = validateCommands(m.commands, out);
   if (Array.isArray(m.commands)) validateProse(m, out);
@@ -249,6 +256,68 @@ function validateNeeds(needs: unknown, types: readonly string[] | undefined, out
     } else if (!types.includes(n.type)) {
       out.push(refusal(`${at}.type`, `'${n.type}' is not a type this town holds`, `one of (${types.join(", ")})`, 8));
     }
+  });
+}
+
+/**
+ * `depends`: a list of `{ shop, commands }`, one per shop, never the shop
+ * itself, each a shop the town holds and each command one it has now
+ * (spec §8). With no shops at hand, a dependency is refused naming --data.
+ */
+function validateDepends(depends: unknown, self: string | null, shops: readonly TownShop[] | undefined, out: string[]): void {
+  if (depends === undefined || depends === null) return;
+  if (!Array.isArray(depends)) {
+    out.push(refusal("depends", "is not a list", "a list of dependencies like - { shop: town/memory, commands: [recall] }, or leave depends out", 8));
+    return;
+  }
+  const seen = new Set<string>();
+  depends.forEach((d, i) => {
+    const at = `depends[${i}]`;
+    if (!isRecord(d)) {
+      out.push(refusal(at, "is not a mapping", "a dependency like { shop: town/memory, commands: [recall] }", 8));
+      return;
+    }
+    for (const key of Object.keys(d)) {
+      if (!DEPENDENCY_FIELDS.includes(key)) out.push(refusal(`${at}.${key}`, "is not a dependency field", `only ${DEPENDENCY_FIELDS.join(", ")}`, 8));
+    }
+    let held: TownShop | undefined;
+    if (!(typeof d.shop === "string" && SHOP_NAME.test(d.shop))) {
+      out.push(refusal(`${at}.shop`, describe(d.shop, "a shop name"), "the name of a shop this one calls, like town/memory", 8));
+    } else if (d.shop === self) {
+      out.push(refusal(`${at}.shop`, `is ${d.shop}, this shop itself`, "a shop other than this one", 8));
+    } else if (seen.has(d.shop)) {
+      out.push(refusal(`${at}.shop`, `repeats the shop ${d.shop}`, "each shop once, with all the commands called there", 8));
+    } else {
+      seen.add(d.shop);
+      if (shops === undefined) {
+        out.push(refusal(`${at}.shop`, `'${d.shop}' cannot be checked with no data directory at hand`, "the verb again with --data <dir>, so the town's shops are read,", 8));
+      } else {
+        held = shops.find((s) => s.name === d.shop);
+        if (!held) {
+          out.push(
+            refusal(`${at}.shop`, `'${d.shop}' is not a shop this town holds`, `one of (${shops.map((s) => s.name).join(", ")}), or add it with townd admin shop add first,`, 8),
+          );
+        }
+      }
+    }
+    if (!Array.isArray(d.commands) || d.commands.length === 0) {
+      out.push(refusal(`${at}.commands`, describe(d.commands, "a non-empty list"), "the commands this shop calls there, like [recall]", 8));
+      return;
+    }
+    const named = new Set<string>();
+    d.commands.forEach((c, j) => {
+      const cat = `${at}.commands[${j}]`;
+      if (!(typeof c === "string" && WORD_NAME.test(c))) {
+        out.push(refusal(cat, describe(c, "a command name"), "a command's name, like recall", 8));
+      } else if (named.has(c)) {
+        out.push(refusal(cat, `repeats the command ${c}`, "each command once", 8));
+      } else {
+        named.add(c);
+        if (held && !held.commands.includes(c)) {
+          out.push(refusal(cat, `'${c}' is not a command ${held.name} has`, `one of (${held.commands.join(", ")})`, 8));
+        }
+      }
+    });
   });
 }
 

@@ -27,11 +27,14 @@ leaves the town's memory, and `src/cli.ts` learns nothing here, not
 
 ---
 
-**Where we are: nothing built, 12 September 2026.** Vault is closed and
-this project is cut from what gate and vault left. Next is compose
-phase 0, the manifest and the clerk, provable with no server. Nothing
-waits on a person until compose phase 2, whose walk needs the GitHub
-token and repository of vault's walk, and a hand to close an issue.
+**Where we are: compose phase 0 closed, 12 September 2026.** Next is
+compose phase 1, the gate, the liveness, and the admin, which waits on
+nothing. A manifest declares `depends`, validated against the town's
+shops; a shop with dependencies runs with a clerk, `TOWN_GRANT`, and
+`town` on its PATH; the gate answers a caller with grants cut by
+`effective`; `shop test` runs the tree in scratch. Nothing waits on a
+person until compose phase 2, whose walk needs the GitHub token and
+repository of vault's walk, and a hand to close an issue.
 
 The order is dependency order. Phase 0 is the manifest, the clerk, and
 the runtime handing a shop `town`, each provable in process with the
@@ -123,7 +126,34 @@ test fail), the runtime setting `TOWN_GRANT` for a shop without
 dependencies (the names test fails), and the clerk answering a bearer
 that is not its own (the invalid-pass test fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held as written: 361 tests
+in both rings, a 295-line spec naming `TOWN_GRANT`, two `ok` lines from
+the recipe's tests through the tree, the refusal naming `--data`, and
+each of the three mutations failing its tests.
+
+**Findings:**
+
+- **2026-09-12 — The phase took twenty-five minutes of wall clock.**
+  Three doc fixes came first: the Proof's `shop add` had no `--data`,
+  and the design lacked the clerk's abort signal, its `denial`, and how
+  `shop test` hands the gate grants. No return to the builder.
+- **2026-09-12 — `respond` and `parseCall` moved to `src/clerk.ts`.**
+  The clerk and the server write one wire; left in the server they made
+  an import cycle through the gate and the runtime. The server
+  re-exports them, unchanged.
+- **2026-09-12 — `--help` anywhere in argv is the caller's help.** A
+  recipe whose argument's value is the word `--help` never reaches its
+  shop as that value; the gate test sends `--words=--help` to pass it.
+- **2026-09-12 — A shop test's grants are ids `shop-test:<shop>` with no
+  pass.** Help labels them "a shop test"; each process in the tree gets
+  only its own needs among the test's credentials.
+- **2026-09-12 — Constraints at a dependency are proved in checkout
+  only.** `test/echo` declares nothing constrainable; the real-runtime
+  constraint denial is compose phase 1's deputy test, over the teller.
+- **2026-09-12 — Inner calls are unrecorded and unbounded in depth.** An
+  aborted inner call is `town-error`, detail `aborted`; a thrown gate is
+  the town-failed line. The server's rows, the depth bound, and the
+  inner-denial rule are compose phase 1's.
 
 ---
 

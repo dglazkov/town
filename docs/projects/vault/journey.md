@@ -141,7 +141,8 @@ A shop author writes to the runtime contract, which grew by one line.
    value is a base URL on loopback. The shop sends to that URL the
    request it would have sent to the origin, with no credential of its
    own, and the town adds the header. The URL lives as long as the call.
-   Spec §8 now refuses `depends` alone, naming compose.
+   Spec §8 now refuses `depends` alone, naming compose (compose phase 0
+   since made it a field).
 2. The teller forwards method, path, query, headers, and body both ways,
    streaming, and passes the origin's status through. It replaces any
    `Authorization` the shop sets with the type's, so a shop cannot send

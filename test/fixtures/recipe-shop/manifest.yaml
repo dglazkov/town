@@ -1,0 +1,24 @@
+name: test/recipe
+version: 0.0.1
+summary: Calls the echo shop through the town, as an agent would, for compose's tests.
+guidance: |
+  The words are what an agent would type after `town`, split on spaces.
+runtime: subprocess
+entry: ./main.mjs
+depends:
+  - shop: test/echo
+    commands: [echo]
+commands:
+  - name: relay
+    summary: Run town with the words, print its exit, stdout, and stderr as JSON, and exit as it did.
+    effect: read
+    args:
+      - { name: words, type: string, required: true, doc: "A call, like: echo echo --zeta z.", constrainable: [equals, prefix] }
+    output: json
+tests:
+  - name: a declared command answers through the town
+    run: relay --words "echo echo --zeta z"
+    expect: { contains: "--zeta" }
+  - name: an undeclared command is not available
+    run: relay --words "echo sleep"
+    expect: { exit: 2 }

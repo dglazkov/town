@@ -100,7 +100,7 @@ box's problem, and the draft's open question 3.
 ## The manifest
 
 One field joins v0, and the spec's §8 is rewritten to refuse `depends`
-alone:
+alone (until compose phase 0 made it a field):
 
 ```yaml
 credentials:

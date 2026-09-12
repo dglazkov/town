@@ -1,7 +1,8 @@
 // The admin: the operator's verbs, directly over the store, with the
 // server running or not. `townd admin --data <dir> <verb>`, or with
 // $TOWN_DATA when --data is absent. `shop test` reads a data directory
-// only when given one, for the town's types and a user's credentials.
+// only when given one, for the town's types and shops and a user's
+// credentials; a shop with dependencies is refused without one.
 // A credential's value comes in on stdin and is never printed.
 
 import { cp, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
@@ -10,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import { checkGrantShape, parseConstraintLines, type Constraints } from "./constraints.js";
 import { shopDir } from "./gate.js";
 import { isoTime } from "./notices.js";
-import { ManifestRefused, loadShop, testShop } from "./shoptest.js";
+import { ManifestRefused, loadShop, testShop, townShops, treeOf } from "./shoptest.js";
 import type { RunCredential } from "./runtime.js";
 import { StoreError, openStore, type Grant, type GrantState, type Store, type User } from "./store.js";
 import { VaultError, ensureKey, requireKey } from "./vault.js";
@@ -453,10 +454,12 @@ async function readSecret(io: Io): Promise<string> {
 
 /**
  * `shop test <dir> [--user <name>]`: the shop's tests, one line each. With
- * no data directory, a manifest with needs is refused naming --data. With
- * one, needs are checked against the town's types, and each is met by the
- * user's one live credential of the type, opened for the run and handed
- * to the runtime, which opens a teller per need.
+ * no data directory, a manifest with needs or dependencies is refused
+ * naming --data. With one, needs are checked against the town's types and
+ * dependencies against its shops, and each need of the tree, the shop's
+ * and its dependencies', is met by the user's one live credential of the
+ * type, opened for the run and handed to the runtime, which opens a teller
+ * per need. The tree runs over the dependencies' code in the town.
  */
 async function shopTest(town: { store: Store; key: Buffer | null } | null, dir: string, p: Parsed, io: Io): Promise<number> {
   const refuse = (line: string) => {
@@ -466,11 +469,12 @@ async function shopTest(town: { store: Store; key: Buffer | null } | null, dir: 
   try {
     if (!town) return report(await testShop(dir), io);
     const { store, key } = town;
-    const types = store.listTypes();
-    const manifest = await loadShop(dir, types.map((t) => t.name));
-    const met = meetNeeds(store, key, manifest.name, needsOf(manifest), one(p, "user"), p.opts.get("credential") ?? []);
+    const types = store.listTypes().map((t) => t.name);
+    const shops = townShops(store);
+    const manifest = await loadShop(dir, types, shops);
+    const met = meetNeeds(store, key, manifest.name, treeOf(manifest, store).needs, one(p, "user"), p.opts.get("credential") ?? []);
     if (typeof met === "string") return refuse(met);
-    return report(await testShop(dir, { types: types.map((t) => t.name), credentials: met }), io);
+    return report(await testShop(dir, { types, shops, store, credentials: met }), io);
   } catch (err) {
     if (err instanceof ManifestRefused) {
       for (const line of err.refusals) io.err(`${line}\n`);
@@ -547,11 +551,12 @@ async function shopAdd(store: Store, key: Buffer | null, dir: string, p: Parsed,
     return refuse(`${strange.map((s) => path.join(dir, s)).join(", ")} ${strange.length === 1 ? "is" : "are"} not a plain file; a shop is copied whole into the town, so put the file itself there instead of a link`);
   }
   const types = store.listTypes().map((t) => t.name);
+  const shops = townShops(store);
   let needs: string[];
   let credentials: RunCredential[];
   try {
-    const manifest = await loadShop(src, types);
-    needs = needsOf(manifest);
+    const manifest = await loadShop(src, types, shops);
+    needs = treeOf(manifest, store).needs;
     const met = meetNeeds(store, key, manifest.name, needs, one(p, "user"), p.opts.get("credential") ?? []);
     if (typeof met === "string") return refuse(met);
     credentials = met;
@@ -577,9 +582,9 @@ async function shopAdd(store: Store, key: Buffer | null, dir: string, p: Parsed,
     });
     const late = await strangeEntries(staging);
     if (late.length) return refuse(`${late.join(", ")} is not a plain file in the copy`);
-    const manifest = await loadShop(staging, types);
-    if (needsOf(manifest).join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
-    const results = await testShop(staging, { types, ...(credentials.length ? { credentials } : {}) });
+    const manifest = await loadShop(staging, types, shops);
+    if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
+    const results = await testShop(staging, { types, shops, store, ...(credentials.length ? { credentials } : {}) });
     for (const r of results) io.out(r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`);
     const failing = results.filter((r) => !r.ok);
     if (failing.length) {

@@ -196,16 +196,89 @@ describe("credentials", () => {
 });
 
 describe("dependencies", () => {
-  it("still refuses depends, naming project compose", () => {
-    const { manifest, refusals } = parseManifest(`${MEMORY}depends:\n  - shop: town/other\n`, ["github-token"]);
-    expect(manifest).toBeNull();
-    expectWellFormed(refusals);
-    expect(refusals).toEqual(["depends: this town holds no dependencies yet, and project compose brings them; write the manifest without depends instead (spec §8)"]);
+  const SHOPS = [
+    { name: "test/echo", commands: ["echo", "sleep", "fail"] },
+    { name: "test/teller", commands: ["get", "post"] },
+  ];
+  const withDepends = (depends: unknown) => memoryWith((m) => (m.depends = depends));
+
+  it("parses dependencies on shops the town holds, at commands they have", () => {
+    const { manifest, refusals } = parseManifest(`${MEMORY}depends:\n  - shop: test/echo\n    commands: [echo]\n  - shop: test/teller\n    commands: [get, post]\n`, [], SHOPS);
+    expect(refusals).toEqual([]);
+    expect(manifest?.depends).toEqual([
+      { shop: "test/echo", commands: ["echo"] },
+      { shop: "test/teller", commands: ["get", "post"] },
+    ]);
   });
 
-  it("accepts depends when present and empty", () => {
-    expect(validateManifest(memoryWith((m) => (m.depends = null)))).toEqual([]);
-    expect(validateManifest(memoryWith((m) => (m.depends = [])))).toEqual([]);
+  it("refuses a shop the town does not hold, naming the ones it holds and shop add", () => {
+    const refusals = validateManifest(withDepends([{ shop: "test/gh", commands: ["list"] }]), [], SHOPS);
+    expectWellFormed(refusals);
+    expect(refusals).toEqual([
+      "depends[0].shop: 'test/gh' is not a shop this town holds; write one of (test/echo, test/teller), or add it with townd admin shop add first, instead (spec §8)",
+    ]);
+  });
+
+  it("refuses a command the shop does not have, naming the ones it has", () => {
+    const refusals = validateManifest(withDepends([{ shop: "test/echo", commands: ["echo", "shout"] }]), [], SHOPS);
+    expectWellFormed(refusals);
+    expect(refusals).toEqual(["depends[0].commands[1]: 'shout' is not a command test/echo has; write one of (echo, sleep, fail) instead (spec §8)"]);
+  });
+
+  it("refuses the shop itself, with a store at hand or without", () => {
+    for (const shops of [SHOPS, [...SHOPS, { name: "town/memory", commands: ["recall"] }], undefined]) {
+      const refusals = validateManifest(withDepends([{ shop: "town/memory", commands: ["recall"] }]), [], shops);
+      expectWellFormed(refusals);
+      expect(refusals).toEqual(["depends[0].shop: is town/memory, this shop itself; write a shop other than this one instead (spec §8)"]);
+    }
+  });
+
+  it("refuses commands missing or empty", () => {
+    for (const d of [{ shop: "test/echo" }, { shop: "test/echo", commands: [] }]) {
+      const refusals = validateManifest(withDepends([d]), [], SHOPS);
+      expectWellFormed(refusals);
+      expect(refusals, JSON.stringify(d)).toEqual([
+        `depends[0].commands: ${"commands" in d ? "is not a non-empty list" : "is missing"}; write the commands this shop calls there, like [recall] instead (spec §8)`,
+      ]);
+    }
+  });
+
+  it("refuses a second entry for one shop, and a command named twice", () => {
+    const twice = validateManifest(withDepends([{ shop: "test/echo", commands: ["echo"] }, { shop: "test/echo", commands: ["sleep"] }]), [], SHOPS);
+    expectWellFormed(twice);
+    expect(twice).toEqual(["depends[1].shop: repeats the shop test/echo; write each shop once, with all the commands called there instead (spec §8)"]);
+    const again = validateManifest(withDepends([{ shop: "test/echo", commands: ["echo", "echo"] }]), [], SHOPS);
+    expect(again).toEqual(["depends[0].commands[1]: repeats the command echo; write each command once instead (spec §8)"]);
+  });
+
+  it("refuses a dependency when no store is at hand, naming --data", () => {
+    const refusals = validateManifest(withDepends([{ shop: "test/echo", commands: ["echo"] }]));
+    expectWellFormed(refusals);
+    expect(refusals).toEqual([
+      "depends[0].shop: 'test/echo' cannot be checked with no data directory at hand; write the verb again with --data <dir>, so the town's shops are read, instead (spec §8)",
+    ]);
+  });
+
+  it("refuses a depends that is not a list, an entry that is not a mapping, another key, and a shop that is not a name", () => {
+    const cases: Array<[unknown, string[]]> = [
+      [{ shop: "test/echo", commands: ["echo"] }, ["depends"]],
+      [["test/echo"], ["depends[0]"]],
+      [[{ shop: "test/echo", commands: ["echo"], version: "1.0.0" }], ["depends[0].version"]],
+      [[{ shop: "echo", commands: ["echo"] }], ["depends[0].shop"]],
+      [[{ shop: "test/echo", commands: [7] }], ["depends[0].commands[0]"]],
+    ];
+    for (const [depends, fields] of cases) {
+      const refusals = validateManifest(withDepends(depends), [], SHOPS);
+      expectWellFormed(refusals);
+      expect(refusals.map((r) => r.split(": ")[0]), JSON.stringify(depends)).toEqual(fields);
+    }
+  });
+
+  it("accepts none: absent, null, or empty, with or without a store", () => {
+    for (const depends of [undefined, null, []]) {
+      expect(validateManifest(withDepends(depends))).toEqual([]);
+      expect(validateManifest(withDepends(depends), [], SHOPS)).toEqual([]);
+    }
   });
 });
 

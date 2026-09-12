@@ -36,9 +36,14 @@ export function typedName(shop: string, grantedShops: readonly string[]): string
  * never says why, nor anything about credentials.
  */
 export function helpForPass(store: Store, pass: Pass, now = Date.now()): string {
+  return helpForGrants(store, store.grantsForPass(pass.id, now));
+}
+
+/** `town --help` over grants already decided: a pass's live grants, or a shop's call's effective ones. */
+export function helpForGrants(store: Store, grants: readonly Grant[]): string {
   const rows: Array<[string, string, string]> = [];
   const held: Array<{ grant: Grant; manifest: Manifest }> = [];
-  for (const grant of store.grantsForPass(pass.id, now)) {
+  for (const grant of grants) {
     const shop = store.getShop(grant.shop);
     if (shop) held.push({ grant, manifest: shop.manifest });
   }

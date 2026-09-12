@@ -1,0 +1,22 @@
+name: test/deep
+version: 0.0.1
+summary: Calls the recipe shop through the town, a shop calling a shop that calls a third, for compose's tests.
+guidance: |
+  With a via, the words go to that shop's own relay whole; without, they are a call split on spaces.
+runtime: subprocess
+entry: ./main.mjs
+depends:
+  - shop: test/recipe
+    commands: [relay]
+commands:
+  - name: hop
+    summary: Run town with the words, or pass them to the shop named by via, and print what came back as JSON.
+    effect: read
+    args:
+      - { name: words, type: string, required: true, doc: "A call, or the words for the via shop." }
+      - { name: via, type: string, doc: "A shop whose relay gets the words whole." }
+    output: json
+tests:
+  - name: two deep, a declared command answers
+    run: hop --via recipe --words "echo echo --zeta z"
+    expect: { contains: "--zeta" }

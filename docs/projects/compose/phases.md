@@ -178,10 +178,9 @@ showing `lacks`; `shop add` refusing a loop and a replacement that
 drops a declared command, naming dependents, and requiring `--user`
 when the tree has a need; `shop rm` refused while depended on; `shop
 ls` showing dependencies; `audit` printing both ids and `--call <id>`
-printing the tree. `README.md`: the operator's lines gain `shop add
-shops/watch --user` and a comment that `grant new` at a composed shop
-needs the dependencies granted first; the agent's sentence is
-unchanged. `test/cli-guard.test.ts` grown by the words `depends`,
+printing the tree. `README.md`: the operator's lines gain a comment
+that `grant new` at a composed shop needs the dependencies granted
+first; the agent's sentence is unchanged. `test/cli-guard.test.ts` grown by the words `depends`,
 `watch`, `clerk`.
 
 Tests, `checkout`: `test/store.test.ts`, a vault-era database opens
@@ -193,7 +192,11 @@ that exits 0 after it is `ok`; one that fails with no inner denial is
 not held is absent. Tests, `command`: `test/compose.test.ts` walking
 journey 2 steps 1 to 7 with a fake origin the test starts, `test/echo`,
 `test/teller`, and a fixture recipe over both; the copy in step 7 with
-the key. `test/deputy.test.ts`, journey 3 steps 4, 5, 7, and 8: the
+the key; and journey 1 steps 1 to 6 over the same recipe through the
+built `town`: help naming no dependency, one call and its three audit
+rows, a constraint at the teller told as the agent's line with the
+origin's count unchanged, and the narrowing that hides the recipe and
+the grant that brings it back. `test/deputy.test.ts`, journey 3 steps 4, 5, 7, and 8: the
 recipe's entry swapped for one that prints its environment, argv,
 stdin, its grant file, `TOWN_STATE`, and every file it can read under
 the data directory, the agent's token found nowhere; the call token
@@ -236,7 +239,8 @@ the repository it is scoped to, the user's own; and a hand the journey
 names, closing one issue in the browser between the agent's asks, free.
 None is made by the conductor.
 
-**Work:** `shops/watch/`: `manifest.yaml` as the design writes it, the
+**Work:** `README.md`: the operator's lines gain `shop add shops/watch
+--user`. `shops/watch/`: `manifest.yaml` as the design writes it, the
 fixture repository checked against the real origin and swapped if it
 does not answer as the tests expect; `main.mjs` as the design describes
 it. `scripts/walk.mjs`: `--shop watch --repo <owner/name>`, reading

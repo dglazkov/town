@@ -88,6 +88,11 @@ const SHOP_NAME = /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/;
 const WORD_NAME = /^[a-z][a-z0-9-]*$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
+/** Words the town's own binaries hold: no shop's last segment may be one (spec §2). */
+export const RESERVED_SHOP_WORDS: readonly string[] = ["serve", "admin", "spec"];
+/** Flags the agent's binary takes wherever they stand: no argument may be named one (spec §4). */
+export const RESERVED_ARG_NAMES: readonly string[] = ["json", "grant", "help"];
+
 function refusal(field: string, wrong: string, instead: string, section: number): string {
   return `${field}: ${wrong}; write ${instead} instead (spec §${section})`;
 }
@@ -138,6 +143,8 @@ export function validateManifest(m: unknown): string[] {
 
   if (!(typeof m.name === "string" && SHOP_NAME.test(m.name))) {
     out.push(refusal("name", describe(m.name, "a shop name"), "a name like town/memory", 2));
+  } else if (RESERVED_SHOP_WORDS.includes(m.name.split("/")[1]!)) {
+    out.push(refusal("name", `ends in ${m.name.split("/")[1]}, a word the town's binaries hold`, `a last part other than ${RESERVED_SHOP_WORDS.join(", ")}`, 2));
   }
   if (!(typeof m.version === "string" && SEMVER.test(m.version))) {
     out.push(refusal("version", describe(m.version, "a semver version"), "a version like 0.1.0", 2));
@@ -177,8 +184,35 @@ export function validateManifest(m: unknown): string[] {
   }
 
   const commandsOk = validateCommands(m.commands, out);
+  if (Array.isArray(m.commands)) validateProse(m, out);
   validateTests(m.tests, out, commandsOk ? (m as unknown as Manifest) : null);
   return out;
+}
+
+/**
+ * A shop's summary and guidance name none of its commands as a whole word,
+ * in any case: a grant may hide any command, and help prints the prose
+ * whole (spec §2).
+ */
+function validateProse(m: Record<string, unknown>, out: string[]): void {
+  const names = (m.commands as unknown[])
+    .map((c) => (isRecord(c) && typeof c.name === "string" && WORD_NAME.test(c.name) ? c.name : null))
+    .filter((n): n is string => n !== null);
+  for (const field of ["summary", "guidance"] as const) {
+    const text = m[field];
+    if (typeof text !== "string") continue;
+    const named = names.filter((n) => new RegExp(`(?<![A-Za-z0-9_-])${n}(?![A-Za-z0-9_-])`, "i").test(text));
+    if (named.length) {
+      out.push(
+        refusal(
+          field,
+          `names the command${named.length === 1 ? "" : "s"} ${named.join(", ")}, which a grant may hide`,
+          `${field === "summary" ? "a summary" : "guidance"} about the shop that names no command, with a word about one command in its summary or an argument's doc,`,
+          2,
+        ),
+      );
+    }
+  }
 }
 
 function describe(v: unknown, what: string): string {
@@ -252,6 +286,8 @@ function validateArgs(args: unknown[], at0: string, out: string[]): void {
     }
     if (!(typeof a.name === "string" && WORD_NAME.test(a.name))) {
       out.push(refusal(`${at}.name`, describe(a.name, "an argument name"), "a name like key", 4));
+    } else if (RESERVED_ARG_NAMES.includes(a.name)) {
+      out.push(refusal(`${at}.name`, `is ${a.name}, a flag the town command takes for itself`, `a name other than ${RESERVED_ARG_NAMES.join(", ")}`, 4));
     } else if (seen.has(a.name)) {
       out.push(refusal(`${at}.name`, `repeats the argument ${a.name}`, "a name no other argument of this command has", 4));
     } else {

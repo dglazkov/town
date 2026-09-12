@@ -1,5 +1,6 @@
 // town/memory: a file per key under TOWN_STATE. Written to the runtime
-// contract (townd spec, §7) and nothing more.
+// contract (townd spec, §7) and nothing more. Its stderr is kept in the
+// town's audit, so no line here repeats a key or a value.
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -15,7 +16,7 @@ function fail(line) {
 
 function fileFor(key) {
   const file = path.resolve(state, key);
-  if (!file.startsWith(state + path.sep)) fail(`key ${key} is outside the state`);
+  if (!file.startsWith(state + path.sep)) fail("the key is outside the state");
   return file;
 }
 
@@ -36,20 +37,22 @@ async function walk(dir, prefix = "") {
   return keys;
 }
 
-const missing = (key) => (err) => err.code === "ENOENT" || err.code === "ENOTDIR" || err.code === "EISDIR"
-  ? fail(`no value under ${key}`)
-  : fail(err.message);
+// An fs error's message holds the path, and the path holds the key: say the code alone.
+const failed = (err) => fail(`the state could not be used (${err.code ?? "unknown error"})`);
+const missing = (err) => err.code === "ENOENT" || err.code === "ENOTDIR" || err.code === "EISDIR"
+  ? fail("no value under that key")
+  : failed(err);
 
 switch (command) {
   case "remember": {
     const file = fileFor(args.key);
     const value = args.value ?? (await readStdin());
-    await mkdir(path.dirname(file), { recursive: true }).catch((err) => fail(err.message));
-    await writeFile(file, value).catch((err) => fail(err.message));
+    await mkdir(path.dirname(file), { recursive: true }).catch(failed);
+    await writeFile(file, value).catch(failed);
     break;
   }
   case "recall": {
-    const value = await readFile(fileFor(args.key), "utf8").catch(missing(args.key));
+    const value = await readFile(fileFor(args.key), "utf8").catch(missing);
     process.stdout.write(value.endsWith("\n") ? value : `${value}\n`);
     break;
   }
@@ -59,7 +62,7 @@ switch (command) {
     break;
   }
   case "forget":
-    await unlink(fileFor(args.key)).catch(missing(args.key));
+    await unlink(fileFor(args.key)).catch(missing);
     break;
   default:
     fail(`no command ${command}`);

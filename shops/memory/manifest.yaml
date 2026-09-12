@@ -1,9 +1,10 @@
 name: town/memory
 version: 0.1.0
-summary: Remember and recall short notes by key.
+summary: Short notes, kept by key.
 guidance: |
-  Keys are paths, `notes/lunch`; `list --prefix notes/` shows what is
-  under one. Values are one line; for more, pipe stdin to `remember`.
+  Keys are paths, like `notes/lunch`, and a prefix such as `notes/`
+  gathers the keys under it. A value is one line; a longer one comes on
+  stdin.
 runtime: subprocess
 entry: ./main.mjs
 commands:

@@ -29,18 +29,24 @@ accepted.
 
     name: town/memory
       string, "<namespace>/<shop>", each part lowercase letters,
-      digits, and "-", starting with a letter.
+      digits, and "-", starting with a letter. The last part names
+      the shop to an agent; it may not be serve, admin, or spec.
 
     version: 0.1.0
       string, semver "<major>.<minor>.<patch>".
 
-    summary: Remember and recall short notes by key.
+    summary: Short notes, kept by key.
       string, one line, what the shop is for.
 
     guidance: |
-      Keys are paths, \`notes/lunch\`.
+      Keys are paths, like \`notes/lunch\`.
       optional string, any number of lines: when to use the shop,
       recipes, pitfalls. Shown in the shop's help.
+
+    summary and guidance never name one of the shop's commands as a
+    whole word, in any case. A grant may hide any command and help
+    prints this prose whole, so a word about one command belongs in
+    that command's summary or an argument's doc.
 
     runtime: subprocess
       the only value in v0.
@@ -83,6 +89,8 @@ accepted.
 
     name           string, lowercase letters, digits, "-", starting with
                    a letter; unique in the command. Typed as --<name>.
+                   Not json, grant, or help: the town command takes
+                   those flags for itself wherever they stand.
     type           one of: string, int, bool, enum.
     required       optional bool, default false.
     doc            optional string, one line, shown in help.
@@ -182,8 +190,10 @@ per call:
 - stdin: the call's stdin, as sent, empty when none. Over one megabyte
   is refused before the entry runs.
 - stdout: the result, passed to the agent as it is.
-- stderr: the shop's own log. Kept by the town, and shown to the agent
-  only when the call fails.
+- stderr: the shop's own log. Kept by the town in its audit, and shown
+  to the agent only when the call fails. The audit never holds an
+  argument, so never write an argument's value to stderr: say "no value
+  under that key", not the key.
 - exit code: 0 is success; anything else is a failure, and the agent
   sees exit 1.
 - time: thirty seconds. Then the entry and every process it started
@@ -205,10 +215,11 @@ Leave both out. A shop that needs either cannot be added here yet.
 
     name: town/memory
     version: 0.1.0
-    summary: Remember and recall short notes by key.
+    summary: Short notes, kept by key.
     guidance: |
-      Keys are paths, \`notes/lunch\`; \`list --prefix notes/\` shows what is
-      under one. Values are one line; for more, pipe stdin to \`remember\`.
+      Keys are paths, like \`notes/lunch\`, and a prefix such as \`notes/\`
+      gathers the keys under it. A value is one line; a longer one comes on
+      stdin.
     runtime: subprocess
     entry: ./main.mjs
     commands:
@@ -252,7 +263,7 @@ Leave both out. A shop that needs either cannot be added here yet.
 
 The entry, main.mjs, reads process.argv.slice(2), keeps one file per key
 under TOWN_STATE, writes the value to stdout for recall, and exits 1
-with a line on stderr when a key has no value.
+with a line on stderr, naming no key, when a key has no value.
 `;
 
 /** The numbered sections the spec holds, e.g. [1, 2, ..., 9]. */

@@ -1,6 +1,6 @@
 # Gate — the design
 
-**12 September 2026.** Design. Gate phase 0 built. The project's status lives
+**12 September 2026.** Design. Gate phases 0 and 1 built. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. The draft this is cut from is

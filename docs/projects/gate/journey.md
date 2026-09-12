@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-12
 see: gate
-note: "written 12 Sep 2026, the day the draft was cut into projects: the town's gate, where a grant is checked. Gate phase 0 closed the same day: the manifest spec, the validator, the runtime contract, and the memory shop passing its own tests, journey 4 steps 1 to 4. The town, the command, and the walk are still to come."
+note: "written 12 Sep 2026, the day the draft was cut into projects: the town's gate, where a grant is checked. Gate phases 0 and 1 closed the same day: the manifest spec, the runtime, and the memory shop (journey 4), then the town, the admin, and the command, with journeys 1 to 3 proved by tests and typed by hand. Journey 1 step 7, the walk with a real agent, is gate phase 2 and still to come."
 ---
 
 # Gate — the journeys

@@ -24,12 +24,12 @@ and the walk's PATH carries the first alone.
 
 ---
 
-**Where we are: gate phase 0 closed, 12 September 2026.** The package,
-`townd spec`, the validator, the argument parser, the runtime, and the
-memory shop stand, proved in process with no server. The next thing to
-do is **gate phase 1**, the town and the command. Nothing waits on a
-person; the one thing in the project that costs money is gate phase 2's
-walk, a real model's turn.
+**Where we are: gate phases 0 and 1 closed, 12 September 2026.** The
+town stands on this laptop: the store, the gate, help for the grant,
+notices, the audit, the admin, and `town` as a pipe, proved by both
+rings and typed by hand. The next thing to do is **gate phase 2**, the
+walk: a real Claude Code session in a scratch directory, at the cost of
+one model session. Nothing waits on a person.
 
 The order is dependency order. Phase 0 is the contract between the town
 and a shop, provable with no server, so the town in phase 1 is a gate in
@@ -115,9 +115,9 @@ mutations failing their tests.
   binaries.** TypeScript 7, vitest 5's rolldown, lightningcss: dev-only,
   nothing compiles at install, so the rule holds; the town's one runtime
   dependency is `yaml`.
-- **2026-09-12 — Open: symlinks in a shop directory.** The runtime checks
-  the entry path lexically, so a link inside a shop can point outside it.
-  Gate phase 1's `shop add` resolves or refuses links when it copies.
+- **2026-09-12 — Symlinks in a shop directory.** The runtime checks the
+  entry path lexically, so a link could point outside a shop. Closed by
+  gate phase 1: `shop add` refuses anything not a plain file or directory.
 
 ---
 
@@ -176,9 +176,36 @@ terminal, the admin verbs of journey 2 steps 2 to 4 in another, and the
 calls of journey 1 steps 1 to 6 typed as written, the output read
 against the journey.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. Both rings green, 231 tests, the three
+mutations each failing named tests, and journeys 1 and 2 typed by hand
+from an agent directory holding `town` alone, as written.
 
 **Findings:**
+
+- **2026-09-12 — The phase took thirty-five minutes of wall clock.** One
+  return to the builder, for two journey criteria the design let the
+  code miss.
+- **2026-09-12 — Claude Code can hand a command a socket for stdin that
+  never closes.** Reading stdin whenever it was not a terminal hung `town
+  --help`; the command reads only a pipe or a file. A FIFO left open
+  still hangs.
+- **2026-09-12 — Help printed memory's prose whole, and the prose named
+  commands.** The subset test stripped it before reading. Now a shop's
+  summary and guidance may name no command, the validator refuses one,
+  and the test reads all of help.
+- **2026-09-12 — The audit kept memory's stderr, which repeated the key.**
+  A shop's log is now a place for no argument, and a command test
+  searches `town.db` and its WAL for five distinctive arguments and
+  finds none.
+- **2026-09-12 — An omitted optional argument fails a constraint on it.**
+  Otherwise `list` with no `--prefix` would escape `list.prefix prefix
+  notes/`; help says the argument must be given.
+- **2026-09-12 — The operator's words answer exit 1 only to a valid pass.**
+  With no grant file or a dead pass, `town serve` is exit 3 like any
+  call, since the command cannot reach the town to ask.
+- **2026-09-12 — `~/.town/grant` makes every data directory under home an
+  agent's.** `townd serve` walks up from `--data`, so an operator with a
+  home grant file keeps the town outside `$HOME`.
 
 ---
 

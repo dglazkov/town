@@ -1,6 +1,6 @@
 name: test/verdicts
 version: 0.0.1
-summary: A shop whose tests pass and fail on purpose, for the shop test runner's tests.
+summary: A shop whose tests pass and break on purpose, for the shop test runner's tests.
 runtime: subprocess
 entry: ./main.mjs
 commands:

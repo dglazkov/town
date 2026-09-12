@@ -39,7 +39,8 @@ export function stateDir(stateRoot: string, shop: string, user: string): string 
   return path.join(stateRoot, segment(shop), segment(user));
 }
 
-function segment(name: string): string {
+/** One path segment for a name: letters, digits, "_" and "-" kept, every other byte %XX. */
+export function segment(name: string): string {
   // Letters, digits, "_" and "-" stay; every other byte, "." and "%"
   // included, becomes %XX. The result is never "", "." or "..".
   const escaped = [...Buffer.from(name, "utf8")]

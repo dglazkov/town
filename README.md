@@ -1,0 +1,30 @@
+# town
+
+Town gives agents the outside world through **shops**, capabilities handed
+to an agent as a command. What an agent can run is what it may do, decided
+by the town before anything runs. [AGENTS.md](AGENTS.md) has the house
+rules; [docs/projects/](docs/projects/README.md) has the work.
+
+## The operator
+
+```sh
+pnpm install && pnpm build                      # Node 24; bin/town.js and bin/townd.js run dist/
+export TOWN_DATA=~/town                         # the whole state: database, shops' code, shops' state
+node bin/townd.js serve                         # a town on 127.0.0.1:7000; admin works with it up or down
+node bin/townd.js admin shop add shops/memory   # validates, runs the shop's tests, copies it in
+node bin/townd.js admin user add dimitri
+node bin/townd.js admin pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the token, shown once; the id on stderr
+node bin/townd.js admin grant new --pass <id> --shop town/memory --commands remember,recall,list --constraint 'remember.key prefix notes/' --expires 30d
+node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices
+node bin/townd.js admin grant revoke <id>       # seen by the next call; pass revoke makes the grant file paper
+# The data directory must never sit in or under a directory an agent works in (one with .town/grant in it or above):
+# an agent that can reach it can read the database or widen its own grant, so townd serve refuses one there.
+```
+
+Put `bin/town.js` on the agent's PATH as `town`, and never `townd`.
+
+## The agent
+
+The one sentence an agent is told:
+
+> There is a `town` command, and `town --help` says what it can do.

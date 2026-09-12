@@ -103,6 +103,14 @@ const cases: Array<[string, (m: any) => void, string, number]> = [
   ["test run line with an unknown command", (m) => (m.tests[0].run = "memorize --key a"), "tests[0].run line 1", 4],
   ["test run line missing a required argument", (m) => (m.tests[0].run = "remember --key a\nrecall"), "tests[0].run line 2", 4],
   ["test run line with an unclosed quote", (m) => (m.tests[0].run = "remember --key 'a"), "tests[0].run line 1", 6],
+  ["a shop named for an operator verb", (m) => (m.name = "town/serve"), "name", 2],
+  ["a shop named spec", (m) => (m.name = "someone/spec"), "name", 2],
+  ["an argument named json", (m) => (m.commands[0].args[1].name = "json"), "commands[0].args[1].name", 4],
+  ["an argument named grant", (m) => (m.commands[1].args[0].name = "grant"), "commands[1].args[0].name", 4],
+  ["an argument named help", (m) => (m.commands[2].args[0].name = "help"), "commands[2].args[0].name", 4],
+  ["a summary naming a command", (m) => (m.summary = "Remember and recall short notes by key."), "summary", 2],
+  ["guidance naming a command", (m) => (m.guidance = "Keys are paths; `forget` drops one.\n"), "guidance", 2],
+  ["guidance naming a command in another case", (m) => (m.guidance = "LIST shows what is under a prefix.\n"), "guidance", 2],
 ];
 
 describe("refusals", () => {
@@ -124,6 +132,14 @@ describe("refusals", () => {
 
   it("gives no manifest while there is any refusal", () => {
     expect(parseManifest(MEMORY.replace("runtime: subprocess", "runtime: wasi")).manifest).toBeNull();
+  });
+});
+
+describe("prose that names a command", () => {
+  it("names each command it found, and passes a word that only contains one", () => {
+    const refusals = validateManifest(memoryWith((m) => (m.summary = "Remember, then Recall; forget-me-nots and listings are fine.")));
+    expectWellFormed(refusals);
+    expect(refusals).toEqual([expect.stringMatching(/^summary: names the commands remember, recall, which a grant may hide; write /)]);
   });
 });
 

@@ -132,6 +132,26 @@ describe("the grant in words", () => {
     expect(helpForPass(store, unmet)).toBe("This pass holds no grants.\n");
   });
 
+  it("leaves out a composed shop whose dependency the pass does not hold covering its commands, and never names a dependency", () => {
+    const recipe = { ...MEMORY, name: "test/recipe", summary: "Keeps what it is told, through another shop.", guidance: "Keys are paths.", depends: [{ shop: "town/memory", commands: ["remember", "recall"] }] };
+    store.upsertShop(recipe);
+    const { pass } = store.newPass("dimitri", "composed", null);
+    store.newGrant({ passId: pass.id, shop: "test/recipe", commands: ["list"], constraints: {}, expiresAt: null });
+    expect(helpForPass(store, pass)).toBe("This pass holds no grants.\n");
+    const narrow = store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null });
+    const lacking = helpForPass(store, pass);
+    expect(lacking).toContain("town/memory");
+    expect(lacking).not.toContain("test/recipe");
+    store.revokeGrant(narrow.id);
+    store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["remember", "recall"], constraints: {}, expiresAt: null });
+    const held = helpForPass(store, pass);
+    expect(held.split("\n").filter((l) => /^\S+\/\S+\s/.test(l)).map((l) => l.split(" ")[0])).toEqual(["test/recipe", "town/memory"]);
+    expect(held).toMatch(/^test\/recipe\s+Keeps what it is told, through another shop\. \[list\]$/m);
+    for (const word of ["depend", "require", "needs"]) expect(held.toLowerCase(), word).not.toContain(word);
+    const shopHelp = helpForGrant(recipe, { commands: ["list"], constraints: {}, label: "composed", expiresAt: null }, "recipe");
+    for (const word of ["town/memory", "depend"]) expect(shopHelp, word).not.toContain(word);
+  });
+
   it("lists no grants for a pass that holds none", () => {
     const { pass } = store.newPass("dimitri", "nothing", null);
     expect(helpForPass(store, pass)).toBe("This pass holds no grants.\n");

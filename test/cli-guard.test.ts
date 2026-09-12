@@ -1,8 +1,9 @@
 // ring: checkout
 // The agent's binary knows nothing: src/cli.ts, and the one module of the
 // town's it imports, name no shop, command, or argument of any shop under
-// shops/, none of the operator's verbs, and nothing of vault's: no
-// github, no credential, no repo.
+// shops/, none of the operator's verbs, nothing of vault's: no github,
+// no credential, no repo; and nothing of compose's: no depends, no watch,
+// no clerk.
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -30,10 +31,10 @@ function localImports(source: string): string[] {
   return [...source.matchAll(/^import\s+(type\s+)?[^'"]*from\s+"(\.[^"]+)";/gm)].map((m) => `${m[1] ? "type " : ""}${m[2]}`);
 }
 
-const FORBIDDEN = ["memory", "remember", "recall", "forget", "--key", "--prefix", "serve", "admin", "spec", "github", "credential", "repo"];
+const FORBIDDEN = ["memory", "remember", "recall", "forget", "--key", "--prefix", "serve", "admin", "spec", "github", "credential", "repo", "depends", "watch", "clerk"];
 
-it("knows the words it must not hold: memory's, the operator's, and vault's", () => {
-  for (const w of ["github", "credential", "repo"]) expect(FORBIDDEN).toContain(w);
+it("knows the words it must not hold: memory's, the operator's, vault's, and compose's", () => {
+  for (const w of ["github", "credential", "repo", "depends", "watch", "clerk"]) expect(FORBIDDEN).toContain(w);
   const words = shopWords();
   for (const w of ["town/memory", "memory", "remember", "recall", "list", "forget", "--key", "--value", "--prefix"]) expect(words).toContain(w);
 });

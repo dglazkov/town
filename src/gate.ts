@@ -10,9 +10,11 @@
 // bearer, and its grants are computed, not read: the agent's live grants
 // cut by the calling shop's manifest (`effective`). Steps 2 to 6 run over
 // them unchanged, and a shop with dependencies is handed `answerFor`, this
-// gate for the caller one deeper.
+// gate for the caller one deeper. A shop that fails after one of its calls
+// was denied is the agent's denial, in the inner call's words; a tree
+// deeper than eight is the town's failure.
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { canonicalArgv, parseArgs } from "./args.js";
 import { respond, type Answer } from "./clerk.js";
@@ -33,15 +35,27 @@ export interface CallRequest {
   json: boolean;
   /** Set for a shop's own call, from its clerk: who called, in place of the bearer. */
   caller?: Caller;
+  /** The call's id, minted by whoever records it before the gate runs; one is minted here when absent. */
+  callId?: string;
 }
 
 /**
  * Who makes a shop's call, and the calling shop's manifest. An agent's
  * call carries its pass by id, re-read on every call. A shop test carries
  * no pass: the tree's grants, the test's user, scratch state root, and the
- * credentials it was given.
+ * credentials it was given. `parent` is the id of the call whose shop is
+ * calling, and `depth` how many shops are above this call: 1 for a call
+ * an agent's shop makes.
  */
-export type Caller = { passId: string; manifest: Manifest } | { test: TestTree; manifest: Manifest };
+export type Caller = ({ passId: string } | { test: TestTree }) & { manifest: Manifest; parent: string | null; depth: number };
+
+/** The deepest a call may be: a shop calling a shop, eight shops down. Past it is the town's failure. */
+export const MAX_DEPTH = 8;
+
+/** A call's id as the audit keeps it: `call_` and eight random bytes as hex. */
+export function newCallId(): string {
+  return `call_${randomBytes(8).toString("hex")}`;
+}
 
 /** What a shop test hands the gate for its tree, in place of a pass. */
 export interface TestTree {
@@ -69,6 +83,12 @@ export const KEY_MISSING = "the vault key is missing";
 
 export interface GateDeps {
   store: Store;
+  /**
+   * Decides a shop's own call and keeps its audit row, as the server does
+   * an agent's: the server's `handleCall` path. Absent, a shop's calls are
+   * decided by the gate and recorded nowhere, as a shop test's are.
+   */
+  decide?: (deps: GateDeps, req: CallRequest, signal?: AbortSignal) => Promise<Outcome>;
   /** The runtime; the real one when omitted. Tests pass one that records whether it ran. */
   runtime?: Runtime;
   /** Where a grant's bindings are opened; a call that needs one with none here is the town's failure. */
@@ -78,6 +98,10 @@ export interface GateDeps {
 }
 
 export interface Outcome {
+  /** The call's id; its audit row's. */
+  callId: string;
+  /** The id of the call whose shop made this one; null for an agent's own. */
+  parent: string | null;
   /** What goes to the agent's stdout. */
   stdout: string;
   /** The error text for the agent's stderr, without notices; empty when none. */
@@ -132,14 +156,15 @@ export function effective(agentGrants: readonly Grant[], manifest: Manifest): Gr
 
 /**
  * The town's answer to the calls of a shop run for `caller`: this gate,
- * with the answer's wire as the server writes it and the gate's line when
- * it denied. A failure on the town's side is the town's failure line.
+ * through `deps.decide` when the town records its calls, with the answer's
+ * wire as the server writes it and the gate's line when it denied. A
+ * failure on the town's side is the town's failure line.
  */
 export function answerFor(deps: GateDeps, caller: Caller): Answer {
   return async (call, signal) => {
     let o: Outcome;
     try {
-      o = await gate(deps, { token: null, argv: call.argv, stdin: call.stdin, json: call.json, caller }, signal);
+      o = await (deps.decide ?? gate)(deps, { token: null, argv: call.argv, stdin: call.stdin, json: call.json, caller }, signal);
     } catch {
       return { ...respond({ stdout: "", error: denials.townFailed(), exit: 1, notices: [] }, call.json), denial: null };
     }
@@ -153,6 +178,8 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   const now = (deps.now ?? Date.now)();
   const argv = req.argv;
   const base: Outcome = {
+    callId: req.callId ?? newCallId(),
+    parent: req.caller?.parent ?? null,
     stdout: "",
     error: "",
     exit: 0,
@@ -186,6 +213,10 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     }
     const live = store.grantsForPass(pass.id, now);
     grants = caller ? effective(live, caller.manifest) : live;
+  }
+  // A seatbelt: no loop can be added, so a tree this deep is the town's fault.
+  if (caller && caller.depth > MAX_DEPTH) {
+    return { ...base, passId: pass?.id ?? null, error: denials.townFailed(), exit: 1, result: "town-error", detail: "depth" };
   }
   const notices = (touched: readonly Grant[]) => (pass ? noticesFor(now, pass, touched) : []);
   const withPass: Outcome = { ...base, passId: pass?.id ?? null, notices: notices([]) };
@@ -254,7 +285,8 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   const credentials = test ? testBindings(test.credentials, manifest) : openBindings(store, deps.vault, grant, manifest);
   const runtime = deps.runtime ?? run;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const deeper: Caller = test ? { test, manifest } : { passId: pass!.id, manifest };
+  const below = { manifest, parent: base.callId, depth: (caller?.depth ?? 0) + 1 };
+  const deeper: Caller = test ? { test, ...below } : { passId: pass!.id, ...below };
   const r = await runtime(shopDir(store, manifest.name), manifest, command, parsed.values, {
     user: test ? test.user : pass!.userId,
     stateRoot: test ? test.stateRoot : store.stateRoot,
@@ -270,6 +302,12 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   }
   if (r.timedOut) {
     return { ...ran, error: denials.shopTimedOut(manifest.name, command, Math.round(timeoutMs / 1000)), exit: 1, result: "timeout" };
+  }
+  // A denial one level down is the agent's: the shop failed after a call of
+  // its own was denied, so the agent is told that line, and nothing the shop
+  // printed. A shop that caught the denial and exited 0 is ok.
+  if (r.exit !== 0 && r.denied !== null) {
+    return { ...ran, stdout: "", error: r.denied, exit: 2, result: "denied", detail: "inner" };
   }
   if (r.exit !== 0) {
     const tail = r.stderr.trimEnd().split("\n").slice(-STDERR_TAIL_LINES).join("\n");

@@ -1,0 +1,32 @@
+name: test/pair
+version: 0.0.1
+summary: Fetches a path at the origin and hands the answer on, a recipe over two shops for compose's tests.
+guidance: |
+  A path starts with a slash. What the origin answers is handed on whole, and only its length comes back.
+runtime: subprocess
+entry: ./main.mjs
+depends:
+  - shop: test/teller
+    commands: [get]
+  - shop: test/echo
+    commands: [echo, sleep]
+commands:
+  - name: mark
+    summary: Fetch the path and hand the answer on, then print how many bytes were handed on.
+    effect: read
+    args:
+      - { name: path, type: string, required: true, doc: "The path to fetch, starting with /.", constrainable: [equals, prefix] }
+    output: text
+  - name: changes
+    summary: Fetch the path twice and print whether the two answers differ.
+    effect: read
+    args:
+      - { name: path, type: string, required: true, doc: "The path to fetch, starting with /.", constrainable: [equals, prefix] }
+    output: text
+tests:
+  - name: a mark through both
+    run: mark --path /hello
+    expect: { contains: "marked 25 bytes" }
+  - name: the same answer twice
+    run: changes --path /hello
+    expect: { equals: "changed: no" }

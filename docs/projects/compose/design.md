@@ -1,6 +1,6 @@
 # Compose — the design
 
-**12 September 2026.** Compose phase 0 built: the manifest, the clerk, the runtime's `town`, and the gate's caller. The project's status lives
+**12 September 2026.** Compose phases 0 and 1 built: the manifest, the clerk, the gate's caller, liveness, the audit tree, and the admin; the watch shop and the walk remain. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §6.4, §7.1, and §13 in

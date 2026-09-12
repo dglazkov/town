@@ -143,7 +143,7 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
       if (opts.store && (manifest.depends ?? []).length) {
         const test: TestTree = { grants: treeOf(manifest, opts.store).grants, user: TEST_USER, stateRoot, credentials: opts.credentials ?? [] };
         const deps = { store: opts.store, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) };
-        runOpts.town = { answer: answerFor(deps, { test, manifest }) };
+        runOpts.town = { answer: answerFor(deps, { test, manifest, parent: null, depth: 1 }) };
       }
       const result = await run(dir, manifest, command, parsed.values, runOpts);
       if (result.timedOut) return fail("ran out of time");

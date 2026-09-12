@@ -2,7 +2,9 @@
 // every query the gate and the admin need. Nothing is cached: a pass is
 // resolved by its token's hash on every call, and a grant, a manifest,
 // and a revocation are read from the file each time, so `townd admin` in
-// another process is seen by the next call.
+// another process is seen by the next call. A grant's liveness is one
+// query for what a grant decides alone, then a walk over the pass's
+// grants for its shop's dependencies.
 
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -65,12 +67,21 @@ export interface Grant {
 }
 
 /**
- * A grant's state: `live` when it is not revoked, not expired, and every
- * need of its shop's current manifest has a binding of its type to the
- * pass's user's credential that is not revoked; else why not. `unmet`
- * names the first need with no such binding.
+ * A grant's state: `live` when it is not revoked, not expired, every need
+ * of its shop's current manifest has a binding of its type to the pass's
+ * user's credential that is not revoked, and for each dependency of that
+ * manifest the pass holds a live grant at the dependency whose commands
+ * cover the declared ones; else why not. `unmet` names the first need
+ * with no such binding; `lacks` the first dependency not covered and the
+ * commands missing there, all of the declared ones when the pass holds no
+ * live grant at that shop.
  */
-export type GrantState = { kind: "live" } | { kind: "revoked" } | { kind: "expired" } | { kind: "unmet"; type: string };
+export type GrantState =
+  | { kind: "live" }
+  | { kind: "revoked" }
+  | { kind: "expired" }
+  | { kind: "unmet"; type: string }
+  | { kind: "lacks"; shop: string; commands: string[] };
 
 export interface ShopRow {
   name: string;
@@ -80,6 +91,10 @@ export interface ShopRow {
 }
 
 export interface CallRecord {
+  /** The call's own id, `call_<16 hex>`, minted before the gate ran. */
+  callId: string;
+  /** The id of the call whose shop made this one; null for an agent's own. */
+  parent: string | null;
   at: number;
   passId: string | null;
   grantId: string | null;
@@ -103,6 +118,11 @@ export interface CallRecord {
 
 export interface CallRow extends CallRecord {
   id: number;
+}
+
+/** A row of a call tree: how many calls above it made it, 0 for the root. */
+export interface TreeRow extends CallRow {
+  depth: number;
 }
 
 /** A credential type: where its secret may be sent, and the header it rides in. */
@@ -129,8 +149,8 @@ export interface Credential {
 /** A refusal the admin can print as it is. */
 export class StoreError extends Error {}
 
-/** The schema this code writes to `meta.schema`. Gate's store wrote none. */
-export const SCHEMA_VERSION = 2;
+/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2. */
+export const SCHEMA_VERSION = 3;
 
 /** The type every store is made with. */
 export const SEEDED_TYPES: ReadonlyArray<Omit<CredentialType, "addedAt">> = [
@@ -215,6 +235,13 @@ CREATE TABLE IF NOT EXISTS credentials (
 CREATE INDEX IF NOT EXISTS credentials_user ON credentials(user_id, type);
 `;
 
+// Schema 3, compose's: the call tree's two columns are added by the
+// migration, on a new store as on vault's, and indexed here.
+const COMPOSE_INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS calls_call_id ON calls(call_id);
+CREATE INDEX IF NOT EXISTS calls_parent ON calls(parent);
+`;
+
 export function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
@@ -230,7 +257,8 @@ type Row = Record<string, unknown>;
  * `expired`, `unmet`, or `live`, and `unmet` the first need of the shop's
  * current manifest with no binding of its type to an unrevoked credential
  * of the pass's user. A binding whose type the manifest does not name is
- * not read. Bound to `:now`. Every reader of a pass's grants reads this.
+ * not read. Bound to `:now`. Every reader of a pass's grants reads this,
+ * through `withLiveness`, which adds the fourth reason, dependencies.
  */
 const GRANTS_WITH_STATE = `
 SELECT x.*,
@@ -278,10 +306,12 @@ export class Store {
   }
 
   /**
-   * Brings a store gate made (no `meta.schema`) to schema 2: the two
-   * tables, the two columns, the seeded type, then the version. Done
-   * under a write lock, so a second process opening the same file at the
-   * same moment finds the work done.
+   * Brings an older store to schema 3, a step at a time. From gate's (no
+   * `meta.schema`) to 2: the two tables, the two columns, the seeded type.
+   * From vault's 2 to 3: `calls.call_id`, each old row given one, and
+   * `calls.parent`, null for every old row. Done under a write lock, so a
+   * second process opening the same file at the same moment finds the
+   * work done.
    */
   private migrate(now = Date.now()): void {
     const version = () => Number(this.getMeta("schema") ?? "1");
@@ -291,18 +321,25 @@ export class Store {
     }
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      if (version() < SCHEMA_VERSION) {
+      const addColumn = (table: string, column: string, decl: string) => {
+        const cols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => String(r.name));
+        if (!cols.includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+      };
+      if (version() < 2) {
         this.db.exec(VAULT_TABLES);
-        const addColumn = (table: string, column: string, decl: string) => {
-          const cols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => String(r.name));
-          if (!cols.includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
-        };
         addColumn("grants", "credentials", "TEXT NOT NULL DEFAULT '{}'");
         addColumn("calls", "credentials", "TEXT NOT NULL DEFAULT '[]'");
         for (const t of SEEDED_TYPES) {
           this.db.prepare("INSERT OR IGNORE INTO credential_types (name, origin, header, added_at) VALUES (?, ?, ?, ?)").run(t.name, t.origin, t.header, now);
         }
-        this.setMeta("schema", String(SCHEMA_VERSION));
+        this.setMeta("schema", "2");
+      }
+      if (version() < 3) {
+        addColumn("calls", "call_id", "TEXT");
+        addColumn("calls", "parent", "TEXT");
+        this.db.exec("UPDATE calls SET call_id = 'call_' || lower(hex(randomblob(8))) WHERE call_id IS NULL");
+        this.db.exec(COMPOSE_INDEXES);
+        this.setMeta("schema", "3");
       }
       this.db.exec("COMMIT");
     } catch (err) {
@@ -427,25 +464,76 @@ export class Store {
     return row ? toGrant(row) : null;
   }
 
-  /** The pass's live grants at `now` (see GRANTS_WITH_STATE): what the gate, help, and notices read. */
+  /** The pass's live grants at `now` (see GrantState): what the gate, help, and notices read. */
   grantsForPass(passId: string, now = Date.now()): Grant[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE pass_id = :pass AND state = 'live' ORDER BY shop`)
-      .all({ now, pass: passId }) as Row[];
-    return rows.map(toGrant);
+    return this.passGrants(passId, now)
+      .filter((g) => g.state.kind === "live")
+      .sort((a, b) => (a.shop < b.shop ? -1 : a.shop > b.shop ? 1 : 0))
+      .map(({ state: _state, ...g }) => g);
   }
 
-  /** One grant's state at `now`, by the same query; null when there is no such grant. */
+  /** One grant's state at `now`; null when there is no such grant. */
   grantState(id: string, now = Date.now()): GrantState | null {
-    const row = this.db.prepare(`SELECT state, unmet FROM (${GRANTS_WITH_STATE}) WHERE id = :id`).get({ now, id }) as Row | undefined;
-    return row ? toState(row) : null;
+    const row = this.db.prepare("SELECT pass_id FROM grants WHERE id = ?").get(id) as Row | undefined;
+    if (!row) return null;
+    return this.passGrants(String(row.pass_id), now).find((g) => g.id === id)!.state;
   }
 
   listGrants(passId?: string, now = Date.now()): Array<Grant & { lastUse: number | null; state: GrantState }> {
     const sql = `SELECT g.*, (SELECT MAX(at) FROM calls c WHERE c.grant_id = g.id) AS last_use FROM (${GRANTS_WITH_STATE}) g
       ${passId ? "WHERE g.pass_id = :pass" : ""} ORDER BY g.created_at, g.id`;
     const rows = this.db.prepare(sql).all(passId ? { now, pass: passId } : { now }) as Row[];
-    return rows.map((r) => ({ ...toGrant(r), lastUse: nullableNumber(r.last_use), state: toState(r) }));
+    return this.withLiveness(rows).map(({ row, state }) => ({ ...toGrant(row), lastUse: nullableNumber(row.last_use), state }));
+  }
+
+  /** Every grant of the pass, whatever its state, oldest first. */
+  private passGrants(passId: string, now: number): Array<Grant & { state: GrantState }> {
+    const rows = this.db.prepare(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE pass_id = :pass ORDER BY created_at, id`).all({ now, pass: passId }) as Row[];
+    return this.withLiveness(rows).map(({ row, state }) => ({ ...toGrant(row), state }));
+  }
+
+  /**
+   * The rows of GRANTS_WITH_STATE, each with its whole state: the query's
+   * three reasons, then the fourth, walked in code over the rows of each
+   * pass, each grant decided once. A grant the query calls live is live
+   * when, for each dependency of its shop's current manifest in order, the
+   * pass holds a grant at that shop that is itself live and whose commands
+   * cover the declared ones; else it `lacks` the first one not covered. A
+   * walk that comes back to a grant it is still deciding (a loop, which
+   * `shop add` never makes) counts that grant not live. Every row of each
+   * pass in `rows` must be there, since a dependency's grant is one of them.
+   */
+  private withLiveness(rows: Row[]): Array<{ row: Row; state: GrantState }> {
+    const manifests = new Map(this.listShops().map((s) => [s.name, s.manifest]));
+    const byPass = new Map<string, Row[]>();
+    for (const r of rows) {
+      const pass = String(r.pass_id);
+      if (!byPass.has(pass)) byPass.set(pass, []);
+      byPass.get(pass)!.push(r);
+    }
+    const decided = new Map<string, GrantState>();
+    const deciding = new Set<string>();
+    const commandsOf = (r: Row) => JSON.parse(String(r.commands)) as string[];
+    const stateOf = (r: Row): GrantState => {
+      const id = String(r.id);
+      const known = decided.get(id);
+      if (known) return known;
+      if (deciding.has(id)) return { kind: "lacks", shop: String(r.shop), commands: [] };
+      let state = toState(r);
+      const depends = state.kind === "live" ? (manifests.get(String(r.shop))?.depends ?? []) : [];
+      deciding.add(id);
+      for (const dep of depends) {
+        const live = byPass.get(String(r.pass_id))!.filter((x) => String(x.shop) === dep.shop && stateOf(x).kind === "live");
+        if (live.some((x) => dep.commands.every((c) => commandsOf(x).includes(c)))) continue;
+        const missing = live.length ? dep.commands.filter((c) => !commandsOf(live[0]!).includes(c)) : [...dep.commands];
+        state = { kind: "lacks", shop: dep.shop, commands: missing };
+        break;
+      }
+      deciding.delete(id);
+      decided.set(id, state);
+      return state;
+    };
+    return rows.map((row) => ({ row, state: stateOf(row) }));
   }
 
   /** The ids of the grants live at `now`, of those given. */
@@ -455,8 +543,9 @@ export class Store {
 
   /** The grants at `shop` live at `now`. */
   liveGrantsAt(shop: string, now = Date.now()): Grant[] {
-    const rows = this.db.prepare(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE shop = :shop AND state = 'live' ORDER BY created_at, id`).all({ now, shop }) as Row[];
-    return rows.map(toGrant);
+    return this.listGrants(undefined, now)
+      .filter((g) => g.shop === shop && g.state.kind === "live")
+      .map(({ state: _state, lastUse: _lastUse, ...g }) => g);
   }
 
   revokeGrant(id: string, now = Date.now()): Grant {
@@ -600,10 +689,12 @@ export class Store {
   recordCall(c: CallRecord): number {
     const r = this.db
       .prepare(
-        `INSERT INTO calls (at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO calls (call_id, parent, at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
+        c.callId,
+        c.parent,
         c.at,
         c.passId,
         c.grantId,
@@ -631,6 +722,33 @@ export class Store {
     if (filter.since !== undefined) (where.push("at >= ?"), params.push(filter.since));
     const sql = `SELECT * FROM calls ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY at, id`;
     return (this.db.prepare(sql).all(...params) as Row[]).map(toCall);
+  }
+
+  /**
+   * One call and every call made in its service: the root at depth 0, then
+   * each call's children after it, oldest first, each followed by its own.
+   * Empty when there is no call with that id.
+   */
+  callTree(callId: string): TreeRow[] {
+    const rows = this.db
+      .prepare(
+        `WITH RECURSIVE tree(call_id, depth) AS (
+           SELECT call_id, 0 FROM calls WHERE call_id = :id
+           UNION ALL
+           SELECT c.call_id, t.depth + 1 FROM calls c JOIN tree t ON c.parent = t.call_id
+         )
+         SELECT calls.*, tree.depth FROM tree JOIN calls ON calls.call_id = tree.call_id ORDER BY calls.at, calls.id`,
+      )
+      .all({ id: callId }) as Row[];
+    const all = rows.map((r) => ({ ...toCall(r), depth: Number(r.depth) }));
+    const out: TreeRow[] = [];
+    const visit = (row: TreeRow) => {
+      out.push(row);
+      for (const child of all.filter((c) => c.parent === row.callId)) visit(child);
+    };
+    const root = all.find((r) => r.depth === 0);
+    if (root) visit(root);
+    return out;
   }
 }
 
@@ -691,6 +809,8 @@ function toShop(r: Row): ShopRow {
 function toCall(r: Row): CallRow {
   return {
     id: Number(r.id),
+    callId: String(r.call_id),
+    parent: r.parent === null || r.parent === undefined ? null : String(r.parent),
     at: Number(r.at),
     passId: r.pass_id === null ? null : String(r.pass_id),
     grantId: r.grant_id === null ? null : String(r.grant_id),

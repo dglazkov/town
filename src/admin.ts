@@ -3,7 +3,10 @@
 // $TOWN_DATA when --data is absent. `shop test` reads a data directory
 // only when given one, for the town's types and shops and a user's
 // credentials; a shop with dependencies is refused without one.
-// A credential's value comes in on stdin and is never printed.
+// A credential's value comes in on stdin and is never printed. Every shop
+// in the town has every dependency it declares: `shop add` and `shop rm`
+// refuse what would break that, and `grant new` at a composed shop waits
+// for the pass to hold its dependencies.
 
 import { cp, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
@@ -13,7 +16,8 @@ import { shopDir } from "./gate.js";
 import { isoTime } from "./notices.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf } from "./shoptest.js";
 import type { RunCredential } from "./runtime.js";
-import { StoreError, openStore, type Grant, type GrantState, type Store, type User } from "./store.js";
+import type { Manifest } from "./manifest.js";
+import { StoreError, openStore, type CallRow, type Grant, type GrantState, type Store, type User } from "./store.js";
 import { VaultError, ensureKey, requireKey } from "./vault.js";
 
 export interface Io {
@@ -36,7 +40,7 @@ const USAGE = `usage: townd admin [--data <dir>] <verb>
   shop add <dir> [--user <name> [--credential <id>]...] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
   type add <name> --origin <url> --header '<Name>: <value with {token}>' | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] (the secret on stdin) | credential ls [--user <name>] | credential rm <id>
-  audit [--pass <id>] [--shop <name>] [--since <duration>]
+  audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
 durations: <n>d, <n>h, <n>m. --data defaults to $TOWN_DATA.`;
 
 class UsageError extends Error {}
@@ -46,7 +50,7 @@ interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential"];
+const VALUE_FLAGS = ["data", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];
@@ -198,6 +202,11 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       }
       const pass = store.passById(passId);
       if (!pass) throw new StoreError(`pass ${passId} does not exist; townd admin pass ls lists them`);
+      const uncovered = uncoveredDependency(store, passId, manifest, now);
+      if (uncovered) {
+        io.err(`townd admin: grant refused: ${uncovered}\n`);
+        return 1;
+      }
       const bound = bindNeeds(store, store.userByName(pass.userName)!, manifest.name, needsOf(manifest), p.opts.get("credential") ?? []);
       if (typeof bound === "string") {
         io.err(`townd admin: grant refused: ${bound}\n`);
@@ -221,7 +230,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
         constraintText(g.constraints),
         bindingText(g.credentials),
         when(g.expiresAt),
-        grantStateText(store, g, g.state),
+        grantStateText(store, g, g.state, now),
         when(g.lastUse),
       ]);
       io.out(table(["id", "pass", "shop", "commands", "constraints", "credentials", "expires", "state", "last use"], rows));
@@ -241,14 +250,19 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       noExtra(args, 0, "shop ls");
       io.out(
         table(
-          ["name", "version", "commands", "added"],
-          store.listShops().map((s) => [s.name, s.version, s.manifest.commands.map((c) => c.name).join(","), isoTime(s.addedAt)]),
+          ["name", "version", "commands", "depends", "added"],
+          store.listShops().map((s) => [s.name, s.version, s.manifest.commands.map((c) => c.name).join(","), dependsText(s.manifest), isoTime(s.addedAt)]),
         ),
       );
       return 0;
     case "shop rm": {
       noExtra(args, 1, "shop rm");
       const name = args[0]!;
+      const dependents = dependentsOf(store, name);
+      if (dependents.length) {
+        io.err(`townd admin: shop rm refused: ${dependents.map((d) => d.name).join(", ")} ${dependents.length === 1 ? "depends" : "depend"} on ${name}; remove ${dependents.length === 1 ? "it" : "them"} first, or add ${dependents.length === 1 ? "it" : "them"} again without ${name}\n`);
+        return 1;
+      }
       if (!store.removeShop(name)) throw new StoreError(`shop ${name} is not in this town; townd admin shop ls lists them`);
       await rm(shopDir(store, name), { recursive: true, force: true });
       io.out(`removed ${name}; its grants now reach nothing, and its state is kept under ${store.stateRoot}\n`);
@@ -324,34 +338,116 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       const since = one(p, "since");
       const passId = one(p, "pass");
       const shop = one(p, "shop");
+      const callId = one(p, "call");
+      if (callId !== undefined) {
+        if (since !== undefined || passId !== undefined || shop !== undefined) throw new UsageError("audit --call takes no other flag; it prints one call and every call made in its service");
+        const tree = store.callTree(callId);
+        if (tree.length === 0) throw new StoreError(`call ${callId} is not in the audit; townd admin audit lists the calls with their ids`);
+        // The tree: the call column first, indented two spaces a level.
+        const at = AUDIT_HEADER.indexOf("call");
+        const without = <T,>(xs: T[]) => xs.filter((_, i) => i !== at);
+        io.out(table(["call", ...without(AUDIT_HEADER)], tree.map((c) => [`${"  ".repeat(c.depth)}${c.callId}`, ...without(auditRow(c))])));
+        return 0;
+      }
       const rows = store.calls({
         ...(passId ? { passId } : {}),
         ...(shop ? { shop } : {}),
         ...(since ? { since: now - parseDuration(since) } : {}),
       });
-      io.out(
-        table(
-          ["at", "pass", "shop", "command", "argv sha256", "result", "exit", "shop exit", "ms", "notices", "credentials", "detail"],
-          rows.map((c) => [
-            isoTime(c.at),
-            c.passId ?? "-",
-            c.shop ?? "-",
-            c.command ?? "-",
-            c.argvHash,
-            c.result,
-            String(c.exit),
-            c.shopExit === null ? "-" : String(c.shopExit),
-            String(c.latencyMs),
-            c.notices.length ? c.notices.join(",") : "-",
-            c.credentials.length ? c.credentials.map((x) => `${x.type}:${x.requests}`).join(",") : "-",
-            c.detail ?? "-",
-          ]),
-        ),
-      );
+      io.out(table(AUDIT_HEADER, rows.map(auditRow)));
       return 0;
     }
   }
   throw new UsageError(`${key} is not a verb`);
+}
+
+const AUDIT_HEADER = ["at", "pass", "shop", "command", "argv sha256", "result", "exit", "shop exit", "ms", "notices", "credentials", "call", "parent", "detail"];
+
+/** One audit row's cells, in AUDIT_HEADER's order. */
+function auditRow(c: CallRow): string[] {
+  return [
+    isoTime(c.at),
+    c.passId ?? "-",
+    c.shop ?? "-",
+    c.command ?? "-",
+    c.argvHash,
+    c.result,
+    String(c.exit),
+    c.shopExit === null ? "-" : String(c.shopExit),
+    String(c.latencyMs),
+    c.notices.length ? c.notices.join(",") : "-",
+    c.credentials.length ? c.credentials.map((x) => `${x.type}:${x.requests}`).join(",") : "-",
+    c.callId,
+    c.parent ?? "-",
+    c.detail ?? "-",
+  ];
+}
+
+/** A manifest's dependencies as `<shop>[a,b]`, space-separated; `-` when none. */
+function dependsText(m: Manifest): string {
+  const parts = (m.depends ?? []).map((d) => `${d.shop}[${d.commands.join(",")}]`);
+  return parts.length ? parts.join(" ") : "-";
+}
+
+/** The shops in the town, other than `name`, that declare a dependency on it. */
+function dependentsOf(store: Store, name: string): Array<{ name: string; commands: string[] }> {
+  return store
+    .listShops()
+    .filter((s) => s.name !== name)
+    .flatMap((s) => (s.manifest.depends ?? []).filter((d) => d.shop === name).map((d) => ({ name: s.name, commands: d.commands })));
+}
+
+/**
+ * Why a grant at `manifest`'s shop may not be made for the pass yet: the
+ * first dependency the pass holds no live grant at covering its declared
+ * commands, in the words that say which and the verb that fixes it; null
+ * when every one is covered.
+ */
+function uncoveredDependency(store: Store, passId: string, manifest: Manifest, now: number): string | null {
+  const live = store.grantsForPass(passId, now);
+  for (const dep of manifest.depends ?? []) {
+    const held = live.filter((g) => g.shop === dep.shop);
+    if (held.some((g) => dep.commands.every((c) => g.commands.includes(c)))) continue;
+    if (held.length === 0) {
+      return `pass ${passId} holds no grant at ${dep.shop} covering ${dep.commands.join(", ")}; grant one with townd admin grant new --pass ${passId} --shop ${dep.shop} --commands ${dep.commands.join(",")} first`;
+    }
+    const g = held[0]!;
+    const missing = dep.commands.filter((c) => !g.commands.includes(c));
+    return `pass ${passId}'s grant ${g.id} at ${dep.shop} lacks ${missing.join(", ")}, which ${manifest.name} calls; revoke it and grant one that has ${missing.length === 1 ? "it" : "them"}`;
+  }
+  return null;
+}
+
+/**
+ * Why adding `manifest` would break the rule that every shop in the town
+ * has every dependency it declares: a loop through the town's shops back
+ * to it, or a command a dependent declares of it that it no longer has.
+ * Null when neither.
+ */
+function breaksDependents(store: Store, manifest: Manifest): string | null {
+  const name = manifest.name;
+  const byName = new Map(store.listShops().map((s) => [s.name, s.manifest]));
+  byName.set(name, manifest);
+  const walk = (at: string, trail: string[]): string[] | null => {
+    for (const d of byName.get(at)?.depends ?? []) {
+      if (d.shop === name) return [...trail, name];
+      if (trail.includes(d.shop)) continue;
+      const found = walk(d.shop, [...trail, d.shop]);
+      if (found) return found;
+    }
+    return null;
+  };
+  const loop = walk(name, [name]);
+  if (loop) {
+    return `${name} would close a loop, ${loop.join(" -> ")}; a shop cannot depend on a shop that depends on it, so take ${loop[1]} out of its depends`;
+  }
+  const commands = manifest.commands.map((c) => c.name);
+  const dropped = dependentsOf(store, name).map((d) => ({ ...d, missing: d.commands.filter((c) => !commands.includes(c)) })).filter((d) => d.missing.length);
+  if (dropped.length) {
+    const said = dropped.map((d) => `${d.name} calls ${d.missing.join(", ")}`).join("; ");
+    return `${name} would not have every command its dependents declare of it: ${said}; keep ${dropped.length === 1 && dropped[0]!.missing.length === 1 ? "it" : "them"} in ${name}, or add ${dropped.map((d) => d.name).join(", ")} again without ${dropped.length === 1 && dropped[0]!.missing.length === 1 ? "it" : "them"} first`;
+  }
+  return null;
 }
 
 function when(ms: number | null): string {
@@ -365,7 +461,11 @@ function state(x: { revokedAt: number | null; expiresAt: number | null }, now: n
 }
 
 /** A grant's state in `grant ls`: live, revoked, expired, or not live and why. */
-function grantStateText(store: Store, g: Grant, st: GrantState): string {
+function grantStateText(store: Store, g: Grant, st: GrantState, now: number): string {
+  if (st.kind === "lacks") {
+    const held = store.grantsForPass(g.passId, now).some((x) => x.shop === st.shop);
+    return held ? `not live: ${st.shop} lacks ${st.commands.join(", ")}` : `not live: ${st.shop} not granted`;
+  }
   if (st.kind !== "unmet") return st.kind;
   const id = g.credentials[st.type];
   if (id === undefined) return `not live: no ${st.type} bound`;
@@ -556,6 +656,8 @@ async function shopAdd(store: Store, key: Buffer | null, dir: string, p: Parsed,
   let credentials: RunCredential[];
   try {
     const manifest = await loadShop(src, types, shops);
+    const broken = breaksDependents(store, manifest);
+    if (broken) return refuse(broken);
     needs = treeOf(manifest, store).needs;
     const met = meetNeeds(store, key, manifest.name, needs, one(p, "user"), p.opts.get("credential") ?? []);
     if (typeof met === "string") return refuse(met);
@@ -584,6 +686,8 @@ async function shopAdd(store: Store, key: Buffer | null, dir: string, p: Parsed,
     if (late.length) return refuse(`${late.join(", ")} is not a plain file in the copy`);
     const manifest = await loadShop(staging, types, shops);
     if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
+    const brokenInCopy = breaksDependents(store, manifest);
+    if (brokenInCopy) return refuse(brokenInCopy);
     const results = await testShop(staging, { types, shops, store, ...(credentials.length ? { credentials } : {}) });
     for (const r of results) io.out(r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`);
     const failing = results.filter((r) => !r.ok);
@@ -602,8 +706,12 @@ async function shopAdd(store: Store, key: Buffer | null, dir: string, p: Parsed,
     const stillLive = store.liveOf(liveBefore, now);
     const stopped = liveBefore.filter((id) => !stillLive.includes(id));
     if (stopped.length) {
-      for (const id of stopped) io.out(`${id} at ${manifest.name} is no longer live: it binds no credential for a need the shop gained\n`);
-      io.out(`a grant made again with townd admin grant new binds a credential for each need\n`);
+      const states = stopped.map((id) => ({ id, state: store.grantState(id, now)! }));
+      for (const { id, state } of states) {
+        const why = state.kind === "lacks" ? `${grantStateText(store, store.grantById(id)!, state, now).replace(/^not live: /, "")}, a dependency the shop gained` : "it binds no credential for a need the shop gained";
+        io.out(`${id} at ${manifest.name} is no longer live: ${why}\n`);
+      }
+      if (states.some((x) => x.state.kind === "unmet")) io.out(`a grant made again with townd admin grant new binds a credential for each need\n`);
     }
     return 0;
   } finally {

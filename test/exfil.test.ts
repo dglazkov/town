@@ -153,7 +153,7 @@ it("gives the entry an address and never the value: not in its environment, argv
 
   // The audit, as printed and as bytes, and the whole data directory after the call.
   const audit = town.admin("audit");
-  expect(audit.stdout).toMatch(/\bget\s+[0-9a-f]{64}\s+ok\s+0\s+0\s+\d+\s+-\s+test-origin:1\s+-$/m);
+  expect(audit.stdout).toMatch(/\bget\s+[0-9a-f]{64}\s+ok\s+0\s+0\s+\d+\s+-\s+test-origin:1\s+call_[0-9a-f]{16}\s+-\s+-$/m);
   expect(audit.stdout + audit.stderr).not.toContain(SECRET);
   expect(allBytes(data).includes(needle), "the value in the data directory").toBe(false);
 

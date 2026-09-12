@@ -163,7 +163,7 @@ describe("journey 3", () => {
     }
     const rows = town.admin("audit", "--pass", passId).stdout.trim().split("\n").slice(1);
     expect(rows).toHaveLength(4);
-    for (const row of rows.slice(1)) expect(row).toMatch(/\binvalid-pass\s+3\s+-\s+\d+\s+-\s+-\s+expired$/);
+    for (const row of rows.slice(1)) expect(row).toMatch(/\binvalid-pass\s+3\s+-\s+\d+\s+-\s+-\s+call_[0-9a-f]{16}\s+-\s+expired$/);
   });
 
   it("a shop the pass holds no grant for and a shop the town does not have are the same line", () => {

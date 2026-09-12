@@ -9,7 +9,8 @@
 // `effective` enumerated, a caller's grants the effective ones through a
 // fake runtime, and through the real one a recipe and a deep shop over
 // fixtures, each call cut from the agent's own grants by its calling
-// shop's manifest.
+// shop's manifest. The inner-denial rule in its three cases, the depth
+// bound, and every call in a tree recorded with its parent.
 
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
@@ -18,7 +19,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArgValues } from "../src/args.js";
 import { denials } from "../src/denials.js";
-import { effective, gate, shopDir, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
+import { MAX_DEPTH, effective, gate, shopDir, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
 import { parseManifest, type Manifest } from "../src/manifest.js";
 import { stateDir, type RunCredential, type RunOptions, type RunResult } from "../src/runtime.js";
 import { handleCall, respond } from "../src/server.js";
@@ -559,7 +560,7 @@ describe("a caller, with a fake runtime", () => {
     store.upsertShop(COMPOSED, NOW);
   });
 
-  const inner = (pass: Pass, argv: string[], manifest = COMPOSED): CallRequest => ({ token: null, argv, stdin: null, json: false, caller: { passId: pass.id, manifest } });
+  const inner = (pass: Pass, argv: string[], manifest = COMPOSED): CallRequest => ({ token: null, argv, stdin: null, json: false, caller: { passId: pass.id, manifest, parent: "call_outer", depth: 1 } });
 
   it("has the effective grants: help lists them, not available covers the rest, constraints are checked, and the runtime runs as the agent's user", async () => {
     const { pass } = passWith([
@@ -602,12 +603,12 @@ describe("a caller, with a fake runtime", () => {
     expect([revoked.exit, revoked.result, revoked.error, revoked.detail]).toEqual([3, "invalid-pass", denials.invalidPass(), "revoked"]);
     const expired = passWith([{ shop: "town/memory" }], NOW - 1);
     expect((await gate(deps, inner(expired.pass, ["--help"]))).exit).toBe(3);
-    expect((await gate(deps, { ...inner(expired.pass, ["--help"]), caller: { passId: "pass_nope", manifest: COMPOSED } })).detail).toBe("unknown");
+    expect((await gate(deps, { ...inner(expired.pass, ["--help"]), caller: { passId: "pass_nope", manifest: COMPOSED, parent: null, depth: 1 } })).detail).toBe("unknown");
     expect(runs).toHaveLength(1);
   });
 
   it("hands the runtime answer for a shop with dependencies, and nothing for one without; answer is this gate for the caller one deeper", async () => {
-    const { token, pass } = passWith([{ shop: "town/memory", commands: ["recall"] }, { shop: "test/composed" }, { shop: "test/kinds" }]);
+    const { token, pass } = passWith([{ shop: "town/memory", commands: ["recall", "list"] }, { shop: "test/composed" }, { shop: "test/kinds" }]);
     expect((await gate(deps, call(token, ["kinds", "pick", "--word", "a"]))).exit).toBe(0);
     expect(runs[0]!.town).toBeUndefined();
     expect((await gate(deps, call(token, ["composed", "pick", "--word", "a"]))).exit).toBe(0);
@@ -615,7 +616,7 @@ describe("a caller, with a fake runtime", () => {
     const signal = new AbortController().signal;
     expect(await answer({ argv: ["memory", "recall", "--key", "k"], stdin: null, json: false }, signal)).toEqual({ stdout: "the shop's output\n", stderr: "", exit: 0, denial: null });
     expect(runs[2]).toMatchObject({ shop: "town/memory", command: "recall", user: pass.userId });
-    expect(await answer({ argv: ["memory", "list"], stdin: null, json: false }, signal)).toEqual({ stdout: "", stderr: `${denials.notAvailable("list")}\n`, exit: 2, denial: denials.notAvailable("list") });
+    expect(await answer({ argv: ["memory", "forget", "--key", "k"], stdin: null, json: false }, signal)).toEqual({ stdout: "", stderr: `${denials.notAvailable("forget")}\n`, exit: 2, denial: denials.notAvailable("forget") });
     expect(await answer({ argv: ["kinds", "pick", "--word", "a"], stdin: null, json: true }, signal)).toEqual({
       stdout: `${JSON.stringify({ ok: false, output: "", notices: [], exit: 2, error: denials.notAvailable("kinds pick") })}\n`,
       stderr: "",
@@ -626,6 +627,99 @@ describe("a caller, with a fake runtime", () => {
     store.revokePass(pass.id, NOW);
     expect(await answer({ argv: ["memory", "recall", "--key", "k"], stdin: null, json: false }, signal)).toEqual({ stdout: "", stderr: `${denials.invalidPass()}\n`, exit: 3, denial: null });
     expect(runs).toHaveLength(3);
+  });
+});
+
+describe("a shop's calls, with a fake runtime: the inner-denial rule, the depth bound, and the tree's rows", () => {
+  const COMPOSED: Manifest = { ...KINDS, name: "test/composed", depends: [{ shop: "town/memory", commands: ["recall", "list"] }] };
+  const shopRun = (exit: number, denied: string | null): RunResult => ({ stdout: "what the shop printed\n", stderr: "the shop's log\n", exit, timedOut: false, aborted: false, credentials: [], calls: denied ? 1 : 0, denied });
+
+  beforeEach(() => {
+    store.upsertShop(COMPOSED, NOW);
+  });
+
+  it("is denied, exit 2, with the inner line and nothing the shop printed, when the shop fails after a denied call", async () => {
+    const { token } = passWith([{ shop: "town/memory" }, { shop: "test/composed" }]);
+    const line = denials.constraint("key", "prefix", "notes/");
+    next = shopRun(2, line);
+    const o = await gate(deps, call(token, ["composed", "pick", "--word", "a"]));
+    expect([o.result, o.exit, o.error, o.detail, o.stdout, o.shopExit, o.shopStderr]).toEqual(["denied", 2, line, "inner", "", 2, "the shop's log\n"]);
+    expect(respond(o, false)).toEqual({ stdout: "", stderr: `${line}\n`, exit: 2 });
+    // Any nonzero exit, not only town's 2.
+    next = shopRun(1, line);
+    expect((await gate(deps, call(token, ["composed", "pick", "--word", "a"]))).result).toBe("denied");
+  });
+
+  it("is ok when the shop exits 0 after a denied call, and shop-error when it fails with no denial", async () => {
+    const { token } = passWith([{ shop: "town/memory" }, { shop: "test/composed" }]);
+    next = shopRun(0, denials.notAvailable("forget"));
+    const caught = await gate(deps, call(token, ["composed", "pick", "--word", "a"]));
+    expect([caught.result, caught.exit, caught.error, caught.detail, caught.stdout]).toEqual(["ok", 0, "", null, "what the shop printed\n"]);
+    next = shopRun(3, null);
+    const failed = await gate(deps, call(token, ["composed", "pick", "--word", "a"]));
+    expect([failed.result, failed.exit, failed.error, failed.detail]).toEqual(["shop-error", 1, denials.shopFailed("test/composed", "pick", "the shop's log"), null]);
+    // A timeout and an abort keep their own words, denial or not.
+    next = { ...shopRun(1, denials.notAvailable("forget")), timedOut: true };
+    expect((await gate(deps, call(token, ["composed", "pick", "--word", "a"]))).result).toBe("timeout");
+  });
+
+  it("bounds a tree at eight: a call eight deep runs, one nine deep is the town's failure with no process", async () => {
+    const { pass } = passWith([{ shop: "town/memory" }]);
+    const at = (depth: number): CallRequest => ({ token: null, argv: ["memory", "list"], stdin: null, json: false, caller: { passId: pass.id, manifest: COMPOSED, parent: "call_above", depth } });
+    expect(MAX_DEPTH).toBe(8);
+    expect((await gate(deps, at(MAX_DEPTH))).result).toBe("ok");
+    expect(runs).toHaveLength(1);
+    const deep = await gate(deps, at(MAX_DEPTH + 1));
+    expect([deep.result, deep.exit, deep.error, deep.detail, deep.passId, deep.parent]).toEqual(["town-error", 1, denials.townFailed(), "depth", pass.id, "call_above"]);
+    expect(runs).toHaveLength(1);
+  });
+
+  it("records every call in a tree through handleCall, each inner row with the agent's pass and grant at the dependency and its parent's id", async () => {
+    const { token, pass } = passWith([{ shop: "town/memory", commands: ["recall", "list", "forget"] }, { shop: "test/composed" }]);
+    const memoryGrant = store.listGrants(pass.id).find((g) => g.shop === "town/memory")!;
+    const composedGrant = store.listGrants(pass.id).find((g) => g.shop === "test/composed")!;
+    const treeRuntime: Runtime = async (_dir, manifest, command, _args, opts) => {
+      runs.push({ shop: manifest.name, command, args: {}, user: opts.user, stdin: opts.stdin });
+      if (!opts.town) return next;
+      const signal = new AbortController().signal;
+      const a = await opts.town.answer({ argv: ["memory", "recall", "--key", "k"], stdin: null, json: false }, signal);
+      const b = await opts.town.answer({ argv: ["memory", "forget", "--key", "k"], stdin: null, json: false }, signal);
+      expect([a.exit, b.exit, b.denial]).toEqual([0, 2, denials.notAvailable("forget")]);
+      return { ...next, exit: b.exit, denied: b.denial };
+    };
+    const wire = await handleCall({ ...deps, runtime: treeRuntime }, call(token, ["composed", "pick", "--word", "a"]));
+    expect(wire).toEqual({ stdout: "", stderr: `${denials.notAvailable("forget")}\n`, exit: 2 });
+    const rows = store.calls();
+    expect(rows).toHaveLength(3);
+    const outer = rows.find((r) => r.parent === null)!;
+    expect(outer).toMatchObject({ passId: pass.id, grantId: composedGrant.id, shop: "test/composed", command: "pick", result: "denied", exit: 2, shopExit: 2, detail: "inner" });
+    expect(outer.callId).toMatch(/^call_[0-9a-f]{16}$/);
+    const inner = rows.filter((r) => r.parent !== null);
+    expect(inner.map((r) => [r.parent, r.passId, r.grantId, r.shop, r.command, r.result, r.exit, r.shopExit])).toEqual([
+      [outer.callId, pass.id, memoryGrant.id, "town/memory", "recall", "ok", 0, 0],
+      [outer.callId, pass.id, memoryGrant.id, "town/memory", "forget", "denied", 2, null],
+    ]);
+    expect(new Set(rows.map((r) => r.callId)).size).toBe(3);
+    expect(store.callTree(outer.callId).map((r) => [r.command, r.depth])).toEqual([["pick", 0], ["recall", 1], ["forget", 1]]);
+  });
+
+  it("records a row for an inner call whose gate throws, and answers the shop with the town's failure line", async () => {
+    const { token, pass } = passWith([{ shop: "town/memory" }, { shop: "test/composed" }]);
+    let answered: unknown;
+    const throwing: Runtime = async (_dir, manifest, _command, _args, opts) => {
+      if (!opts.town) throw new Error("boom");
+      answered = await opts.town.answer({ argv: ["memory", "list"], stdin: null, json: false }, new AbortController().signal);
+      void manifest;
+      return next;
+    };
+    expect((await handleCall({ ...deps, runtime: throwing }, call(token, ["composed", "pick", "--word", "a"]))).exit).toBe(0);
+    expect(answered).toEqual({ stdout: "", stderr: `${denials.townFailed()}\n`, exit: 1, denial: null });
+    const rows = store.calls();
+    const outer = rows.find((r) => r.parent === null)!;
+    expect(rows.map((r) => [r.parent === null ? "outer" : r.parent === outer.callId ? "inner" : "?", r.passId, r.result, r.detail])).toEqual([
+      ["inner", pass.id, "town-error", "Error"],
+      ["outer", pass.id, "ok", null],
+    ]);
   });
 });
 
@@ -674,19 +768,20 @@ describe("a caller, through the real runtime", () => {
     const relay = async (words: string) => {
       // --words=<words>, so a word that is --help alone is the recipe's to send, not the agent's help.
       const o = await gate(real(), call(token, ["recipe", "relay", `--words=${words}`]));
-      return { o, inner: JSON.parse(o.stdout) as Relayed };
+      return { o, inner: (o.stdout ? JSON.parse(o.stdout) : null) as Relayed };
     };
 
     const ok = await relay("echo echo --zeta z");
     expect([ok.o.exit, ok.o.result, ok.inner.exit, ok.inner.stderr]).toEqual([0, "ok", 0, ""]);
     expect((JSON.parse(ok.inner.stdout) as { argv: string[] }).argv).toEqual(["echo", "--zeta", "z", "--alpha", "7", "--mode", "slow", "--loud", "false"]);
 
+    // The recipe exits as town did, 2, after each denial: the agent is told the inner line, exit 2, and nothing the recipe printed.
     const sleep = await relay("echo sleep");
-    expect([sleep.o.result, sleep.o.shopExit, sleep.inner]).toEqual(["shop-error", 2, { exit: 2, stdout: "", stderr: `${denials.notAvailable("sleep")}\n` }]);
+    expect([sleep.o.result, sleep.o.exit, sleep.o.error, sleep.o.detail, sleep.o.shopExit, sleep.o.stdout]).toEqual(["denied", 2, denials.notAvailable("sleep"), "inner", 2, ""]);
     const teller = await relay("test/teller get --path /x");
-    expect(teller.inner).toEqual({ exit: 2, stdout: "", stderr: `${denials.notAvailable("test/teller get")}\n` });
+    expect([teller.o.exit, teller.o.error]).toEqual([2, denials.notAvailable("test/teller get")]);
     const itself = await relay("recipe relay --words x");
-    expect(itself.inner.stderr).toBe(`${denials.notAvailable("recipe relay")}\n`);
+    expect([itself.o.exit, itself.o.error]).toEqual([2, denials.notAvailable("recipe relay")]);
     expect(opened).toEqual([]);
     expect(existsSync(path.join(store.stateRoot, "test%2Fecho"))).toBe(true);
     expect(existsSync(path.join(stateDirOf("test/echo", store.passById(passOf(token))!.userId), "grandchild.pid"))).toBe(false);
@@ -704,32 +799,34 @@ describe("a caller, through the real runtime", () => {
     const { token } = agent();
     const hop = async (args: string[]) => {
       const o = await gate(real(), call(token, ["deep", "hop", ...args]));
-      const outer = JSON.parse(o.stdout) as Relayed;
-      return { o, outer, recipe: args.includes("--via") && outer.stdout ? (JSON.parse(outer.stdout) as Relayed) : null };
+      const outer = (o.stdout ? JSON.parse(o.stdout) : null) as Relayed;
+      return { o, outer, recipe: args.includes("--via") && outer?.stdout ? (JSON.parse(outer.stdout) as Relayed) : null };
     };
 
     const ok = await hop(["--via", "recipe", "--words", "echo echo --zeta z"]);
     expect([ok.o.exit, ok.outer.exit, ok.recipe!.exit]).toEqual([0, 0, 0]);
     expect((JSON.parse(ok.recipe!.stdout) as { argv: string[] }).argv.slice(0, 3)).toEqual(["echo", "--zeta", "z"]);
 
-    // The deep shop declared only the recipe: echo is not its to call.
-    expect((await hop(["--words", "echo echo --zeta z"])).outer.stderr).toBe(`${denials.notAvailable("echo echo")}\n`);
+    // The deep shop declared only the recipe: echo is not its to call, and its failure after that denial is the agent's denial.
+    const undeclared = await hop(["--words", "echo echo --zeta z"]);
+    expect([undeclared.o.exit, undeclared.o.error, undeclared.o.detail]).toEqual([2, denials.notAvailable("echo echo"), "inner"]);
 
     // The deep shop now declares echo at echo and fail itself; at depth one it reaches fail.
     store.upsertShop({ ...deepManifest, depends: [...deepManifest.depends!, { shop: "test/echo", commands: ["echo", "fail"] }] }, NOW);
     const own = await hop(["--words", "echo fail"]);
-    expect([own.outer.exit, own.outer.stderr]).toEqual([1, `${denials.shopFailed("test/echo", "fail", "the fixture failed on purpose")}\n`]);
-    // At depth two the recipe's call is cut by the recipe's manifest alone.
+    expect([own.o.result, own.outer.exit, own.outer.stderr]).toEqual(["shop-error", 1, `${denials.shopFailed("test/echo", "fail", "the fixture failed on purpose")}\n`]);
+    // At depth two the recipe's call is cut by the recipe's manifest alone, and the line comes up two levels unchanged.
     const cut = await hop(["--via", "recipe", "--words", "echo fail"]);
-    expect(cut.recipe).toEqual({ exit: 2, stdout: "", stderr: `${denials.notAvailable("fail")}\n` });
+    expect([cut.o.result, cut.o.exit, cut.o.error, cut.o.detail, cut.o.stdout]).toEqual(["denied", 2, denials.notAvailable("fail"), "inner", ""]);
     const help = await hop(["--via", "recipe", "--words", "echo --help"]);
     expect(help.recipe!.stdout).not.toContain("fail");
 
-    // The agent's own grant decides: with echo revoked, the recipe two deep holds nothing there.
+    // The agent's own grant decides: with echo narrowed to fail, the recipe's grant and the deep shop's are not live.
     const echoGrant = store.listGrants(passOf(token)).find((g) => g.shop === "test/echo")!;
     store.revokeGrant(echoGrant.id, NOW);
+    store.newGrant({ passId: passOf(token), shop: "test/echo", commands: ["fail"], constraints: {}, expiresAt: null }, NOW);
     const gone = await hop(["--via", "recipe", "--words", "echo echo --zeta z"]);
-    expect(gone.recipe).toEqual({ exit: 2, stdout: "", stderr: `${denials.notAvailable("echo echo")}\n` });
+    expect([gone.o.exit, gone.o.error]).toEqual([2, denials.notAvailable("deep hop")]);
   }, 30_000);
 
   function passOf(token: string): string {

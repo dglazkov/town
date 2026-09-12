@@ -151,7 +151,7 @@ it("walks the operator's box, journey 2 steps 1 to 7", async () => {
   const audit = admin("audit", "--pass", passId);
   expect(audit.exit).toBe(0);
   const rows = audit.stdout.trim().split("\n");
-  expect(rows[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+detail$/);
+  expect(rows[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+detail$/);
   const body = rows.slice(1);
   expect(body.map((r) => r.split(/\s+/)[5])).toEqual(["ok", "ok", "ok", "ok", "denied", "ok", "ok", "ok", "usage", "usage", "usage"]);
   expect(body[4]).toMatch(/town\/memory\s+forget\s+[0-9a-f]{64}\s+denied\s+2\s+-/);

@@ -18,6 +18,7 @@ node bin/townd.js admin shop add <dir> --user dimitri   # a shop that needs a cr
 node bin/townd.js admin pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the token, shown once; the id on stderr
 node bin/townd.js admin grant new --pass <id> --shop town/memory --commands remember,recall,list --constraint 'remember.key prefix notes/' --expires 30d
 # grant new at a shop with a need binds the user's one credential of its type, or the one named with --credential <id>
+# grant new at a composed shop (one whose manifest depends on others) needs the pass's grants at each dependency, covering the commands it calls, made first
 node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices
 node bin/townd.js admin grant revoke <id>       # seen by the next call; pass revoke makes the grant file paper
 # The data directory must never sit in or under a directory an agent works in (one with .town/grant in it or above):

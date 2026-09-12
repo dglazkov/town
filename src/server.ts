@@ -2,7 +2,9 @@
 // answers `town`; `POST /call` takes a bearer and { argv, stdin, json },
 // runs the gate, writes one audit row whatever happened, and answers
 // { stdout, stderr, exit }. In json mode stdout is the envelope and
-// stderr is empty.
+// stderr is empty. Each call's id is minted before the gate runs, and a
+// shop's own calls, answered at its clerk, are decided and recorded by the
+// same path with their parent's id.
 
 import { existsSync, realpathSync } from "node:fs";
 import http from "node:http";
@@ -10,7 +12,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { BODY_LIMIT_BYTES, parseCall, respond, type WireResponse } from "./clerk.js";
 import { denials } from "./denials.js";
-import { KEY_MISSING, argvHash, gate, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
+import { KEY_MISSING, argvHash, gate, newCallId, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
 import { hashToken, openStore, type Store } from "./store.js";
 import { VaultError, readKey, requireKey } from "./vault.js";
 
@@ -19,16 +21,30 @@ export { BODY_LIMIT_BYTES, respond, type WireResponse };
 
 /** One call: the gate, one audit row, the response. */
 export async function handleCall(deps: GateDeps, req: CallRequest): Promise<WireResponse> {
+  return respond(await decideAndRecord(deps, req), req.json);
+}
+
+/**
+ * The gate for one call, agent's or shop's, and its one audit row: the id
+ * minted first, the row written whatever happened, a throw the town's
+ * failure. Never throws. The gate it runs decides a shop's calls by this
+ * same path, so every call in a tree has its row.
+ */
+export async function decideAndRecord(deps: GateDeps, req: CallRequest, signal?: AbortSignal): Promise<Outcome> {
   const started = performance.now();
   const at = (deps.now ?? Date.now)();
+  const call: CallRequest = { ...req, callId: req.callId ?? newCallId() };
+  const recorded: GateDeps = deps.decide ? deps : { ...deps, decide: decideAndRecord };
   let outcome: Outcome;
   try {
-    outcome = await gate(deps, req);
+    outcome = await gate(recorded, call, signal);
   } catch (err) {
     // A VaultError's words are the gate's own and name no credential, path, or value: the operator's detail.
-    outcome = failed(deps.store, req, denials.townFailed(), "town-error", err instanceof VaultError ? err.message : (err as Error).name);
+    outcome = failed(deps.store, call, denials.townFailed(), "town-error", err instanceof VaultError ? err.message : (err as Error).name);
   }
   deps.store.recordCall({
+    callId: outcome.callId,
+    parent: outcome.parent,
     at,
     passId: outcome.passId,
     grantId: outcome.grantId,
@@ -44,13 +60,16 @@ export async function handleCall(deps: GateDeps, req: CallRequest): Promise<Wire
     detail: outcome.detail,
     credentials: outcome.credentials,
   });
-  return respond(outcome, req.json);
+  return outcome;
 }
 
 /** An outcome for a call the gate did not decide: the town's failure or an unreadable request. */
 function failed(store: Store, req: CallRequest, error: string, result: "town-error" | "usage", detail: string): Outcome {
-  const pass = req.token ? store.passByTokenHash(hashToken(req.token)) : null;
+  const caller = req.caller;
+  const pass = caller && "passId" in caller ? store.passById(caller.passId) : req.token ? store.passByTokenHash(hashToken(req.token)) : null;
   return {
+    callId: req.callId ?? newCallId(),
+    parent: caller?.parent ?? null,
     stdout: "",
     error,
     exit: 1,
@@ -102,7 +121,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
       return store.openCredential(credentialId, key);
     },
   };
-  const deps: GateDeps = { store, vault, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
+  const deps: GateDeps = { store, vault, decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
 
   const server = http.createServer((req, res) => {
     const send = (status: number, type: string, body: string) => {
@@ -133,6 +152,8 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
           const blank: CallRequest = { token, argv: [], stdin: null, json: false };
           const o = failed(store, blank, over ? denials.stdinTooLarge(size) : denials.badCall(), "usage", over ? "body-too-large" : "bad-request");
           store.recordCall({
+            callId: o.callId,
+            parent: null,
             at: Date.now(),
             passId: o.passId,
             grantId: null,

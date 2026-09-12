@@ -27,14 +27,14 @@ leaves the town's memory, and `src/cli.ts` learns nothing here, not
 
 ---
 
-**Where we are: compose phase 0 closed, 12 September 2026.** Next is
-compose phase 1, the gate, the liveness, and the admin, which waits on
-nothing. A manifest declares `depends`, validated against the town's
-shops; a shop with dependencies runs with a clerk, `TOWN_GRANT`, and
-`town` on its PATH; the gate answers a caller with grants cut by
-`effective`; `shop test` runs the tree in scratch. Nothing waits on a
-person until compose phase 2, whose walk needs the GitHub token and
-repository of vault's walk, and a hand to close an issue.
+**Where we are: compose phases 0 and 1 closed, 12 September 2026.**
+Next is compose phase 2, the watch shop and the walk, whose walk waits
+on a person: the GitHub token and repository of vault's walk, and a
+hand to close an issue. Every journey step the `command` ring can walk
+is walked on fixtures: `depends` validated, a clerk per call, the
+effective grant at every depth, liveness needing the dependencies, the
+denial one level down told in the agent's words, the audit as a tree,
+and the admin's refusals.
 
 The order is dependency order. Phase 0 is the manifest, the clerk, and
 the runtime handing a shop `town`, each provable in process with the
@@ -133,7 +133,7 @@ each of the three mutations failing its tests.
 
 **Findings:**
 
-- **2026-09-12 — The phase took twenty-five minutes of wall clock.**
+- **2026-09-12 — The phase took thirty minutes of wall clock.**
   Three doc fixes came first: the Proof's `shop add` had no `--data`,
   and the design lacked the clerk's abort signal, its `denial`, and how
   `shop test` hands the gate grants. No return to the builder.
@@ -223,7 +223,34 @@ recipe granted, one call through `town`, `audit --call` showing the
 tree, `grant revoke` of a dependency, and the next call exit 2, typed as
 journey 2 writes them.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held as written: 384 tests,
+the run's last line naming checkout and command, each of the three
+mutations failing its named test, and journey 2 typed by hand against
+a running town and a fake origin, the tree in `audit --call`, the
+revoked dependency making the recipe exit 2 and leave help.
+
+**Findings:**
+
+- **2026-09-12 — The phase took thirty minutes of wall clock.** Two doc
+  fixes first, a journey 1 claim no test walked and a README line for
+  a shop not yet built; no return to the builder.
+- **2026-09-12 — A Node child's piped stdin is a socket, and `town`
+  sends none.** Gate's rule reads only a pipe or a file, so a shop that
+  pipes a value into `town … remember` through `spawn` sends nothing;
+  the fixture passes values as arguments.
+- **2026-09-12 — A denial one level down gives the agent empty stdout.**
+  The shop's own stdout and stderr stay in its audit row; the agent
+  learns the rule it hit and nothing of the shop.
+- **2026-09-12 — Inner rows are written before their parent's.** Each
+  row is written when its call ends; `audit` sorts by start, and `audit
+  --call` walks the parent links.
+- **2026-09-12 — A composed grant left unrevoked comes back live.**
+  Liveness is computed, so re-granting the dependency revives it, and
+  `grant new` would refuse a second grant at the shop anyway.
+- **2026-09-12 — The tree-cut test waits the town's real thirty
+  seconds.** `townd serve` takes no limit; the suite now runs about
+  forty seconds. Four gate and vault command tests matched the audit's
+  last column and moved with the new `call` and `parent`.
 
 ---
 

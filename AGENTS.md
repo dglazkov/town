@@ -54,6 +54,9 @@ by the conductor, recorded, committed whole.
   argument goes in the commit message.
 - **Phase citations name their project:** `gate phase 1`, never a bare
   "phase 1".
+- **A commit is a push.** Work lands on `main` and is pushed in the same
+  breath; "commit" means commit and push. The shepherd reads progress
+  from the commits on GitHub, not from a branch on a laptop.
 
 ```
 pnpm install

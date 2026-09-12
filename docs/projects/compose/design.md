@@ -326,14 +326,15 @@ revocation under a running tree is seen by its next inner call.
 
 `shops/watch/`: the manifest above and `main.mjs`, about eighty lines.
 `mark` runs `town github list --repo <repo> --state open --limit 100`,
-keeps the `#<number> <title>` lines, and pipes them to `town memory
-remember --key watch/<owner>/<name>` on stdin, printing how many it
-remembered. `changes` runs `town memory recall --key watch/<owner>/<name>`
+keeps the `#<number> <title>` lines, and passes them to `town memory
+remember --key watch/<owner>/<name> --value <lines>`, printing how many
+it remembered. Not on stdin: a Node child's piped stdin is a socket,
+and `town` sends only a pipe or a file, as gate found. `changes` runs `town memory recall --key watch/<owner>/<name>`
 and `town github list …` again, and prints `opened:` with the numbers
 now open that were not, and `closed:` with the numbers that were open
 and are not, `none` under a heading with nothing, `#<number> <title>`
 per issue. No look yet is exit 1 with a line naming no key. It runs
-`town` with `execFile`, never a shell, reads no environment but
+`town` with `execFile`, never a shell, its stdin closed, reads no environment but
 `TOWN_GRANT` and `PATH` through `town` itself, and passes a denial line
 from `town` to its own stderr as it came, since those lines carry no
 value. It is the draft's third seed shop with its documents swapped for

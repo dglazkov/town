@@ -275,7 +275,9 @@ the token from stdin, adding the credential, adding github with
 `--user`, memory, and watch with `--user`, making a pass and three
 grants, github at `list` and `show` with `repo` equals the named
 repository on each, memory at `remember`, `recall`, and `list`, watch at
-`mark` and `changes` with `repo` equals the repository, and printing the
+`mark` and `changes` with no constraint, as journey 1 grants it, so a
+repository the grant does not name is denied one level down at github;
+and printing the
 narrowing lines for memory, `grant revoke` and `grant new` at `recall`
 alone, as vault's walk printed github's; `--status` printing the audit
 as a tree by parent; `--search` and `--teardown` as before. Then, driven

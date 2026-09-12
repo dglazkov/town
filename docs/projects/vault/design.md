@@ -1,6 +1,6 @@
 # Vault — the design
 
-**12 September 2026.** Planned: nothing built. The project's status lives
+**12 September 2026.** Done: all three phases closed. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §10 and §13 in

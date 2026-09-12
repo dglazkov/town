@@ -26,12 +26,11 @@ not `credential`, not `--repo`.
 
 ---
 
-**Where we are: vault phase 2 part-done, 12 September 2026.** Vault
-phase 2's walk waits on the user: a GitHub fine-grained token and the
-repository it is scoped to. Vault phases 0 and 1 are closed, and the
-github shop and the walk script are built and proven on loopback. No
-work waits; one debt is open: on one box a shop can read the key and
-unseal.
+**Where we are: vault done, 12 September 2026.** All three phases are
+closed, vault phase 2 walked by a real agent on a real token against
+`dglazkov/town`. Nothing waits on work or a person here. One debt is
+open and owed elsewhere: on one box a shop can read the key and unseal,
+which waits on the containers project or a key held off the box.
 
 The order is dependency order. Phase 0 is the sealing and the window,
 each provable against a fake origin on loopback with no server: the
@@ -270,17 +269,28 @@ not retry; and `grep -r` for the token's value over the transcript, the
 scratch directory, and `town.db` with its WAL finds nothing. Recorded
 as a Finding with the counts.
 
-**Status: PART-DONE.** 12 Sep 2026. The shop and the script are built:
-328 tests in both rings, the shop's shape tested against a stand-in
-GitHub, and the walk rehearsed on loopback; `shop add` on a real token
-and the walk wait on the user.
+**Status: CLOSED.** 12 Sep 2026. `pnpm test` exit 0 at 328 tests and
+`shop add` on the real token printed three `ok` lines. The walk held:
+zero denied before narrowing, one after, the reply on GitHub, and the
+token found in no file searched.
 
 **Findings:**
 
-- **2026-09-12 — Open: the walk's token and repository.** A GitHub
-  fine-grained token scoped to one repository with Issues read and
-  write, and that repository with two or more open issues. Waits on the
-  user; both free, the token revoked after.
+- **2026-09-12 — The walk: 6 audit rows, 0 denied, then 2 rows, 1
+  denied.** Claude Code on Sonnet, `Bash(town:*)` its only tool, listed,
+  showed two issues, and replied on #1 as dglazkov; narrowed, it tried
+  `reply` once, reread help, and said so. $0.07.
+- **2026-09-12 — Every allowed command row served `github-token:1`.** Four
+  rows, four requests; help and the denied `reply` served none. The
+  search over the transcript, the walk root, `town.db`, its WAL and SHM,
+  and `vault.key` found the token in 0 files.
+- **2026-09-12 — A public repository's reads prove nothing of a token's
+  scope.** The first staging's token was not granted the repository;
+  `list` and `show` answered and `reply` got GitHub's 403. Only a write,
+  or listing collaborators, shows the grant.
+- **2026-09-12 — A one-day grant puts `grant-expires` on every call.**
+  The walk's `--expires 1d` is inside the notice's window, so the agent
+  was told on all eight rows; the memory walk's thirty days was not.
 - **2026-09-12 — `fetch` follows a redirect by default, past the
   teller.** GitHub's `Location` names api.github.com, so a followed 301
   would leave unsigned for the real host; the shop sets `redirect:

@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 since: 2026-09-12
 see: vault
-note: "written 12 Sep 2026, the day gate closed: the town's vault, where a credential is kept and used on a shop's behalf without the shop ever holding it. Vault phase 0 closed the same day: the vault seals under a key file, the operator adds a credential from stdin, and a shop's teller signs its requests, proven on a fake origin. Vault phase 1 closed after it: grants bind credentials, a removed credential ends them at the next call, and journey 2 was typed by hand on a fixture shop. Vault phase 2's github shop and walk script are built and rehearsed on loopback; its walk waits on a GitHub token the user makes."
+note: "written 12 Sep 2026, the day gate closed: the town's vault, where a credential is kept and used on a shop's behalf without the shop ever holding it. Vault phase 0 closed the same day: the vault seals under a key file, the operator adds a credential from stdin, and a shop's teller signs its requests, proven on a fake origin. Vault phase 1 closed after it: grants bind credentials, a removed credential ends them at the next call, and journey 2 was typed by hand on a fixture shop. Vault phase 2 closed the same day: town/github walked by Claude Code on a real token against dglazkov/town, no call denied, the reply on GitHub, narrowed to reads and said so, and the token found in no file searched. Open, owed to containers: on one box a shop can read the key."
 ---
 
 # Vault — the journeys

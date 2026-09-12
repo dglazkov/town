@@ -26,13 +26,12 @@ not `credential`, not `--repo`.
 
 ---
 
-**Where we are: vault phases 0 and 1 closed, 12 September 2026.** Next
-is vault phase 2, the github shop and the walk. Its shop and script need
-no person; its proof needs a GitHub fine-grained token the user makes
-and a repository they name. The town now seals a credential, binds it
-to a grant, opens it only at gate step 6, and hands the shop a teller
-that signs, walked by hand on a fixture shop and a fake origin. One
-debt is open: on one box a shop can read the key and unseal.
+**Where we are: vault phase 2 part-done, 12 September 2026.** Vault
+phase 2's walk waits on the user: a GitHub fine-grained token and the
+repository it is scoped to. Vault phases 0 and 1 are closed, and the
+github shop and the walk script are built and proven on loopback. No
+work waits; one debt is open: on one box a shop can read the key and
+unseal.
 
 The order is dependency order. Phase 0 is the sealing and the window,
 each provable against a fake origin on loopback with no server: the
@@ -271,4 +270,24 @@ not retry; and `grep -r` for the token's value over the transcript, the
 scratch directory, and `town.db` with its WAL finds nothing. Recorded
 as a Finding with the counts.
 
-**Status: NOT STARTED.**
+**Status: PART-DONE.** 12 Sep 2026. The shop and the script are built:
+328 tests in both rings, the shop's shape tested against a stand-in
+GitHub, and the walk rehearsed on loopback; `shop add` on a real token
+and the walk wait on the user.
+
+**Findings:**
+
+- **2026-09-12 — Open: the walk's token and repository.** A GitHub
+  fine-grained token scoped to one repository with Issues read and
+  write, and that repository with two or more open issues. Waits on the
+  user; both free, the token revoked after.
+- **2026-09-12 — `fetch` follows a redirect by default, past the
+  teller.** GitHub's `Location` names api.github.com, so a followed 301
+  would leave unsigned for the real host; the shop sets `redirect:
+  "manual"` and reports the status.
+- **2026-09-12 — "A missing repo fails" passes with no GitHub at all.**
+  A teller whose origin is down answers 502 and the shop exits 1; only
+  the list and show tests prove GitHub answered.
+- **2026-09-12 — The build took twelve minutes of wall clock.** The CLI
+  guard parsed manifests with no types, so a shop with a need broke it;
+  it now parses with the seeded type and checks github's words.

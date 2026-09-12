@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 // The walk's stage, set up and struck; the walk itself is the conductor's.
 //
-//   node scripts/walk.mjs                    a town, a pass, a grant, and an agent's directory
-//   node scripts/walk.mjs --status <root>    the walk pass's grants and audit, and rows by result
+//   node scripts/walk.mjs                    a town, the memory shop, a pass, a grant, and an agent's directory
+//   node scripts/walk.mjs --shop github --repo <owner/name> < <token file>
+//                                            the same for the github shop, on the token read from stdin
+//   node scripts/walk.mjs --status <root>    the walk pass's grants and audit, rows by result, credentials served
+//   node scripts/walk.mjs --search <root> [<path>...] < <token file>
+//                                            files under the root and the paths holding the token's bytes
 //   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root
+//
+// The token is read from stdin, a pipe or a file and never a terminal,
+// and goes nowhere but the stdin of `townd admin credential add`: not
+// argv, not any child's environment, not walk.json, not stdout.
 //
 // The walk root, under the system's temporary directory, holds three
 // siblings: data/ (the town's), agent/ (the agent's, with .town/grant),
@@ -11,7 +19,7 @@
 // Node, no dependency; it runs the built binaries, so build first.
 
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -21,12 +29,32 @@ const TOWND = path.join(REPO, "bin", "townd.js");
 const MEMORY = path.join(REPO, "shops", "memory");
 const SELF = path.join(REPO, "scripts", "walk.mjs");
 
-const COMMANDS = "remember,recall,list";
-const CONSTRAINTS = ["remember.key prefix notes/", "recall.key prefix notes/", "list.prefix prefix notes/"];
+const GITHUB = path.join(REPO, "shops", "github");
+/** `owner/name`, each part of GitHub's characters and neither `.` nor `..`: what shops/github/main.mjs accepts. */
+const REPO_SHAPE = /^(?![.]{1,2}\/)[A-Za-z0-9_.-]+\/(?![.]{1,2}$)[A-Za-z0-9_.-]+$/;
 
-function die(why) {
+/** What the stage holds: the memory shop under notes/, or the github shop on one repository. */
+function memoryPlan() {
+  return { dir: MEMORY, shop: "town/memory", commands: "remember,recall,list", constraints: ["remember.key prefix notes/", "recall.key prefix notes/", "list.prefix prefix notes/"], expires: "30d" };
+}
+
+function githubPlan(repo, token) {
+  const on = (commands) => commands.split(",").map((c) => `${c}.repo equals ${repo}`);
+  return {
+    dir: GITHUB,
+    shop: "town/github",
+    repo,
+    token,
+    commands: "list,show,reply",
+    constraints: on("list,show,reply"),
+    narrowed: { commands: "list,show", constraints: on("list,show") },
+    expires: "1d",
+  };
+}
+
+function die(why, code = 1) {
   process.stderr.write(`walk: ${why}\n`);
-  process.exit(1);
+  process.exit(code);
 }
 
 /** The environment the operator's commands run in: nothing of a grant or a data directory inherited. */
@@ -37,15 +65,37 @@ function operatorEnv() {
   return env;
 }
 
-function admin(data, ...args) {
-  const r = spawnSync(process.execPath, [TOWND, "admin", "--data", data, ...args], { env: operatorEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+/** `townd admin --data <data> ...args`; `secret`, when given, is its stdin and nothing else of it. */
+function adminWith(secret, data, ...args) {
+  const stdin = secret === undefined ? "ignore" : "pipe";
+  const r = spawnSync(process.execPath, [TOWND, "admin", "--data", data, ...args], { env: operatorEnv(), encoding: "utf8", stdio: [stdin, "pipe", "pipe"], timeout: 120_000, ...(secret === undefined ? {} : { input: secret }) });
   return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit: r.status ?? -1 };
 }
 
+const admin = (data, ...args) => adminWith(undefined, data, ...args);
+
 function mustAdmin(data, ...args) {
-  const r = admin(data, ...args);
+  return mustAdminWith(undefined, data, ...args);
+}
+
+function mustAdminWith(secret, data, ...args) {
+  const r = adminWith(secret, data, ...args);
   if (r.exit !== 0) throw new Error(`townd admin ${args.join(" ")} exited ${r.exit}:\n${r.stderr}${r.stdout}`);
   return r;
+}
+
+/**
+ * The token: the whole of stdin, less one trailing newline, as `townd admin
+ * credential add` reads it. A terminal is refused, since what is typed
+ * there is echoed; so is nothing.
+ */
+async function readToken(what, code = 1) {
+  if (process.stdin.isTTY) die(`${what} reads the token on stdin, and stdin is a terminal; redirect it from a file or pipe it in`, code);
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const value = Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
+  if (value === "") die(`${what} read nothing on stdin; redirect the token from a file or pipe it in`, code);
+  return value;
 }
 
 /** Refuses when dist/ is missing or any src/*.ts is newer than its dist/*.js. */
@@ -127,7 +177,7 @@ async function startTown(root, data) {
   throw new Error(`townd serve printed no address in 15s:\n${readFileSync(log, "utf8")}`);
 }
 
-async function setUp() {
+async function setUp(plan) {
   assertBuilt();
   const said = sentence();
   const root = mkdtempSync(path.join(os.tmpdir(), "town-walk-"));
@@ -145,25 +195,42 @@ async function setUp() {
     chmodSync(path.join(shim, "town"), 0o755);
 
     town = await startTown(root, data);
-    mustAdmin(data, "shop", "add", MEMORY);
-    mustAdmin(data, "user", "add", "walker");
+    if (plan.token === undefined) {
+      mustAdmin(data, "shop", "add", plan.dir);
+      mustAdmin(data, "user", "add", "walker");
+    } else {
+      mustAdmin(data, "user", "add", "walker");
+      mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", "walker", "--type", "github-token", "--label", "walk");
+      // Runs the shop's tests through a teller against GitHub, on the walker's token.
+      process.stdout.write(mustAdmin(data, "shop", "add", plan.dir, "--user", "walker").stdout);
+    }
     const pass = mustAdmin(data, "pass", "new", "--user", "walker", "--label", "walk");
     const passId = pass.stderr.trim();
     const grantFile = path.join(agent, ".town", "grant");
     writeFileSync(grantFile, pass.stdout, { mode: 0o600 });
-    const grant = mustAdmin(data, "grant", "new", "--pass", passId, "--shop", "town/memory", "--commands", COMMANDS, ...CONSTRAINTS.flatMap((c) => ["--constraint", c]), "--expires", "30d");
+    const grantArgs = (commands, constraints) => ["--pass", passId, "--shop", plan.shop, "--commands", commands, ...constraints.flatMap((c) => ["--constraint", c]), "--expires", plan.expires];
+    const grant = mustAdmin(data, "grant", "new", ...grantArgs(plan.commands, plan.constraints));
     const grantId = grant.stdout.trim();
     if (grantAbove(data)) throw new Error(`the data directory ${data} is under a grant file; the walk root is laid out wrong`);
 
-    const walk = { root, data, agent, shim, grantFile, address: town.address, pid: town.pid, passId, grantId, sentence: said };
+    const walk = { root, data, agent, shim, grantFile, address: town.address, pid: town.pid, passId, grantId, sentence: said, shop: plan.shop, ...(plan.repo ? { repo: plan.repo } : {}) };
     writeFileSync(path.join(root, "walk.json"), `${JSON.stringify(walk, null, 2)}\n`);
+    const quote = (w) => (/^[A-Za-z0-9_./:,=-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
+    const narrowing = plan.narrowed
+      ? [
+          `to narrow the grant to ${plan.narrowed.commands.replace(",", " and ")}, under the running agent:`,
+          `  node ${TOWND} admin grant revoke ${grantId}`,
+          `  node ${TOWND} admin grant new ${grantArgs(plan.narrowed.commands, plan.narrowed.constraints).map(quote).join(" ")}`,
+          ``,
+        ]
+      : [];
 
     process.stdout.write(
       [
         `walk ready: ${root}`,
         ``,
         `the town:    ${town.address} (pid ${town.pid}), pass ${passId}, grant ${grantId}`,
-        `the grant:   town/memory ${COMMANDS}; ${CONSTRAINTS.join("; ")}; expires 30d`,
+        `the grant:   ${plan.shop} ${plan.commands}; ${plan.constraints.join("; ")}; expires ${plan.expires}`,
         ``,
         `start the agent in:`,
         `  cd ${agent}`,
@@ -176,7 +243,9 @@ async function setUp() {
         `  export TOWN_DATA=${data}`,
         `  node ${TOWND} admin grant ls --pass ${passId}`,
         ``,
+        ...narrowing,
         `status:      node ${SELF} --status ${root}`,
+        ...(plan.token === undefined ? [] : [`search:      node ${SELF} --search ${root} <transcript> < <token file>`]),
         `teardown:    node ${SELF} --teardown ${root}`,
         ``,
       ].join("\n"),
@@ -221,6 +290,83 @@ function status(root) {
   for (const r of column(audit.stdout, "result")) counts.set(r, (counts.get(r) ?? 0) + 1);
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows: ${total}; ${[...counts].map(([k, v]) => `${k} ${v}`).join(", ")}\n`);
+
+  // The credentials column: `<type>:<requests>` comma-separated, or `-` when none was served.
+  const shop = walk.shop ?? "town/memory";
+  const results = column(audit.stdout, "result");
+  const shops = column(audit.stdout, "shop");
+  const served = column(audit.stdout, "credentials");
+  const commands = column(audit.stdout, "command");
+  const types = new Map();
+  const bare = new Map();
+  served.forEach((cell, i) => {
+    if (cell === "-" || cell === "") {
+      // A help row calls no command, so it is counted apart from an ok or denied call.
+      const kind = commands[i] === "-" ? "help" : results[i];
+      if (shops[i] === shop) bare.set(kind, (bare.get(kind) ?? 0) + 1);
+      return;
+    }
+    for (const part of cell.split(",")) {
+      const [type, n] = [part.slice(0, part.lastIndexOf(":")), Number(part.slice(part.lastIndexOf(":") + 1))];
+      const t = types.get(type) ?? { requests: 0, rows: 0, none: 0 };
+      t.requests += n;
+      t.rows += 1;
+      if (n === 0) t.none += 1;
+      types.set(type, t);
+    }
+  });
+  if (types.size === 0) process.stdout.write(`credentials: none served\n`);
+  for (const [type, t] of types) process.stdout.write(`credentials: ${type} ${t.requests} requests over ${t.rows} rows, ${t.none} of them with none\n`);
+  const bareTotal = [...bare.values()].reduce((a, b) => a + b, 0);
+  process.stdout.write(`rows for ${shop} with no credential served: ${bareTotal}${bareTotal ? `; ${[...bare].map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}\n`);
+}
+
+/** Every regular file under `p`, or `p` itself when it is one; links are not followed. */
+function filesUnder(p) {
+  const st = lstatSync(p);
+  if (st.isFile()) return [p];
+  if (!st.isDirectory()) return [];
+  return readdirSync(p).sort().flatMap((e) => filesUnder(path.join(p, e)));
+}
+
+/** How many times `needle` occurs in `hay`, as bytes. */
+function occurrences(hay, needle) {
+  let n = 0;
+  for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + 1)) n++;
+  return n;
+}
+
+/**
+ * `--search <root> [<path>...]`: every file under the walk root, the town's
+ * database, its WAL, and its shared memory among them, and under each path,
+ * searched for the token's bytes. One line per file that holds it, then
+ * `found in N files`; exit 0 for none, 1 for some, 2 when it could not look.
+ */
+async function search(root, paths) {
+  if (!root) die("name the walk root: --search <root> [<path>...]", 2);
+  for (const p of [root, ...paths]) if (!existsSync(p)) die(`${p} does not exist; nothing was searched`, 2);
+  const token = Buffer.from(await readToken("--search", 2), "utf8");
+  let found = 0;
+  const seen = new Set();
+  for (const p of [root, ...paths]) {
+    for (const file of filesUnder(path.resolve(p))) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      let bytes;
+      try {
+        bytes = readFileSync(file);
+      } catch (err) {
+        die(`${file} could not be read (${err.code ?? "unknown error"}); the search is incomplete`, 2);
+      }
+      const n = occurrences(bytes, token);
+      if (n) {
+        found++;
+        process.stdout.write(`${n} ${file}\n`);
+      }
+    }
+  }
+  process.stdout.write(`found in ${found} files\n`);
+  process.exit(found === 0 ? 0 : 1);
 }
 
 async function teardown(root) {
@@ -242,9 +388,25 @@ async function teardown(root) {
   process.stdout.write(`removed ${walk.root}\n`);
 }
 
-const [flag, root, ...extra] = process.argv.slice(2);
-if (extra.length) die(`too many words: ${extra.join(" ")}`);
-if (flag === undefined) await setUp();
-else if (flag === "--status") status(root);
-else if (flag === "--teardown") await teardown(root);
-else die(`${flag} is not a walk flag; write nothing, --status <root>, or --teardown <root>`);
+const [flag, ...words] = process.argv.slice(2);
+if (flag === undefined) await setUp(memoryPlan());
+else if (flag === "--shop") {
+  const opts = new Map();
+  for (let i = 0; i < process.argv.length - 2; i += 2) {
+    const [name, value] = process.argv.slice(2 + i, 4 + i);
+    if (name !== "--shop" && name !== "--repo") die(`${name} is not a flag of --shop; write --shop github --repo <owner/name>`);
+    if (opts.has(name)) die(`${name} is given twice`);
+    if (value === undefined) die(`${name} needs a value`);
+    opts.set(name, value);
+  }
+  if (opts.get("--shop") !== "github") die(`--shop ${opts.get("--shop")} is not a walk's shop; write --shop github, or nothing for the memory walk`);
+  const repo = opts.get("--repo");
+  if (repo === undefined) die("--shop github needs --repo <owner/name>, the repository the token is scoped to");
+  if (!REPO_SHAPE.test(repo)) die("--repo is not owner/name of letters, digits, _, ., and -");
+  await setUp(githubPlan(repo, await readToken("--shop github")));
+} else if (flag === "--search") await search(words[0], words.slice(1));
+else if (flag === "--status" || flag === "--teardown") {
+  if (words.length > 1) die(`too many words: ${words.slice(1).join(" ")}`);
+  if (flag === "--status") status(words[0]);
+  else await teardown(words[0]);
+} else die(`${flag} is not a walk flag; write nothing, --shop github --repo <owner/name>, --status <root>, --search <root> [<path>...], or --teardown <root>`);

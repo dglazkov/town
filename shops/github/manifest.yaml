@@ -1,0 +1,44 @@
+name: town/github
+version: 0.1.0
+summary: Issues on a GitHub repository.
+guidance: |
+  A repo is `owner/name`, and an issue is its number as GitHub shows
+  it. A body is Markdown; a long one comes on stdin.
+runtime: subprocess
+entry: ./main.mjs
+credentials:
+  - type: github-token
+commands:
+  - name: list
+    summary: List a repository's issues, open ones by default.
+    effect: read
+    args:
+      - { name: repo, type: string, required: true, doc: "owner/name", constrainable: [equals, one_of, prefix, regex] }
+      - { name: state, type: enum, values: [open, closed, all], default: open }
+      - { name: limit, type: int, default: 20, constrainable: [equals, one_of] }
+    output: text
+  - name: show
+    summary: "Print one issue: title, state, author, body."
+    effect: read
+    args:
+      - { name: repo, type: string, required: true, constrainable: [equals, one_of, prefix, regex] }
+      - { name: number, type: int, required: true }
+    output: text
+  - name: reply
+    summary: Add a comment to an issue.
+    effect: write
+    args:
+      - { name: repo, type: string, required: true, constrainable: [equals, one_of, prefix, regex] }
+      - { name: number, type: int, required: true }
+      - { name: body, type: string, doc: "Markdown. Reads stdin if omitted.", constrainable: [max_length] }
+    output: text
+tests:
+  - name: list prints numbered lines
+    run: list --repo octocat/Hello-World --state all --limit 3
+    expect: { contains: "#" }
+  - name: show prints a title
+    run: show --repo octocat/Hello-World --number 1
+    expect: { exit: 0 }
+  - name: a missing repo fails
+    run: list --repo octocat/no-such-repo-here
+    expect: { exit: 1 }

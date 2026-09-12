@@ -16,7 +16,7 @@ const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 function shopWords(): string[] {
   const words = new Set<string>();
   for (const dir of readdirSync(path.join(ROOT, "shops"))) {
-    const m = parseManifest(read(`shops/${dir}/manifest.yaml`)).manifest!;
+    const m = parseManifest(read(`shops/${dir}/manifest.yaml`), ["github-token"]).manifest!;
     words.add(m.name).add(m.name.split("/")[1]!);
     for (const c of m.commands) {
       words.add(c.name);

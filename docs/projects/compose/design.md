@@ -333,9 +333,11 @@ and `town` sends only a pipe or a file, as gate found. `changes` runs `town memo
 and `town github list …` again, and prints `opened:` with the numbers
 now open that were not, and `closed:` with the numbers that were open
 and are not, `none` under a heading with nothing, `#<number> <title>`
-per issue. No look yet is exit 1 with a line naming no key. It runs
-`town` with `execFile`, never a shell, its stdin closed, reads no environment but
-`TOWN_GRANT` and `PATH` through `town` itself, and passes a denial line
+per issue. No look yet is exit 1 with a line naming no key, and
+`changes` recalls before it lists, so no look asks nothing of GitHub.
+It runs `town` with `spawn`, never a shell, its stdin ignored (`execFile`
+takes no `stdio`, and hands the child a socket), reads no environment
+but `TOWN_GRANT` and `PATH` through `town` itself, and passes a denial line
 from `town` to its own stderr as it came, since those lines carry no
 value. It is the draft's third seed shop with its documents swapped for
 issues: a recipe over two shops, a write and a read at each.

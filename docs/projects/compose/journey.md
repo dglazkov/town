@@ -53,8 +53,9 @@ pass holds three grants: `town/watch` with `mark` and `changes`;
    say which depends on which.
 2. `town watch --help` prints the shop's summary, guidance, its two
    commands with their arguments, and the grant's constraints in words,
-   as gate's help writes them. Nothing about github, memory, or a
-   dependency.
+   as gate's help writes them. Help itself says nothing of github,
+   memory, or a dependency; the guidance's prose says where the last
+   look is kept, as the second criterion allows.
 3. `town watch mark --repo <owner/name>` prints how many open issues it
    remembered, exit 0. The town made two calls on the agent's behalf:
    `github list` under the agent's github grant, and `memory remember`

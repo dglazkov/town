@@ -57,9 +57,10 @@ journey 2 steps 1 to 3, as verbs against the store with no server.
 validated against the types the store holds when a store is at hand
 (the validator takes the list of type names; `townd admin shop test`
 with no data directory takes none and refuses a need, naming `--data`);
-`depends` still refused naming compose. `src/spec.ts`: §7's environment
-line grown by one, the shop's side of the teller in prose, §8 rewritten
-for `credentials` and `depends`, still under three hundred lines.
+`depends` still refused naming compose. `src/spec.ts`: §6 saying a test
+reads and never writes, §7's environment line grown by one, the shop's
+side of the teller in prose, §8 rewritten for `credentials` and
+`depends`, still under three hundred lines.
 `src/vault.ts`: `sealCredential`, `openCredential`, the key file made
 with mode 600 on first need, the refusal when rows exist and the key
 does not. `src/teller.ts`: `openTeller` as the design writes it.
@@ -85,9 +86,12 @@ refuses the next connection and aborts one in flight, two tellers never
 share a URL, `requests` counts. `test/runtime.test.ts`, the environment
 is exactly three names plus `TOWN_CREDENTIAL_<TYPE>` per need, the
 token in no name and no value, the teller closed after exit and after
-the limit, the fixture entry's request seen signed at the fake origin.
-`test/store.test.ts`, a database made by gate's schema opens with its
-rows and the new tables. `test/admin.test.ts`, `credential add` from a
+the limit, and a request from `test/fixtures/teller-shop`, a fixture
+with one need of a test type and one command that sends a request
+through its teller and prints the answer, seen signed at the fake
+origin. `test/store.test.ts`, a database made by gate's schema opens
+with its rows and the new tables, and a credential added is in neither
+`town.db` nor its WAL, searched as bytes. `test/admin.test.ts`, `credential add` from a
 pipe, the trailing newline trimmed, `ls` printing no value, `type rm`
 refused while a credential of it exists.
 
@@ -143,8 +147,7 @@ a binding the same, and nothing opened on any denial. `test/help.test.ts`,
 a shop whose grant is not live is absent. `test/store.test.ts`, the
 liveness query. Tests, `command`: `test/vault.test.ts` walking journey
 2 steps 1 to 8 with `type add` of a fake origin the test starts and a
-fixture shop, `test/fixtures/echo-shop`, whose one command sends a
-request through its teller and prints the origin's answer; the copy in
+fixture shop, `test/fixtures/teller-shop` from vault phase 0; the copy in
 step 8 with the key, and the copy of `town.db` alone refused.
 `test/exfil.test.ts`, journey 3 step 5: the entry swapped for one that
 prints its environment, argv, stdin, `TOWN_STATE`, and every file it

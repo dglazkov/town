@@ -24,12 +24,12 @@ and the walk's PATH carries the first alone.
 
 ---
 
-**Where we are: gate phases 0 and 1 closed, 12 September 2026.** The
-town stands on this laptop: the store, the gate, help for the grant,
-notices, the audit, the admin, and `town` as a pipe, proved by both
-rings and typed by hand. The next thing to do is **gate phase 2**, the
-walk: a real Claude Code session in a scratch directory, at the cost of
-one model session. Nothing waits on a person.
+**Where we are: every phase closed, 12 September 2026.** The town stands
+on this laptop and was walked: a real Claude Code session did its task
+from `town --help` with no call denied, and said what it could not do
+when its grant was narrowed. Nothing in gate waits on work or on a
+person; what comes next is another project (vault, compose, a hosted
+box), named in design.md's last section.
 
 The order is dependency order. Phase 0 is the contract between the town
 and a shop, provable with no server, so the town in phase 1 is a gate in
@@ -239,6 +239,24 @@ least one after, and the agent's transcript says memory can no longer
 be written and does not retry. Recorded as a Finding with the counts.
 No provision step: the town and the agent both run on this laptop.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. `pnpm test` exit 0 at 232 tests, and the
+walk held: zero denied rows before the grant was narrowed, one after,
+and the agent said it could no longer write memory and did not retry.
 
 **Findings:**
+
+- **2026-09-12 — The walk: 8 audit rows, 0 denied, then 3 rows, 1
+  denied.** Claude Code on Sonnet 5, `Bash(town:*)` its only tool, read
+  both helps and remembered and recalled three notes; narrowed to
+  `recall`, it tried `remember` once, reread help, and said so. $0.12.
+- **2026-09-12 — The narrowing came between two turns of one session.**
+  The second ask resumed the first with `claude -p --resume`; the agent
+  carried the old help in its context and learned the change from the
+  denial, which is the case the criterion names.
+- **2026-09-12 — A denied call does not stop the agent's shell.** It sent
+  `remember` and `recall` in one Bash call; the recall ran after the
+  denial and failed at the shop, one `shop-error` row that is the
+  agent's chaining and not the gate's.
+- **2026-09-12 — The phase took seven minutes of wall clock.** The script
+  and its command test, then two agent turns; `--status` counts rows by
+  result, so the walk's numbers are read, not parsed by hand.

@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 since: 2026-09-12
 see: gate
-note: "written 12 Sep 2026, the day the draft was cut into projects: the town's gate, where a grant is checked. Gate phases 0 and 1 closed the same day: the manifest spec, the runtime, and the memory shop (journey 4), then the town, the admin, and the command, with journeys 1 to 3 proved by tests and typed by hand. Journey 1 step 7, the walk with a real agent, is gate phase 2 and still to come."
+note: "written 12 Sep 2026, the day the draft was cut into projects: the town's gate, where a grant is checked. All three phases closed the same day: the manifest spec, the runtime, and the memory shop (journey 4); the town, the admin, and the command, journeys 1 to 3 proved by tests and typed by hand; and the walk, a real Claude Code session doing its task with no call denied and saying what it could not do when its grant was narrowed under it."
 ---
 
 # Gate — the journeys

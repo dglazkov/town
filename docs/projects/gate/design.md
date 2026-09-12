@@ -377,8 +377,9 @@ agent.
 
 - **Credentials and the vault.** The next project, **vault**: typed credentials,
   the operator connecting one, the runtime injecting it into a shop's
-  outbound calls through a proxy, and `town/gdocs` as the shop that
-  needs it.
+  outbound calls through a window it opens per call, and `town/github`
+  as the shop that needs it. The draft's `town/gdocs` needs OAuth, a
+  second mechanism, and waits on a project of its own, **consent**.
 - **Dependencies and inter-shop calls.** A shop calling another through
   the town with its caller's grant, attenuated by the dependency's scope
   (the draft's §6.4). A later project, **compose**, when there is a shop

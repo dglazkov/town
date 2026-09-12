@@ -8,9 +8,11 @@ runs anything, so there is nothing to sign into and nothing granted that
 a person did not approve. The draft that argues the whole of it is
 [docs/drafts/town-design-doc.md](docs/drafts/town-design-doc.md); the
 projects under [docs/projects/](docs/projects/README.md) are how it gets
-built, one short body of work at a time. The first is
+built, one short body of work at a time. The first was
 [project gate](docs/projects/gate/design.md): a grant file in a
-directory, the `town` command, and one shop, on one box.
+directory, the `town` command, and one shop, on one box. The second is
+[project vault](docs/projects/vault/design.md): a credential sealed in
+the town and used on a shop's behalf, with the shop never holding it.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

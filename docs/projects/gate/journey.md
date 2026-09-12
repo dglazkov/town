@@ -66,7 +66,7 @@ holds `.town/grant`. Nobody told it about memory.
    command 'forget' is not available to this grant`, and exits 2. The
    shop did not run.
 6. `town memory recall --key notes/lunch --json` prints a JSON envelope:
-   `ok`, `output`, `notices`, `exit`. With the pass a day from expiry,
+   `ok`, `output`, `notices`, `exit`. With the grant a day from expiry,
    `notices` holds `grant-expires`, and without `--json` the same notice
    is one `town-notice:` line on stderr with stdout untouched.
 7. The agent reads what it needs from `--help` and the notices, and

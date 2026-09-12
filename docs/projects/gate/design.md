@@ -208,9 +208,14 @@ Every call is `POST /call` with a bearer and `{ "argv": [...], "stdin":
    Missing, revoked, or expired: exit 3, one line on stderr, an audit
    row with no shop.
 2. **The argv to a shop and a command.** `argv[0]` is a shop the pass
-   holds a grant for, or `--help`. A shop with no grant is the same
-   line as a command with none, "not available to this grant": the pass
-   is not told what it cannot have.
+   holds a grant for, by its full name or by its last segment when no
+   other grant of the pass shares it (`memory` for `town/memory`), or
+   `--help`. A shop with no grant is the same line as a command with
+   none, "not available to this grant": the pass is not told what it
+   cannot have. The operator's words `serve`, `admin`, and `spec` are
+   the one exception: no shop may be named them, and the gate answers
+   them as a usage error, exit 1, saying `town` has no such command,
+   which tells the pass nothing about the town.
 3. **The command to the grant.** Not in the grant's `commands`: exit 2,
    the one line. `--help` at a shop renders for the grant.
 4. **The arguments to the manifest.** Parsed against the command's
@@ -242,7 +247,8 @@ commands and asserts each rendering names exactly that subset.
 
 **Notices** are lines the town, never a shop, writes: `town-notice:
 <kind> key=value …`, a continuation indented. This project has two
-kinds, `grant-expires` under seven days and `pass-expires`, and the
+kinds, `grant-expires` and `pass-expires`, each when under seven days
+remain, and the
 channel is built to the draft's §8.3 so `deprecated` and
 `better-shop-exists` are rows added later. In `--json` mode the envelope
 is `{ "ok", "output", "notices": [...], "exit" }` and stderr is empty.
@@ -260,7 +266,10 @@ content.
 <path>`, `$TOWN_GRANT`, `./.town/grant` walking up, `~/.town/grant`. It
 posts argv, stdin when stdin is not a terminal, and the `--json` flag,
 prints stdout to stdout and stderr to stderr, and exits with the code
-it was given. It parses nothing after its own two flags. A guard reads
+it was given. Its two flags are taken wherever they stand in argv, so
+`--json` at the end of a call is the command's; the spec reserves
+`json`, `grant`, and `help` as argument names no shop may declare. It
+parses nothing else. A guard reads
 `src/cli.ts` for the name of any shop, command, or argument and fails on
 one; the command must be the same file when the town holds a hundred
 shops.
@@ -295,7 +304,10 @@ there.
 ## The admin
 
 `townd admin --data <dir> <verb>`, directly over the store, server
-running or not, since SQLite is the meeting point:
+running or not, since SQLite is the meeting point. `serve` and `admin`
+take the data directory from `--data`, or from `$TOWN_DATA` when the
+flag is absent, so an operator's shell names it once, as journey 2 does
+after its second step:
 
 - `user add <name>`; `user ls`.
 - `pass new --user <name> --label <text> [--expires <duration>]`: the

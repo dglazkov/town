@@ -98,7 +98,7 @@ mutations failing their tests.
 
 **Findings:**
 
-- **2026-09-12 — The phase took about half an hour of wall clock.** The
+- **2026-09-12 — The phase took eighteen minutes of wall clock.** The
   docs needed one fix first: journey 4 gives a shop three environment
   names, the design had five, and the mechanism went to three.
 - **2026-09-12 — On macOS a Node entry sees `__CF_USER_TEXT_ENCODING`

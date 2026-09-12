@@ -1,0 +1,48 @@
+name: test/verdicts
+version: 0.0.1
+summary: A shop whose tests pass and fail on purpose, for the shop test runner's tests.
+runtime: subprocess
+entry: ./main.mjs
+commands:
+  - name: say
+    summary: Print the text.
+    effect: read
+    args:
+      - { name: text, type: string, required: true }
+    output: text
+  - name: count
+    summary: Add one to a counter under TOWN_STATE and print it.
+    effect: write
+    output: text
+  - name: fail
+    summary: Write to stderr and exit 2.
+    effect: read
+    output: text
+tests:
+  - name: passes
+    run: say --text hi
+    expect: { equals: hi }
+  - name: quoted words, nothing expanded
+    run: |
+      say --text "two words"
+      say --text '$HOME and `pwd`'
+    expect: { equals: "$HOME and `pwd`" }
+  - name: wrong output fails
+    run: say --text hi
+    expect: { contains: bye }
+  - name: a failing middle line fails
+    run: |
+      fail
+      say --text hi
+    expect: { contains: hi }
+  - name: wrong exit fails
+    run: say --text hi
+    expect: { exit: 1 }
+  - name: lines share one state
+    run: |
+      count
+      count
+    expect: { equals: "2" }
+  - name: each test starts empty
+    run: count
+    expect: { equals: "1" }

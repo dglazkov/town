@@ -1,0 +1,28 @@
+name: test/echo
+version: 0.0.1
+summary: Prints what the runtime gave it, for the runtime's tests.
+runtime: subprocess
+entry: ./main.mjs
+commands:
+  - name: echo
+    summary: Print argv, the environment, the working directory, and stdin as JSON.
+    effect: read
+    args:
+      - { name: zeta, type: string, required: true }
+      - { name: alpha, type: int, default: 7 }
+      - { name: mode, type: enum, values: [fast, slow], default: slow }
+      - { name: loud, type: bool, default: false }
+      - { name: note, type: string }
+    output: json
+  - name: sleep
+    summary: Start a shell that sleeps, write its pid under TOWN_STATE, and wait for it.
+    effect: read
+    output: text
+  - name: fail
+    summary: Write to stderr and exit 3.
+    effect: read
+    output: text
+tests:
+  - name: echo runs
+    run: echo --zeta z
+    expect: { contains: "\"argv\"" }

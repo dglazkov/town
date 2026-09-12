@@ -1,6 +1,6 @@
 # Gate — the design
 
-**12 September 2026.** Design. Nothing built. The project's status lives
+**12 September 2026.** Design. Gate phase 0 built. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. The draft this is cut from is
@@ -131,6 +131,21 @@ tests:
       forget --key t/b
       recall --key t/b
     expect: { exit: 1 }
+  - name: list under a prefix
+    run: |
+      remember --key notes/lunch --value soup
+      remember --key notes/dinner --value rice
+      remember --key todo/call --value mom
+      list --prefix notes/
+    expect: { equals: "notes/dinner\nnotes/lunch" }
+  - name: recall of a missing key fails
+    run: |
+      recall --key never/set
+    expect: { exit: 1 }
+  - name: a key outside the state is refused
+    run: |
+      remember --key ../escape --value x
+    expect: { exit: 1 }
 ```
 
 Types are `string`, `int`, `bool`, `enum` with `values`. `effect` is
@@ -142,7 +157,9 @@ and nothing expanded, each parsed against the manifest and run in order
 through the runtime against one scratch state. Every line but the last
 must exit 0; `expect` is one of `contains`, `equals` (on the last line's
 stdout), or `exit` (its exit code). An argument's `default` fills it when
-omitted; `enum` lists its `values`.
+omitted; `enum` lists its `values`. A `bool` is `--name true|false` in
+canonical argv. `tests` is required and not empty: the draft's `tests:
+manual` has no town to be manual in yet.
 
 `townd spec` prints the spec: the fields, the types, the runtime contract,
 one full example. It is the whole SDK, and the validator's every message
@@ -164,8 +181,9 @@ process:
   opaque id; `PATH`, the town's own. Nothing else from the town's own
   environment reaches the shop; the command is `argv[0]` and the shop
   knows its own name.
-- **stdin**: the call's stdin, as the command sent it, capped at one
-  megabyte.
+- **stdin**: the call's stdin, as the command sent it; past one megabyte
+  the call is refused before the entry runs, since a truncated value is
+  a corrupt one.
 - **stdout**: the result, passed to the agent as it is.
 - **stderr**: the shop's own log, kept on the audit row. On a nonzero
   exit the agent sees `error: town/memory recall failed` and the last

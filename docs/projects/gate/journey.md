@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-12
 see: gate
-note: "written 12 Sep 2026, the day the draft was cut into projects: the town's gate, where a grant is checked. Three phases, none started."
+note: "written 12 Sep 2026, the day the draft was cut into projects: the town's gate, where a grant is checked. Gate phase 0 closed the same day: the manifest spec, the validator, the runtime contract, and the memory shop passing its own tests, journey 4 steps 1 to 4. The town, the command, and the walk are still to come."
 ---
 
 # Gate — the journeys

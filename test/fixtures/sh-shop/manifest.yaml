@@ -1,0 +1,16 @@
+name: test/sh
+version: 0.0.1
+summary: An entry that is not JavaScript, executed directly.
+runtime: subprocess
+entry: ./entry.sh
+commands:
+  - name: args
+    summary: Print each argument on its own line.
+    effect: read
+    args:
+      - { name: word, type: string, required: true }
+    output: text
+tests:
+  - name: prints
+    run: args --word hi
+    expect: { contains: hi }

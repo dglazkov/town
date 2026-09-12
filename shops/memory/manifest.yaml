@@ -1,0 +1,61 @@
+name: town/memory
+version: 0.1.0
+summary: Remember and recall short notes by key.
+guidance: |
+  Keys are paths, `notes/lunch`; `list --prefix notes/` shows what is
+  under one. Values are one line; for more, pipe stdin to `remember`.
+runtime: subprocess
+entry: ./main.mjs
+commands:
+  - name: remember
+    summary: Store a value under a key.
+    effect: write
+    args:
+      - { name: key, type: string, required: true, doc: "A path-like key.", constrainable: [prefix, regex, max_length] }
+      - { name: value, type: string, doc: "The value. Reads stdin if omitted." }
+    output: text
+  - name: recall
+    summary: Print the value under a key.
+    effect: read
+    args:
+      - { name: key, type: string, required: true, constrainable: [prefix, regex] }
+    output: text
+  - name: list
+    summary: List keys, optionally under a prefix.
+    effect: read
+    args:
+      - { name: prefix, type: string, constrainable: [prefix] }
+    output: text
+  - name: forget
+    summary: Delete a key.
+    effect: destructive
+    args:
+      - { name: key, type: string, required: true, constrainable: [prefix] }
+    output: text
+tests:
+  - name: roundtrip
+    run: |
+      remember --key t/a --value hello
+      recall --key t/a
+    expect: { contains: hello }
+  - name: forget removes
+    run: |
+      remember --key t/b --value x
+      forget --key t/b
+      recall --key t/b
+    expect: { exit: 1 }
+  - name: list under a prefix
+    run: |
+      remember --key notes/lunch --value soup
+      remember --key notes/dinner --value rice
+      remember --key todo/call --value mom
+      list --prefix notes/
+    expect: { equals: "notes/dinner\nnotes/lunch" }
+  - name: recall of a missing key fails
+    run: |
+      recall --key never/set
+    expect: { exit: 1 }
+  - name: a key outside the state is refused
+    run: |
+      remember --key ../escape --value x
+    expect: { exit: 1 }

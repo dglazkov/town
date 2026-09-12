@@ -24,11 +24,12 @@ and the walk's PATH carries the first alone.
 
 ---
 
-**Where we are: nothing built, 12 September 2026.** The next thing to do
-is **gate phase 0**, the manifest and the runtime: the package, the
-spec, the validator, the runtime contract, and the memory shop proved
-through its own tests. Nothing waits on a person; the one thing in the
-project that costs money is gate phase 2's walk, a real model's turn.
+**Where we are: gate phase 0 closed, 12 September 2026.** The package,
+`townd spec`, the validator, the argument parser, the runtime, and the
+memory shop stand, proved in process with no server. The next thing to
+do is **gate phase 1**, the town and the command. Nothing waits on a
+person; the one thing in the project that costs money is gate phase 2's
+walk, a real model's turn.
 
 The order is dependency order. Phase 0 is the contract between the town
 and a shop, provable with no server, so the town in phase 1 is a gate in
@@ -91,9 +92,32 @@ and exits 0. Falsified by at least one mutation: the runtime passing
 the parent's environment through (the three-names assertion fails), and
 a manifest with `credentials:` accepted (the refusal test fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held as written: 96 checkout
+tests, a 251-line spec, five `ok` lines from memory's tests, and both
+mutations failing their tests.
 
 **Findings:**
+
+- **2026-09-12 — The phase took about half an hour of wall clock.** The
+  docs needed one fix first: journey 4 gives a shop three environment
+  names, the design had five, and the mechanism went to three.
+- **2026-09-12 — On macOS a Node entry sees `__CF_USER_TEXT_ENCODING`
+  with an empty environment.** CoreFoundation sets it inside the process.
+  The environment test measures what Node adds to itself and asserts the
+  rest is exactly three names; the pass-through mutation still fails it.
+- **2026-09-12 — Stdin past one megabyte is refused, not truncated.** A
+  truncated `remember` stores a corrupt value. The runtime throws before
+  any process exists; the gate must turn that into a refusal.
+- **2026-09-12 — The runtime kills the entry's process group on exit, not
+  only at the limit.** Nothing a call started outlives it, and a
+  grandchild holding stdout open cannot hang the result.
+- **2026-09-12 — The toolchain's newest majors ship prebuilt platform
+  binaries.** TypeScript 7, vitest 5's rolldown, lightningcss: dev-only,
+  nothing compiles at install, so the rule holds; the town's one runtime
+  dependency is `yaml`.
+- **2026-09-12 — Open: symlinks in a shop directory.** The runtime checks
+  the entry path lexically, so a link inside a shop can point outside it.
+  Gate phase 1's `shop add` resolves or refuses links when it copies.
 
 ---
 

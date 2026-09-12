@@ -27,10 +27,11 @@ leaves the town's memory, and `src/cli.ts` learns nothing here, not
 
 ---
 
-**Where we are: compose phases 0 and 1 closed, 12 September 2026.**
-Next is compose phase 2, the watch shop and the walk, whose walk waits
-on a person: the GitHub token and repository of vault's walk, and a
-hand to close an issue. Every journey step the `command` ring can walk
+**Where we are: compose phases 0 and 1 closed, compose phase 2
+PART-DONE, 12 September 2026.** Next is compose phase 2's walk, which
+waits on a person: a GitHub token scoped to one repository of theirs
+with fewer than a hundred open issues, and a hand to close one. The
+watch shop and its stage are built and proved on a fake GitHub. Every journey step the `command` ring can walk
 is walked on fixtures: `depends` validated, a clerk per call, the
 effective grant at every depth, liveness needing the dependencies, the
 denial one level down told in the agent's words, the audit as a tree,
@@ -308,4 +309,28 @@ scratch directory, and `town.db` with its WAL finds nothing. The wall
 clock of one `mark` from the audit's latency, recorded as a finding
 with the counts.
 
-**Status: NOT STARTED.**
+**Status: PART-DONE.** 12 Sep 2026. `pnpm test` exit 0 at 387 tests,
+and `test/watch-shop.test.ts` walks journey 1 steps 1 to 6 over the real
+github and memory shops on a fake GitHub; `shop add` on the real token
+and the walk wait on the Open entry below.
+
+**Findings:**
+
+- **2026-09-12 — Open: the token, the repository, and a hand.** A
+  fine-grained token scoped to one repository with Issues read and
+  write, that repository with fewer than a hundred open issues, and one
+  issue closed by hand between asks. Waits on the user.
+- **2026-09-12 — The build before the token took twenty minutes.** Two
+  doc fixes first, watch's constraint and stdin; two after, `spawn` for
+  `execFile` and journey 1 step 2's wording. No return to the builder.
+- **2026-09-12 — `execFile` takes no `stdio`.** Its child's stdin is a
+  socket whatever is asked; watch spawns `town` with stdin ignored.
+- **2026-09-12 — The cli guard parsed shops without their dependencies.**
+  Watch's `depends` was refused; the guard now parses a shop after the
+  shops it names, and checks watch's words too.
+- **2026-09-12 — Watch keeps at most a hundred open issues.** Past that
+  a shift in the first hundred reads as opened or closed; `changes`
+  recalls first, so no look is exit 1 before any github denial.
+- **2026-09-12 — On loopback one `mark` took 337 to 438 ms.** Inner
+  `list` about 45 ms, `remember` about 22; the rest is watch's Node, two
+  `town` processes, and the clerk. The real figure is the walk's.

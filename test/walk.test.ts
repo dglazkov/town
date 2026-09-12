@@ -2,10 +2,11 @@
 // The walk's stage without the agent: scripts/walk.mjs makes a town, a
 // grant, an agent's directory, and a shim holding `town` alone; the
 // sentence it hands the conductor is README's and SKILL.md's; `--status`
-// counts the audit by result; `--teardown` leaves no process and no
-// directory. `--shop github` refuses, before any town or directory
-// exists, a missing or malformed repo and a stdin with no token; it is
-// not run as far as `shop add`, which reaches GitHub. `--search` finds a
+// counts the audit by result and prints it as a tree by parent, a shop's
+// calls under the call they served; `--teardown` leaves no process and no
+// directory. `--shop github` and `--shop watch` refuse, before any town or
+// directory exists, a missing or malformed repo and a stdin with no token;
+// neither is run as far as `shop add`, which reaches GitHub. `--search` finds a
 // planted value in a file named as the database's WAL, and none in a
 // clean directory, and never prints it.
 
@@ -13,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { ROOT, assertBuilt, cleanEnv, cleanup, tmp, type Ran } from "./helpers/town.js";
+import { ROOT, agent, assertBuilt, cleanEnv, cleanup, serve, tmp, type Ran, type Town } from "./helpers/town.js";
 
 const WALK = path.join(ROOT, "scripts/walk.mjs");
 const tmpdir = tmp("walk-tmpdir");
@@ -97,26 +98,68 @@ it("sets the stage, reports the audit, and strikes it", () => {
   expect(existsSync(root)).toBe(false);
 }, 60_000);
 
-it("refuses --shop github with no repo, a malformed repo, or no token on stdin, one line each and no walk root left", () => {
+it.each(["github", "watch"])("refuses --shop %s with no repo, a malformed repo, or no token on stdin, one line each and no walk root left", (shop) => {
   const before = roots();
   const refused = [
-    walk("--shop", "github"),
-    walk("--shop", "github", "--repo", "owner/../../user"),
-    walk("--shop", "github", "--repo", "just-a-name"),
-    walk("--shop", "github", "--repo", "octo/hello"),
-    walkPiped("", "--shop", "github", "--repo", "octo/hello"),
-    walkPiped("\n", "--shop", "github", "--repo", "octo/hello"),
-    walkPiped("tok_never_used", "--shop", "gitlab", "--repo", "octo/hello"),
+    walk("--shop", shop),
+    walk("--shop", shop, "--repo", "owner/../../user"),
+    walk("--shop", shop, "--repo", "just-a-name"),
+    walk("--shop", shop, "--repo", "octo/hello"),
+    walkPiped("", "--shop", shop, "--repo", "octo/hello"),
+    walkPiped("\n", "--shop", shop, "--repo", "octo/hello"),
+    walkPiped("tok_never_used", "--shop", `${shop}x`, "--repo", "octo/hello"),
+    walkPiped("tok_never_used", "--shop", shop, "--repo", "octo/hello", "--commands", "mark"),
   ];
   for (const r of refused) {
     expect(r.exit, r.stderr).toBe(1);
     expect(r.stdout).toBe("");
     expect(r.stderr).toMatch(/^walk: [^\n]+\n$/);
   }
-  expect(refused[0]!.stderr).toContain("--repo");
+  expect(refused[0]!.stderr).toBe(`walk: --shop ${shop} needs --repo <owner/name>, the repository the token is scoped to\n`);
   expect(refused[1]!.stderr).not.toContain("user");
   expect(refused[3]!.stderr).toContain("stdin");
+  expect(refused[6]!.stderr).toBe(`walk: --shop ${shop}x is not a walk's shop; write --shop github or --shop watch, or nothing for the memory walk\n`);
+  for (const r of refused) expect(r.stderr).not.toContain("tok_never_used");
   expect(roots()).toEqual(before);
+}, 60_000);
+
+it("--status prints the audit as a tree: a shop's calls indented under the call they served, and how many there were", async () => {
+  const root = mkdtempSync(path.join(tmpdir, "town-walk-"));
+  const data = path.join(root, "data");
+  let town: Town | undefined;
+  const a = agent();
+  try {
+    town = await serve(data);
+    for (const dir of ["test/fixtures/echo-shop", "test/fixtures/recipe-shop"]) expect(town.admin("shop", "add", path.join(ROOT, dir)).exit).toBe(0);
+    expect(town.admin("user", "add", "walker").exit).toBe(0);
+    const pass = town.admin("pass", "new", "--user", "walker", "--label", "walk");
+    const passId = pass.stderr.trim();
+    expect(town.admin("grant", "new", "--pass", passId, "--shop", "test/echo", "--commands", "echo").exit).toBe(0);
+    expect(town.admin("grant", "new", "--pass", passId, "--shop", "test/recipe", "--commands", "relay").exit).toBe(0);
+    a.writeGrant(pass.stdout);
+    expect(a.town("recipe", "relay", "--words", "echo echo --zeta z").exit).toBe(0);
+    expect(a.town("recipe", "relay", "--words", "echo sleep").exit).toBe(2);
+    expect(a.town("echo", "echo", "--zeta", "z").exit).toBe(0);
+    writeFileSync(path.join(root, "walk.json"), JSON.stringify({ root, data, pid: 2 ** 22 + 7, passId, shop: "test/recipe" }));
+
+    const status = walk("--status", root);
+    expect(status.exit, status.stderr).toBe(0);
+    const section = status.stdout.split(`audit of ${passId}, as a tree by parent:\n`)[1]!.split("\n\n")[0]!;
+    const lines = section.split("\n");
+    expect(lines[0]).toMatch(/^call\s+at\s+pass\s+shop\s+command\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+detail$/);
+    expect(lines.slice(1, -1).map((l) => /^( *)call_[0-9a-f]{16}\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/.exec(l)!.slice(1))).toEqual([
+      ["", passId, "test/recipe", "relay", "ok"],
+      ["  ", passId, "test/echo", "echo", "ok"],
+      ["", passId, "test/recipe", "relay", "denied"],
+      ["  ", passId, "test/echo", "sleep", "denied"],
+      ["", passId, "test/echo", "echo", "ok"],
+    ]);
+    expect(lines.at(-1)).toBe("rows made in a shop's service: 2, under 2 calls");
+    expect(status.stdout).toMatch(/^rows: 5; ok 3, denied 2$/m);
+  } finally {
+    await town?.stop();
+    cleanup(root, a.dir, a.home, ...(town ? [town.env.HOME!] : []));
+  }
 }, 60_000);
 
 it("--search finds the value in a file named as the WAL and prints the file, never the value; a clean directory finds none", () => {

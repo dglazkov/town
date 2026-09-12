@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-12
 see: compose
-note: "written 12 Sep 2026, the day vault closed: the town's compose, where a shop calls other shops through the town as the agent that called it, cut to what its manifest declared and never more. Compose phase 0 closed the same day: `depends` validated, the clerk, `TOWN_GRANT` and `town` on a shop's PATH, `effective` cutting every depth from the agent's own, and `shop test` running the tree in scratch, all in process. Compose phase 1 closed the same day: liveness needing the dependencies, the denial one level down in the agent's words, the audit as a call tree, and the admin's refusals, walked on fixture shops against a running town. Compose phase 2, the watch shop and the walk on a real token, is next."
+note: "written 12 Sep 2026, the day vault closed: the town's compose, where a shop calls other shops through the town as the agent that called it, cut to what its manifest declared and never more. Compose phase 0 closed the same day: `depends` validated, the clerk, `TOWN_GRANT` and `town` on a shop's PATH, `effective` cutting every depth from the agent's own, and `shop test` running the tree in scratch, all in process. Compose phase 1 closed the same day: liveness needing the dependencies, the denial one level down in the agent's words, the audit as a call tree, and the admin's refusals, walked on fixture shops against a running town. Compose phase 2 built the watch shop and its stage the same day, proved on a fake GitHub; its walk on a real token and a real agent waits on the user."
 ---
 
 # Compose — the journeys

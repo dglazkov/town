@@ -8,16 +8,30 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";
-import { parseManifest } from "../src/manifest.js";
+import { parseManifest, type Manifest, type TownShop } from "../src/manifest.js";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 
+/** Every manifest under shops/, parsed with the seeded type and, for a shop with dependencies, the shops under shops/ it names, parsed first. */
+function shopManifests(): Manifest[] {
+  let pending = readdirSync(path.join(ROOT, "shops")).map((dir) => ({ dir, text: read(`shops/${dir}/manifest.yaml`) }));
+  const parsed: Manifest[] = [];
+  while (pending.length) {
+    const shops: TownShop[] = parsed.map((m) => ({ name: m.name, commands: m.commands.map((c) => c.name) }));
+    const results = pending.map((p) => ({ ...p, ...parseManifest(p.text, ["github-token"], shops) }));
+    const next = results.filter((r) => !r.manifest);
+    if (next.length === pending.length) throw new Error(`shops/ manifests that do not parse:\n${next.map((r) => `${r.dir}: ${r.refusals.join("; ")}`).join("\n")}`);
+    parsed.push(...results.flatMap((r) => (r.manifest ? [r.manifest] : [])));
+    pending = next;
+  }
+  return parsed;
+}
+
 /** Every word a shop under shops/ owns: its name and last segment, its commands, and its arguments as flags. */
 function shopWords(): string[] {
   const words = new Set<string>();
-  for (const dir of readdirSync(path.join(ROOT, "shops"))) {
-    const m = parseManifest(read(`shops/${dir}/manifest.yaml`), ["github-token"]).manifest!;
+  for (const m of shopManifests()) {
     words.add(m.name).add(m.name.split("/")[1]!);
     for (const c of m.commands) {
       words.add(c.name);
@@ -37,6 +51,7 @@ it("knows the words it must not hold: memory's, the operator's, vault's, and com
   for (const w of ["github", "credential", "repo", "depends", "watch", "clerk"]) expect(FORBIDDEN).toContain(w);
   const words = shopWords();
   for (const w of ["town/memory", "memory", "remember", "recall", "list", "forget", "--key", "--value", "--prefix"]) expect(words).toContain(w);
+  for (const w of ["town/watch", "watch", "mark", "changes", "--repo"]) expect(words).toContain(w);
 });
 
 it("src/cli.ts imports nothing of the town's but denials.ts, and denials.ts only types", () => {

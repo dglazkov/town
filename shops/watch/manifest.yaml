@@ -1,0 +1,35 @@
+name: town/watch
+version: 0.1.0
+summary: A repository's issues, compared with the last time you looked.
+guidance: |
+  A repo is `owner/name`. The last look is kept in your memory under
+  `watch/<owner>/<name>`, so it is yours and outlives the call.
+runtime: subprocess
+entry: ./main.mjs
+depends:
+  - shop: town/github
+    commands: [list]
+  - shop: town/memory
+    commands: [remember, recall]
+commands:
+  - name: mark
+    summary: Remember the repository's open issues as of now.
+    effect: write
+    args:
+      - { name: repo, type: string, required: true, doc: "owner/name", constrainable: [equals, one_of, prefix, regex] }
+    output: text
+  - name: changes
+    summary: Print the issues opened and closed since the last look.
+    effect: read
+    args:
+      - { name: repo, type: string, required: true, constrainable: [equals, one_of, prefix, regex] }
+    output: text
+tests:
+  - name: a look, then what changed
+    run: |
+      mark --repo octocat/Hello-World
+      changes --repo octocat/Hello-World
+    expect: { contains: "closed:" }
+  - name: no look yet fails
+    run: changes --repo octocat/Hello-World
+    expect: { exit: 1 }

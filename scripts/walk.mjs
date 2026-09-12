@@ -4,7 +4,9 @@
 //   node scripts/walk.mjs                    a town, the memory shop, a pass, a grant, and an agent's directory
 //   node scripts/walk.mjs --shop github --repo <owner/name> < <token file>
 //                                            the same for the github shop, on the token read from stdin
-//   node scripts/walk.mjs --status <root>    the walk pass's grants and audit, rows by result, credentials served
+//   node scripts/walk.mjs --shop watch --repo <owner/name> < <token file>
+//                                            github, memory, and watch over them, three grants, on the token read from stdin
+//   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result, credentials served
 //   node scripts/walk.mjs --search <root> [<path>...] < <token file>
 //                                            files under the root and the paths holding the token's bytes
 //   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root
@@ -30,27 +32,59 @@ const MEMORY = path.join(REPO, "shops", "memory");
 const SELF = path.join(REPO, "scripts", "walk.mjs");
 
 const GITHUB = path.join(REPO, "shops", "github");
+const WATCH = path.join(REPO, "shops", "watch");
 /** `owner/name`, each part of GitHub's characters and neither `.` nor `..`: what shops/github/main.mjs accepts. */
 const REPO_SHAPE = /^(?![.]{1,2}\/)[A-Za-z0-9_.-]+\/(?![.]{1,2}$)[A-Za-z0-9_.-]+$/;
 
-/** What the stage holds: the memory shop under notes/, or the github shop on one repository. */
+/**
+ * What the stage holds: the shops added, in order, the ones whose tests
+ * run on the walker's credential marked `user`; the grants made, in order,
+ * a composed shop's after its dependencies'; the shop the walk is of; and
+ * the narrowing printed for the conductor, a grant at one shop replaced by
+ * a narrower one. The memory shop under notes/; the github shop on one
+ * repository; or watch over github on that repository and memory.
+ */
 function memoryPlan() {
-  return { dir: MEMORY, shop: "town/memory", commands: "remember,recall,list", constraints: ["remember.key prefix notes/", "recall.key prefix notes/", "list.prefix prefix notes/"], expires: "30d" };
+  return {
+    shops: [{ dir: MEMORY }],
+    grants: [{ shop: "town/memory", commands: "remember,recall,list", constraints: ["remember.key prefix notes/", "recall.key prefix notes/", "list.prefix prefix notes/"] }],
+    shop: "town/memory",
+    expires: "30d",
+  };
 }
 
+const onRepo = (repo, commands) => commands.split(",").map((c) => `${c}.repo equals ${repo}`);
+
 function githubPlan(repo, token) {
-  const on = (commands) => commands.split(",").map((c) => `${c}.repo equals ${repo}`);
   return {
-    dir: GITHUB,
+    shops: [{ dir: GITHUB, user: true }],
+    grants: [{ shop: "town/github", commands: "list,show,reply", constraints: onRepo(repo, "list,show,reply") }],
     shop: "town/github",
     repo,
     token,
-    commands: "list,show,reply",
-    constraints: on("list,show,reply"),
-    narrowed: { commands: "list,show", constraints: on("list,show") },
+    narrowed: { shop: "town/github", commands: "list,show", constraints: onRepo(repo, "list,show") },
     expires: "1d",
   };
 }
+
+/** Journey 1's pass: github at list and show on the one repository, memory at three commands, watch at both, unconstrained. */
+function watchPlan(repo, token) {
+  return {
+    shops: [{ dir: GITHUB, user: true }, { dir: MEMORY }, { dir: WATCH, user: true }],
+    grants: [
+      { shop: "town/github", commands: "list,show", constraints: onRepo(repo, "list,show") },
+      { shop: "town/memory", commands: "remember,recall,list", constraints: [] },
+      { shop: "town/watch", commands: "mark,changes", constraints: [] },
+    ],
+    shop: "town/watch",
+    repo,
+    token,
+    narrowed: { shop: "town/memory", commands: "recall", constraints: [] },
+    expires: "1d",
+  };
+}
+
+const PLANS = { github: githubPlan, watch: watchPlan };
 
 function die(why, code = 1) {
   process.stderr.write(`walk: ${why}\n`);
@@ -195,32 +229,32 @@ async function setUp(plan) {
     chmodSync(path.join(shim, "town"), 0o755);
 
     town = await startTown(root, data);
-    if (plan.token === undefined) {
-      mustAdmin(data, "shop", "add", plan.dir);
-      mustAdmin(data, "user", "add", "walker");
-    } else {
-      mustAdmin(data, "user", "add", "walker");
-      mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", "walker", "--type", "github-token", "--label", "walk");
-      // Runs the shop's tests through a teller against GitHub, on the walker's token.
-      process.stdout.write(mustAdmin(data, "shop", "add", plan.dir, "--user", "walker").stdout);
+    mustAdmin(data, "user", "add", "walker");
+    if (plan.token !== undefined) mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", "walker", "--type", "github-token", "--label", "walk");
+    for (const shop of plan.shops) {
+      // A shop marked `user` runs its tests through a teller against GitHub, on the walker's token, its dependencies' tests included.
+      const added = mustAdmin(data, "shop", "add", shop.dir, ...(shop.user ? ["--user", "walker"] : []));
+      if (plan.token !== undefined) process.stdout.write(added.stdout);
     }
     const pass = mustAdmin(data, "pass", "new", "--user", "walker", "--label", "walk");
     const passId = pass.stderr.trim();
     const grantFile = path.join(agent, ".town", "grant");
     writeFileSync(grantFile, pass.stdout, { mode: 0o600 });
-    const grantArgs = (commands, constraints) => ["--pass", passId, "--shop", plan.shop, "--commands", commands, ...constraints.flatMap((c) => ["--constraint", c]), "--expires", plan.expires];
-    const grant = mustAdmin(data, "grant", "new", ...grantArgs(plan.commands, plan.constraints));
-    const grantId = grant.stdout.trim();
+    const grantArgs = (shop, commands, constraints) => ["--pass", passId, "--shop", shop, "--commands", commands, ...constraints.flatMap((c) => ["--constraint", c]), "--expires", plan.expires];
+    const grants = {};
+    for (const g of plan.grants) grants[g.shop] = mustAdmin(data, "grant", "new", ...grantArgs(g.shop, g.commands, g.constraints)).stdout.trim();
+    const grantId = grants[plan.shop];
     if (grantAbove(data)) throw new Error(`the data directory ${data} is under a grant file; the walk root is laid out wrong`);
 
-    const walk = { root, data, agent, shim, grantFile, address: town.address, pid: town.pid, passId, grantId, sentence: said, shop: plan.shop, ...(plan.repo ? { repo: plan.repo } : {}) };
+    const walk = { root, data, agent, shim, grantFile, address: town.address, pid: town.pid, passId, grantId, grants, sentence: said, shop: plan.shop, ...(plan.repo ? { repo: plan.repo } : {}) };
     writeFileSync(path.join(root, "walk.json"), `${JSON.stringify(walk, null, 2)}\n`);
     const quote = (w) => (/^[A-Za-z0-9_./:,=-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
-    const narrowing = plan.narrowed
+    const n = plan.narrowed;
+    const narrowing = n
       ? [
-          `to narrow the grant to ${plan.narrowed.commands.replace(",", " and ")}, under the running agent:`,
-          `  node ${TOWND} admin grant revoke ${grantId}`,
-          `  node ${TOWND} admin grant new ${grantArgs(plan.narrowed.commands, plan.narrowed.constraints).map(quote).join(" ")}`,
+          `to narrow the grant at ${n.shop} to ${n.commands.replace(/,([^,]*)$/, " and $1").replace(/,/g, ", ")}, under the running agent:`,
+          `  node ${TOWND} admin grant revoke ${grants[n.shop]}`,
+          `  node ${TOWND} admin grant new ${grantArgs(n.shop, n.commands, n.constraints).map(quote).join(" ")}`,
           ``,
         ]
       : [];
@@ -229,8 +263,8 @@ async function setUp(plan) {
       [
         `walk ready: ${root}`,
         ``,
-        `the town:    ${town.address} (pid ${town.pid}), pass ${passId}, grant ${grantId}`,
-        `the grant:   ${plan.shop} ${plan.commands}; ${plan.constraints.join("; ")}; expires ${plan.expires}`,
+        `the town:    ${town.address} (pid ${town.pid}), pass ${passId}`,
+        ...plan.grants.map((g, i) => `${(i === 0 ? "the grants:" : "").padEnd(13)}${grants[g.shop]} ${g.shop} ${g.commands}; ${g.constraints.length ? g.constraints.join("; ") : "no constraints"}; expires ${plan.expires}`),
         ``,
         `start the agent in:`,
         `  cd ${agent}`,
@@ -285,7 +319,7 @@ function status(root) {
   const grants = admin(walk.data, "grant", "ls", "--pass", walk.passId);
   const audit = admin(walk.data, "audit", "--pass", walk.passId);
   if (grants.exit !== 0 || audit.exit !== 0) die(`townd admin failed:\n${grants.stderr}${audit.stderr}`);
-  process.stdout.write(`grants of ${walk.passId}:\n${grants.stdout}\naudit of ${walk.passId}:\n${audit.stdout}\n`);
+  process.stdout.write(`grants of ${walk.passId}:\n${grants.stdout}\naudit of ${walk.passId}, as a tree by parent:\n${tree(audit.stdout)}\n`);
   const counts = new Map([["ok", 0], ["denied", 0]]);
   for (const r of column(audit.stdout, "result")) counts.set(r, (counts.get(r) ?? 0) + 1);
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
@@ -319,6 +353,31 @@ function status(root) {
   for (const [type, t] of types) process.stdout.write(`credentials: ${type} ${t.requests} requests over ${t.rows} rows, ${t.none} of them with none\n`);
   const bareTotal = [...bare.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows for ${shop} with no credential served: ${bareTotal}${bareTotal ? `; ${[...bare].map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}\n`);
+}
+
+/**
+ * The audit table as a tree: each call the agent made, then the calls made
+ * in its service under it, indented two spaces a level, in the audit's
+ * order within a level; a row whose parent is not among these rows is a
+ * root. Then how many rows were made in a shop's service.
+ */
+function tree(table) {
+  const names = ["at", "pass", "shop", "command", "result", "exit", "shop exit", "ms", "notices", "credentials", "call", "parent", "detail"];
+  const cols = Object.fromEntries(names.map((n) => [n, column(table, n)]));
+  const rows = cols.call.map((_, i) => Object.fromEntries(names.map((n) => [n, cols[n][i]])));
+  const ids = new Set(rows.map((r) => r.call));
+  const children = (id) => rows.filter((r) => r.parent === id);
+  const lines = [];
+  const visit = (r, depth) => {
+    lines.push([`${"  ".repeat(depth)}${r.call}`, ...names.filter((n) => n !== "call" && n !== "parent").map((n) => r[n])]);
+    for (const c of children(r.call)) visit(c, depth + 1);
+  };
+  for (const r of rows.filter((r) => r.parent === "-" || !ids.has(r.parent))) visit(r, 0);
+  const header = ["call", ...names.filter((n) => n !== "call" && n !== "parent")];
+  const widths = header.map((h, i) => Math.max(h.length, ...lines.map((l) => l[i].length)));
+  const render = (cells) => cells.map((c, i) => (i === cells.length - 1 ? c : c.padEnd(widths[i]))).join("  ").trimEnd();
+  const inner = rows.filter((r) => r.parent !== "-").length;
+  return `${[header, ...lines].map(render).join("\n")}\nrows made in a shop's service: ${inner}, under ${rows.filter((r) => children(r.call).length).length} calls\n`;
 }
 
 /** Every regular file under `p`, or `p` itself when it is one; links are not followed. */
@@ -394,19 +453,20 @@ else if (flag === "--shop") {
   const opts = new Map();
   for (let i = 0; i < process.argv.length - 2; i += 2) {
     const [name, value] = process.argv.slice(2 + i, 4 + i);
-    if (name !== "--shop" && name !== "--repo") die(`${name} is not a flag of --shop; write --shop github --repo <owner/name>`);
+    if (name !== "--shop" && name !== "--repo") die(`${name} is not a flag of --shop; write --shop github|watch --repo <owner/name>`);
     if (opts.has(name)) die(`${name} is given twice`);
     if (value === undefined) die(`${name} needs a value`);
     opts.set(name, value);
   }
-  if (opts.get("--shop") !== "github") die(`--shop ${opts.get("--shop")} is not a walk's shop; write --shop github, or nothing for the memory walk`);
+  const shop = opts.get("--shop");
+  if (!Object.hasOwn(PLANS, shop ?? "")) die(`--shop ${shop} is not a walk's shop; write --shop github or --shop watch, or nothing for the memory walk`);
   const repo = opts.get("--repo");
-  if (repo === undefined) die("--shop github needs --repo <owner/name>, the repository the token is scoped to");
+  if (repo === undefined) die(`--shop ${shop} needs --repo <owner/name>, the repository the token is scoped to`);
   if (!REPO_SHAPE.test(repo)) die("--repo is not owner/name of letters, digits, _, ., and -");
-  await setUp(githubPlan(repo, await readToken("--shop github")));
+  await setUp(PLANS[shop](repo, await readToken(`--shop ${shop}`)));
 } else if (flag === "--search") await search(words[0], words.slice(1));
 else if (flag === "--status" || flag === "--teardown") {
   if (words.length > 1) die(`too many words: ${words.slice(1).join(" ")}`);
   if (flag === "--status") status(words[0]);
   else await teardown(words[0]);
-} else die(`${flag} is not a walk flag; write nothing, --shop github --repo <owner/name>, --status <root>, --search <root> [<path>...], or --teardown <root>`);
+} else die(`${flag} is not a walk flag; write nothing, --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], or --teardown <root>`);

@@ -15,6 +15,7 @@ node bin/townd.js admin shop add shops/memory   # validates, runs the shop's tes
 node bin/townd.js admin user add dimitri
 printf '%s\n' "$TOKEN" | node bin/townd.js admin credential add --user dimitri --type github-token --label "dimitri's PAT"   # the secret on stdin, never an argument; the id on stdout
 node bin/townd.js admin shop add <dir> --user dimitri   # a shop that needs a credential type: its tests run through the town on dimitri's
+node bin/townd.js admin shop add shops/watch --user dimitri   # a shop over others, github and memory added first: its tests run through them, on dimitri's
 node bin/townd.js admin pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the token, shown once; the id on stderr
 node bin/townd.js admin grant new --pass <id> --shop town/memory --commands remember,recall,list --constraint 'remember.key prefix notes/' --expires 30d
 # grant new at a shop with a need binds the user's one credential of its type, or the one named with --credential <id>

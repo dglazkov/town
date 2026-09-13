@@ -15,10 +15,7 @@ const SRC = path.resolve(import.meta.dirname, "../src");
 export const LIMIT = 600;
 
 /** The files over the limit when the wire was set, each with the count it had then. Shrink or remove; never grow or add. */
-const RATCHET: Record<string, number> = {
-  "admin.ts": 720,
-  "store.ts": 829,
-};
+const RATCHET: Record<string, number> = {};
 
 /** Lines as `wc -l` counts them: newlines. */
 const lines = (file: string) => (readFileSync(path.join(SRC, file), "utf8").match(/\n/g) ?? []).length;

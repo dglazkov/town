@@ -17,6 +17,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { canonicalArgv, parseArgs } from "./args.js";
+import type { ResultClass } from "./audit.js";
 import { respond, type Answer } from "./clerk.js";
 import { firstMiss, splitTarget } from "./constraints.js";
 import { denials } from "./denials.js";
@@ -24,7 +25,7 @@ import { helpForGrant, helpForGrants, typedName, usageFor } from "./help.js";
 import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
-import { hashToken, type Grant, type Pass, type ResultClass, type Store } from "./store.js";
+import { hashToken, type Grant, type Pass, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
 
 export interface CallRequest {

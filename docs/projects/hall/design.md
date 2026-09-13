@@ -373,9 +373,11 @@ the constraints, the why or empty, the time. The answer is `requested
 prm_…; a person decides at the box, and town --help shows the answer`,
 detail `requested prm_…`. A permit is a whole grant, and approving it
 replaces the pass's grant at the shop, so a request that leaves out
-commands the pass holds there says so on a second line: `approved, it
-replaces your grant at town/memory and drops remember, recall, list;
-name them to keep them`. Asking again replaces the pending one. A permit
+commands the pass holds there says so on a second line: `if approved,
+this replaces your grant at town/memory and drops remember, recall,
+list; name them to keep them`. The line is conditional in its first
+word, since the walk's agent read `approved, it replaces` as the
+decision made and called the command it had just asked for. Asking again replaces the pending one. A permit
 at a shop the pass already holds fully is still a permit; the person
 may want to know.
 

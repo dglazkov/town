@@ -80,12 +80,16 @@ The town holds `town/hall` and `town/memory`.
    the runtime contract and prints what it printed. A manifest with a
    fourth command sent again replaces the shop, and `town --help` lists
    four commands; the grant followed the shop.
-7. `town hall request --shop town/memory --commands forget --why "to
-   clear finished items"` prints `requested prm_…; a person decides at
-   the box, and town --help shows the answer`. `town hall requests`
-   lists it as pending. Approved at the box, `town --help` lists
-   `forget` under memory and `requests` says `approved as <grant id>`;
-   denied, `requests` says `denied` and help is unchanged.
+7. `town hall request --shop town/memory --commands
+   remember,recall,list,forget --why "to clear finished items"` prints
+   `requested prm_…; a person decides at the box, and town --help shows
+   the answer`. The same request naming `forget` alone says so too, and
+   then that an approval replaces the grant at memory and drops
+   `remember, recall, list`, so name them to keep them. The request help
+   says the same before either is sent. `town hall requests` lists the
+   pending one. Approved at the box, `town --help` lists memory's four
+   commands and the to-do shop, and `requests` says `approved as <grant
+   id>`. Denied, `requests` says `denied` and help is unchanged.
 8. The walk: the agent, asked to build a shop that keeps a to-do list,
    put it in the town, and use it, gets there and uses it; asked then
    to do something memory's grant does not allow, it asks with

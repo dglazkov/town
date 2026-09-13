@@ -225,7 +225,7 @@ commands:
     effect: write
     args:
       - { name: shop, type: string, required: true, doc: "A full name, like town/memory.", constrainable: [equals, one_of, prefix] }
-      - { name: commands, type: string, doc: "Comma-separated; every command when omitted." }
+      - { name: commands, type: string, doc: "Comma-separated, every one you want at the shop: an approved request replaces the grant you hold there. Every command when omitted." }
       - { name: constraint, type: string, doc: "Limits you propose, `;`-separated, each `<command>.<arg> <kind> <value>`." }
       - { name: why, type: string, doc: "One line a person reads.", constrainable: [max_length] }
     output: text
@@ -286,8 +286,9 @@ made on write; `2` is refused as a symbolic link, since a shop is plain
 files as `shop add` already requires; `x`, `g`, `L`, and `K` are
 refused as pax or GNU headers, which a long path or an odd name needs,
 naming the command and saying to shorten the path. A path is `prefix/`
-and `name` with a leading `./` dropped; empty, `.`, absolute, or holding
-a `..` segment is refused. `manifest.yaml` must be at the root, or the
+and `name` with a leading `./` dropped. The root's own entry, `./`, is
+skipped, since `tar -C <dir> .` writes one. A file with an empty path,
+an absolute one, or one holding a `..` segment is refused. `manifest.yaml` must be at the root, or the
 refusal says to make the tar with `-C <dir> .` so the shop's files are.
 A file's mode keeps its owner-execute bit, so an entry that is not
 `.mjs` or `.js` can be the executable the contract asks for. Everything
@@ -370,8 +371,13 @@ pending permit of this pass at this shop is replaced. The permit is
 written: `prm_<8 random bytes hex>`, the pass, the shop, the commands,
 the constraints, the why or empty, the time. The answer is `requested
 prm_…; a person decides at the box, and town --help shows the answer`,
-detail `requested prm_…`. A permit at a shop the pass already holds
-fully is still a permit; the person may want to know.
+detail `requested prm_…`. A permit is a whole grant, and approving it
+replaces the pass's grant at the shop, so a request that leaves out
+commands the pass holds there says so on a second line: `approved, it
+replaces your grant at town/memory and drops remember, recall, list;
+name them to keep them`. Asking again replaces the pending one. A permit
+at a shop the pass already holds fully is still a permit; the person
+may want to know.
 
 `requests`: a table of this pass's permits, newest last: id, shop,
 commands, constraints, why, asked, and state: `pending`, `approved as

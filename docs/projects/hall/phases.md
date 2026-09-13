@@ -231,8 +231,9 @@ checkout: `townd serve` in one terminal; in another, the memory shop
 added, a user, a pass, a hall grant and a memory grant, a to-do shop
 written in a scratch directory with `.town/grant`, `tar --format ustar
 -cf - -C todo . | town hall publish`, `town --help` listing it, one
-call to it, `town hall request --shop town/memory --commands forget`,
-`permit approve` at the box, `town --help` listing `forget`, and
+call to it, `town hall request --shop town/memory --commands
+remember,recall,list,forget`, `permit approve` at the box, `town --help`
+listing `forget` and the to-do shop still, and
 `audit --call` on the publish showing its tests' calls, typed as
 journey 1 writes them.
 

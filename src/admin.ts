@@ -7,13 +7,16 @@
 // in the town has every dependency it declares: `shop add` and `shop rm`
 // refuse what would break that, and `grant new` at a composed shop waits
 // for the pass to hold its dependencies. `shop test` and `shop add` are
-// src/publish.ts; `grant new`'s checks are src/grants.ts.
+// src/publish.ts; `grant new`'s checks are src/grants.ts, and `permit
+// approve` makes an agent's proposed grant through them. The hall is the
+// town's own shop: `shop rm` refuses it, as `shop add` refuses its name.
 
 import { rm } from "node:fs/promises";
 import type { CallRow } from "./audit.js";
 import { shopDir } from "./gate.js";
-import { bindingText, checkGrant, constraintText, grantStateText } from "./grants.js";
-import type { Manifest } from "./manifest.js";
+import { approvePermit, bindingText, checkGrant, constraintText, grantStateText, permitTable } from "./grants.js";
+import { table } from "./help.js";
+import { HALL_NAME, type Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
 import { dependentsOf, shopAdd, shopTest, type Picked } from "./publish.js";
 import { StoreError, openStore, type Store } from "./store.js";
@@ -36,6 +39,7 @@ const USAGE = `usage: townd admin [--data <dir>] <verb>
   pass new --user <name> --label <text> [--expires <duration>] | pass ls | pass revoke <id>
   grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>] [--credential <id>]...
   grant ls [--pass <id>] | grant revoke <id>
+  permit ls [--pass <id>] | permit approve <id> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--credential <id>]... [--expires <duration>] | permit deny <id>
   shop add <dir> [--user <name> [--credential <id>]...] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
   type add <name> --origin <url> --header '<Name>: <value with {token}>' | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] (the secret on stdin) | credential ls [--user <name>] | credential rm <id>
@@ -212,13 +216,14 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
         g.passId,
         g.shop,
         g.commands.join(","),
+        g.source ?? "-",
         constraintText(g.constraints),
         bindingText(g.credentials),
         when(g.expiresAt),
         grantStateText(store, g, g.state, now),
         when(g.lastUse),
       ]);
-      io.out(table(["id", "pass", "shop", "commands", "constraints", "credentials", "expires", "state", "last use"], rows));
+      io.out(table(["id", "pass", "shop", "commands", "source", "constraints", "credentials", "expires", "state", "last use"], rows));
       return 0;
     }
     case "grant revoke": {
@@ -235,14 +240,18 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       noExtra(args, 0, "shop ls");
       io.out(
         table(
-          ["name", "version", "commands", "depends", "added"],
-          store.listShops().map((s) => [s.name, s.version, s.manifest.commands.map((c) => c.name).join(","), dependsText(s.manifest), isoTime(s.addedAt)]),
+          ["name", "version", "owner", "commands", "depends", "added"],
+          store.listShops().map((s) => [s.name, s.version, s.ownerName ?? "-", s.manifest.commands.map((c) => c.name).join(","), dependsText(s.manifest), isoTime(s.addedAt)]),
         ),
       );
       return 0;
     case "shop rm": {
       noExtra(args, 1, "shop rm");
       const name = args[0]!;
+      if (name === HALL_NAME) {
+        io.err(`townd admin: shop rm refused: ${HALL_NAME} is the town's own shop, in every town from its first open; revoke the grants at it instead\n`);
+        return 1;
+      }
       const dependents = dependentsOf(store, name);
       if (dependents.length) {
         io.err(`townd admin: shop rm refused: ${dependents.map((d) => d.name).join(", ")} ${dependents.length === 1 ? "depends" : "depend"} on ${name}; remove ${dependents.length === 1 ? "it" : "them"} first, or add ${dependents.length === 1 ? "it" : "them"} again without ${name}\n`);
@@ -251,6 +260,35 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       if (!store.removeShop(name)) throw new StoreError(`shop ${name} is not in this town; townd admin shop ls lists them`);
       await rm(shopDir(store, name), { recursive: true, force: true });
       io.out(`removed ${name}; its grants now reach nothing, and its state is kept under ${store.stateRoot}\n`);
+      return 0;
+    }
+
+    case "permit ls":
+      noExtra(args, 0, "permit ls");
+      io.out(permitTable(store, store.listPermits(one(p, "pass")), true));
+      return 0;
+    case "permit approve": {
+      noExtra(args, 1, "permit approve");
+      const expires = one(p, "expires");
+      const made = approvePermit(
+        store,
+        args[0]!,
+        { commands: one(p, "commands"), constraints: p.opts.get("constraint") ?? [], credentials: p.opts.get("credential") ?? [], expiresAt: expires ? now + parseDuration(expires) : null },
+        now,
+      );
+      if (Array.isArray(made)) {
+        for (const r of made) io.err(`townd admin: permit approve refused: ${r}\n`);
+        io.err(`townd admin: ${args[0]!} is still pending\n`);
+        return 1;
+      }
+      if (made.revoked) io.out(`revoked ${made.revoked.id} at ${made.revoked.shop}, which ${args[0]!} replaces\n`);
+      io.out(`${made.grant.id}\n`);
+      return 0;
+    }
+    case "permit deny": {
+      noExtra(args, 1, "permit deny");
+      const permit = store.decidePermit(args[0]!, "denied", null, now);
+      io.out(`denied ${permit.id}\n`);
       return 0;
     }
 
@@ -382,12 +420,6 @@ function state(x: { revokedAt: number | null; expiresAt: number | null }, now: n
   if (x.revokedAt !== null) return "revoked";
   if (x.expiresAt !== null && x.expiresAt <= now) return "expired";
   return "active";
-}
-
-function table(header: string[], rows: string[][]): string {
-  const all = [header, ...rows];
-  const widths = header.map((_, i) => Math.max(...all.map((r) => (r[i] ?? "").length)));
-  return all.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join("  ").trimEnd()).join("\n") + "\n";
 }
 
 /**

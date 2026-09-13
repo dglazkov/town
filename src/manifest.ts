@@ -59,7 +59,8 @@ export interface Manifest {
   version: string;
   summary: string;
   guidance?: string;
-  runtime: "subprocess";
+  /** `town` is the town's own shop's alone (src/hall.ts); the validator refuses it in any manifest it sees. */
+  runtime: "subprocess" | "town";
   entry: string;
   credentials?: Need[];
   depends?: Dependency[];
@@ -108,6 +109,9 @@ const DEPENDENCY_FIELDS = ["shop", "commands"];
 const SHOP_NAME = /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/;
 const WORD_NAME = /^[a-z][a-z0-9-]*$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
+
+/** The town's own shop: in every town, answering in the town's process; no manifest may say its runtime or call it (spec §2, §8). */
+export const HALL_NAME = "town/hall";
 
 /** Words the town's own binaries hold: no shop's last segment may be one (spec §2). */
 export const RESERVED_SHOP_WORDS: readonly string[] = ["serve", "admin", "spec"];
@@ -183,7 +187,9 @@ export function validateManifest(m: unknown, types?: readonly string[], shops?: 
   if (m.guidance !== undefined && typeof m.guidance !== "string") {
     out.push(refusal("guidance", "is not a string", "text, or leave guidance out", 2));
   }
-  if (m.runtime !== "subprocess") {
+  if (m.runtime === "town") {
+    out.push(refusal("runtime", "is town, the runtime of the town's own shop and no other", "runtime: subprocess", 2));
+  } else if (m.runtime !== "subprocess") {
     out.push(refusal("runtime", describe(m.runtime, "subprocess"), "runtime: subprocess", 2));
   }
   if (!(typeof m.entry === "string" && isInsidePath(m.entry))) {
@@ -283,6 +289,8 @@ function validateDepends(depends: unknown, self: string | null, shops: readonly 
     let held: TownShop | undefined;
     if (!(typeof d.shop === "string" && SHOP_NAME.test(d.shop))) {
       out.push(refusal(`${at}.shop`, describe(d.shop, "a shop name"), "the name of a shop this one calls, like town/memory", 8));
+    } else if (d.shop === HALL_NAME) {
+      out.push(refusal(`${at}.shop`, `is ${HALL_NAME}, the town's own shop, which answers agents and never a shop`, `a shop other than ${HALL_NAME}`, 8));
     } else if (d.shop === self) {
       out.push(refusal(`${at}.shop`, `is ${d.shop}, this shop itself`, "a shop other than this one", 8));
     } else if (seen.has(d.shop)) {
@@ -295,7 +303,7 @@ function validateDepends(depends: unknown, self: string | null, shops: readonly 
         held = shops.find((s) => s.name === d.shop);
         if (!held) {
           out.push(
-            refusal(`${at}.shop`, `'${d.shop}' is not a shop this town holds`, `one of (${shops.map((s) => s.name).join(", ")}), or add it with townd admin shop add first,`, 8),
+            refusal(`${at}.shop`, `'${d.shop}' is not a shop this town holds`, `one of (${shops.filter((s) => s.name !== HALL_NAME).map((s) => s.name).join(", ")}), or add it with townd admin shop add first,`, 8),
           );
         }
       }

@@ -12,7 +12,7 @@ pnpm install && pnpm build                      # Node 24; bin/town.js and bin/t
 export TOWN_DATA=~/town                         # the whole state: database, shops' code, shops' state
 node bin/townd.js serve                         # a town on 127.0.0.1:7000; admin works with it up or down
 node bin/townd.js admin shop add shops/memory   # validates, runs the shop's tests, copies it in
-node bin/townd.js admin user add dimitri
+node bin/townd.js admin user add dimitri          # a user's name is a namespace, lowercase letters, digits, and "-": dimitri's agent publishes dimitri/<shop>
 printf '%s\n' "$TOKEN" | node bin/townd.js admin credential add --user dimitri --type github-token --label "dimitri's PAT"   # the secret on stdin, never an argument; the id on stdout
 node bin/townd.js admin shop add <dir> --user dimitri   # a shop that needs a credential type: its tests run through the town on dimitri's
 node bin/townd.js admin shop add shops/watch --user dimitri   # a shop over others, github and memory added first: its tests run through them, on dimitri's
@@ -20,6 +20,10 @@ node bin/townd.js admin pass new --user dimitri --label "research assistant" > ~
 node bin/townd.js admin grant new --pass <id> --shop town/memory --commands remember,recall,list --constraint 'remember.key prefix notes/' --expires 30d
 # grant new at a shop with a need binds the user's one credential of its type, or the one named with --credential <id>
 # grant new at a composed shop (one whose manifest depends on others) needs the pass's grants at each dependency, covering the commands it calls, made first
+node bin/townd.js admin grant new --pass <id> --shop town/hall   # the hall, in every town: the agent finds shops, reads the spec, and asks for grants; narrow it with --commands like any shop
+node bin/townd.js admin permit ls               # what agents asked for with town hall request: pass, user, shop, commands, constraints, why, state
+node bin/townd.js admin permit approve <id> --commands recall --expires 30d   # makes the grant, as asked or narrower, never wider; replaces the pass's grant at the shop, and names it
+node bin/townd.js admin permit deny <id>        # a decided permit is not decided again; the agent sees the answer in town --help and town hall requests
 node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices
 node bin/townd.js admin grant revoke <id>       # seen by the next call; pass revoke makes the grant file paper
 # The data directory must never sit in or under a directory an agent works in (one with .town/grant in it or above):

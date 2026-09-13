@@ -149,9 +149,9 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
 
   // Step 2: shop ls shows each shop's dependencies.
   const ls = admin("shop", "ls");
-  expect(ls.stdout.split("\n")[0]).toMatch(/^name\s+version\s+commands\s+depends\s+added$/);
-  expect(rowOf(ls.stdout, "test/pair")).toMatch(/^test\/pair\s+0\.0\.1\s+mark,changes\s+test\/teller\[get\] test\/echo\[echo,sleep\]\s+\d{4}-/);
-  expect(rowOf(ls.stdout, "test/echo")).toMatch(/^test\/echo\s+0\.0\.1\s+echo,sleep,fail\s+-\s+\d{4}-/);
+  expect(ls.stdout.split("\n")[0]).toMatch(/^name\s+version\s+owner\s+commands\s+depends\s+added$/);
+  expect(rowOf(ls.stdout, "test/pair")).toMatch(/^test\/pair\s+0\.0\.1\s+-\s+mark,changes\s+test\/teller\[get\] test\/echo\[echo,sleep\]\s+\d{4}-/);
+  expect(rowOf(ls.stdout, "test/echo")).toMatch(/^test\/echo\s+0\.0\.1\s+-\s+echo,sleep,fail\s+-\s+\d{4}-/);
 
   // Step 3: grant new at the recipe waits for each dependency, saying which and the verb.
   const pass = admin("pass", "new", "--user", "dimitri", "--label", "watcher");
@@ -269,7 +269,7 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
   towns.push(vaultTown);
   expect(vaultTown.admin("user", "ls").stdout).toMatch(/^user_77d9a83d236eb0ef\s+dimitri\s/m);
   expect(vaultTown.admin("pass", "ls").stdout).toMatch(/^pass_a648d98fa018fc7c\s+dimitri\s+research assistant\s/m);
-  expect(rowOf(vaultTown.admin("grant", "ls").stdout, "grant_030cbc25002da6c4")).toMatch(/town\/memory\s+remember,recall\s+remember\.key prefix notes\/\s+-\s+-\s+live\s+\S+$/);
+  expect(rowOf(vaultTown.admin("grant", "ls").stdout, "grant_030cbc25002da6c4")).toMatch(/town\/memory\s+remember,recall\s+-\s+remember\.key prefix notes\/\s+-\s+-\s+live\s+\S+$/);
   expect(rowOf(vaultTown.admin("credential", "ls").stdout, "credential_8022cf4f70caccdb")).toMatch(/dimitri\s+github-token\s+dimitri's PAT\s+\S+\s+active\s+-$/);
   const oldRows = auditRows(vaultTown.admin("audit").stdout);
   expect(oldRows.map((r) => [r.command, r.result, r.parent, r.detail])).toEqual([
@@ -278,7 +278,7 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
     ["forget", "denied", "-", "command"],
   ]);
   for (const r of oldRows) expect(r.call).toMatch(/^call_[0-9a-f]{16}$/);
-  expect(dbColumn(vaultData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "3" }]);
+  expect(dbColumn(vaultData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "4" }]);
   // And it is a working town: memory added again, a new pass, a call, a new row after the old.
   addShop(vaultTown, MEMORY);
   const vaultPass = vaultTown.admin("pass", "new", "--user", "dimitri", "--label", "after the migration");

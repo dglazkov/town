@@ -10,11 +10,14 @@ import { randomBytes } from "node:crypto";
 import type { Io } from "./admin.js";
 import { shopDir } from "./gate.js";
 import { bindNeeds, grantStateText } from "./grants.js";
-import type { Manifest } from "./manifest.js";
+import { HALL_NAME, type Manifest } from "./manifest.js";
 import type { RunCredential } from "./runtime.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf } from "./shoptest.js";
 import { StoreError, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
+
+/** `shop add`'s words for a manifest named as the town's own shop; `runtime: town` is the validator's refusal. */
+const HALL_REFUSAL = `${HALL_NAME} is the town's own shop, in every town from its first open; name the shop under another namespace`;
 
 /** Whose credentials a shop's tests run on: `--user`, read when it is needed, and the `--credential` ids picked. */
 export interface Picked {
@@ -166,6 +169,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
   let credentials: RunCredential[];
   try {
     const manifest = await loadShop(src, types, shops);
+    if (manifest.name === HALL_NAME) return refuse(HALL_REFUSAL);
     const broken = breaksDependents(store, manifest);
     if (broken) return refuse(broken);
     needs = treeOf(manifest, store).needs;
@@ -195,6 +199,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     const late = await strangeEntries(staging);
     if (late.length) return refuse(`${late.join(", ")} is not a plain file in the copy`);
     const manifest = await loadShop(staging, types, shops);
+    if (manifest.name === HALL_NAME) return refuse(HALL_REFUSAL);
     if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
     const brokenInCopy = breaksDependents(store, manifest);
     if (brokenInCopy) return refuse(brokenInCopy);

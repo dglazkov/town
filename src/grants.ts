@@ -1,13 +1,17 @@
 // Grants, as the operator makes and reads them: the checks a grant must
 // pass before `grant new` makes it (the manifest's commands and
 // constraints, the pass, its dependencies covered, its needs bound), and
-// the cells `grant ls` prints of one. Every refusal is a line the admin
-// prints as it is.
+// the cells `grant ls` prints of one. And permits, the grants an agent
+// proposes: `request` is checked by the first half of those checks, and
+// `permit approve` makes its grant through all of them, never wider than
+// asked. Every refusal is a line the admin or the hall prints as it is.
 
 import { checkGrantShape, parseConstraintLines, type Constraints } from "./constraints.js";
+import { table } from "./help.js";
 import type { GrantState } from "./liveness.js";
 import type { Manifest } from "./manifest.js";
-import { StoreError, type Grant, type Store, type User } from "./store.js";
+import { isoTime } from "./notices.js";
+import { StoreError, type Grant, type Permit, type Store, type User } from "./store.js";
 
 /** What a grant is made of once its checks pass, less when it expires. */
 export interface GrantFields {
@@ -19,32 +23,114 @@ export interface GrantFields {
 }
 
 /**
- * `grant new`'s checks, in order: the shop is the town's (thrown), the
- * commands (every one of the shop's when not given) and the constraint
- * lines against its manifest (every refusal), the pass exists (thrown),
- * its dependencies are covered, its needs are bound by the credentials
- * picked or the user's one of each type. The grant's fields, or the lines
- * refusing it.
+ * The first half of `grant new`'s checks: the shop is the town's (thrown),
+ * and the commands (every one of the shop's when not given) and the
+ * constraint lines fit its manifest (every refusal). What `request` checks.
  */
-export function checkGrant(
+export function checkGrantAtShop(
   store: Store,
-  req: { passId: string; shop: string; commands: string | undefined; constraints: readonly string[]; credentials: readonly string[] },
-  now: number,
-): GrantFields | string[] {
+  req: { shop: string; commands: string | undefined; constraints: readonly string[] },
+): { manifest: Manifest; commands: string[]; constraints: Constraints } | string[] {
   const shop = store.getShop(req.shop);
   if (!shop) throw new StoreError(`shop ${req.shop} is not in this town; townd admin shop ls lists them`);
   const manifest = shop.manifest;
   const commands = req.commands === undefined ? manifest.commands.map((c) => c.name) : req.commands.split(",").map((s) => s.trim()).filter(Boolean);
   const parsed = parseConstraintLines(manifest, req.constraints);
   const refusals = [...parsed.refusals, ...(parsed.refusals.length ? [] : checkGrantShape(manifest, { commands, constraints: parsed.constraints }))];
-  if (refusals.length) return refusals;
+  return refusals.length ? refusals : { manifest, commands, constraints: parsed.constraints };
+}
+
+/**
+ * `grant new`'s checks, in order: checkGrantAtShop, then the pass exists
+ * (thrown), its dependencies are covered, its needs are bound by the
+ * credentials picked or the user's one of each type. The grant's fields,
+ * or the lines refusing it.
+ */
+export function checkGrant(
+  store: Store,
+  req: { passId: string; shop: string; commands: string | undefined; constraints: readonly string[]; credentials: readonly string[] },
+  now: number,
+): GrantFields | string[] {
+  const atShop = checkGrantAtShop(store, req);
+  if (Array.isArray(atShop)) return atShop;
+  const { manifest, commands, constraints } = atShop;
   const pass = store.passById(req.passId);
   if (!pass) throw new StoreError(`pass ${req.passId} does not exist; townd admin pass ls lists them`);
   const uncovered = uncoveredDependency(store, req.passId, manifest, now);
   if (uncovered) return [uncovered];
   const bound = bindNeeds(store, store.userByName(pass.userName)!, manifest.name, needsOf(manifest), req.credentials);
   if (typeof bound === "string") return [bound];
-  return { passId: req.passId, shop: manifest.name, commands, constraints: parsed.constraints, credentials: bound };
+  return { passId: req.passId, shop: manifest.name, commands, constraints, credentials: bound };
+}
+
+/**
+ * `permit approve`: the permit's grant, made through checkGrant with the
+ * permit's commands or the subset given (a command it did not ask for is
+ * refused as wider) and the permit's constraints on those commands with
+ * the given ones added. A refusal leaves the permit pending. Made, in one
+ * write: the pass's live grant at the shop revoked, the grant made with
+ * source `permit <id>`, and the decision recorded with it.
+ */
+export function approvePermit(
+  store: Store,
+  id: string,
+  req: { commands: string | undefined; constraints: readonly string[]; credentials: readonly string[]; expiresAt: number | null },
+  now: number,
+): { grant: Grant; revoked: Grant | null } | string[] {
+  const permit = store.pendingPermit(id);
+  const commands = req.commands === undefined ? permit.commands : req.commands.split(",").map((s) => s.trim()).filter(Boolean);
+  const wider = commands.filter((c) => !permit.commands.includes(c));
+  if (wider.length) {
+    return [`--commands: ${wider.join(", ")} is wider than ${id} asked; write some of ${permit.commands.join(",")}, or leave it out for all it asked`];
+  }
+  const checked = checkGrant(
+    store,
+    { passId: permit.passId, shop: permit.shop, commands: commands.join(","), constraints: [...constraintLinesOf(permit.constraints, commands), ...req.constraints], credentials: req.credentials },
+    now,
+  );
+  if (Array.isArray(checked)) return checked;
+  return store.inTransaction(() => {
+    const held = store.grantsForPass(permit.passId, now).find((g) => g.shop === permit.shop) ?? null;
+    if (held) store.revokeGrant(held.id, now);
+    const grant = store.newGrant({ ...checked, expiresAt: req.expiresAt, source: `permit ${id}` }, now);
+    store.decidePermit(id, "approved", grant.id, now);
+    return { grant, revoked: held };
+  });
+}
+
+/** Permits as a table, newest last: the agent's own in `requests`, and with the pass and its user's name in `permit ls`. */
+export function permitTable(store: Store, permits: readonly Permit[], withPass: boolean): string {
+  const header = ["id", ...(withPass ? ["pass", "user"] : []), "shop", "commands", "constraints", "why", "asked", "state"];
+  const rows = permits.map((p) => [
+    p.id,
+    ...(withPass ? [p.passId, p.userName] : []),
+    p.shop,
+    p.commands.join(","),
+    constraintText(p.constraints),
+    p.why === "" ? "-" : p.why,
+    isoTime(p.createdAt),
+    permitStateText(store, p),
+  ]);
+  return table(header, rows);
+}
+
+/** `pending`, `denied`, or `approved as <grant id>`, with the commands granted when they are fewer than asked. */
+function permitStateText(store: Store, p: Permit): string {
+  if (p.decision === null) return "pending";
+  if (p.decision === "denied") return "denied";
+  const granted = p.grantId === null ? null : store.grantById(p.grantId);
+  const fewer = granted && granted.commands.length < p.commands.length ? ` with ${granted.commands.join(",")}` : "";
+  return `approved as ${p.grantId}${fewer}`;
+}
+
+/** A grant's constraints on `commands` as the `--constraint` lines that make them, the order kept. */
+export function constraintLinesOf(c: Constraints, commands?: readonly string[]): string[] {
+  const lines: string[] = [];
+  for (const [target, rules] of Object.entries(c)) {
+    if (commands && !commands.includes(target.split(".")[0]!)) continue;
+    for (const [kind, rule] of Object.entries(rules)) lines.push(`${target} ${kind} ${Array.isArray(rule) ? rule.join(",") : String(rule)}`);
+  }
+  return lines;
 }
 
 /**
@@ -124,9 +210,6 @@ export function bindNeeds(store: Store, user: User, shop: string, needs: string[
 }
 
 export function constraintText(c: Constraints): string {
-  const parts: string[] = [];
-  for (const [target, rules] of Object.entries(c)) {
-    for (const [kind, rule] of Object.entries(rules)) parts.push(`${target} ${kind} ${Array.isArray(rule) ? rule.join(",") : String(rule)}`);
-  }
+  const parts = constraintLinesOf(c);
   return parts.length ? parts.join("; ") : "-";
 }

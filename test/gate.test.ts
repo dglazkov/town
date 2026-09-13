@@ -497,6 +497,7 @@ describe("effective", () => {
     expiresAt: null,
     revokedAt: null,
     credentials: {},
+    source: null,
     ...extra,
   });
   const composed = (depends: Manifest["depends"]): Manifest => ({ ...MEMORY, name: "test/composed", depends });

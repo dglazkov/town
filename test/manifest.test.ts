@@ -282,6 +282,24 @@ describe("dependencies", () => {
   });
 });
 
+describe("the town's own shop", () => {
+  const HALL_SHOP = { name: "town/hall", commands: ["search", "show", "spec", "validate", "test", "publish", "request", "requests"] };
+
+  it("refuses runtime: town in any manifest, with a line naming it the town's own", () => {
+    const refusals = validateManifest(memoryWith((m) => (m.runtime = "town")));
+    expect(refusals).toEqual(["runtime: is town, the runtime of the town's own shop and no other; write runtime: subprocess instead (spec §2)"]);
+    expectWellFormed(refusals);
+  });
+
+  it("refuses a dependency on town/hall naming §8, though the town holds it, and leaves it out of the shops it offers", () => {
+    const refusals = validateManifest(memoryWith((m) => (m.depends = [{ shop: "town/hall", commands: ["search"] }])), [], [HALL_SHOP]);
+    expect(refusals).toEqual(["depends[0].shop: is town/hall, the town's own shop, which answers agents and never a shop; write a shop other than town/hall instead (spec §8)"]);
+    expectWellFormed(refusals);
+    const offered = validateManifest(memoryWith((m) => (m.depends = [{ shop: "test/gh", commands: ["list"] }])), [], [HALL_SHOP, { name: "test/echo", commands: ["echo"] }]);
+    expect(offered).toEqual(["depends[0].shop: 'test/gh' is not a shop this town holds; write one of (test/echo), or add it with townd admin shop add first, instead (spec §8)"]);
+  });
+});
+
 describe("every cited section", () => {
   it("is a numbered section of the spec, and every message says what to write", () => {
     const all = cases.flatMap(([, edit]) => validateManifest(memoryWith(edit)));

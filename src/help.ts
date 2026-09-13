@@ -61,10 +61,41 @@ export function helpForGrants(store: Store, grants: readonly Grant[]): string {
 
 /** `town <shop> --help`: summary, guidance, each allowed command with its arguments, then the grant in words. */
 export function helpForGrant(manifest: Manifest, grant: GrantView, invokedAs: string = manifest.name): string {
+  const out = shopLines(manifest, allowedCommands(manifest, grant), invokedAs);
+  out.push("", `this grant: ${grant.label}; ${grant.expiresAt === null ? "does not expire" : `expires ${isoTime(grant.expiresAt)}`}`);
+  const words = constraintLines(manifest, grant);
+  if (words.length) out.push("constraints:", ...words.map((w) => `  ${w}`));
+  else out.push("constraints: none");
+  out.push("", "Add --json to any call for a JSON envelope of ok, output, notices, and exit.");
+  return `${out.join("\n")}\n`;
+}
+
+/**
+ * A shop's help as a full grant would read it, every command, for a pass
+ * that may hold none of it: then one line naming the commands `held`, the
+ * pass's live grant's there, `all` when that is every one.
+ */
+export function helpForShop(manifest: Manifest, held: readonly string[]): string {
+  const out = shopLines(manifest, manifest.commands, manifest.name);
+  const names = allowedCommands(manifest, { commands: held }).map((c) => c.name);
+  const holds = names.length === 0 ? "none of these" : names.length === manifest.commands.length ? "all of these" : names.join(", ");
+  out.push("", `this pass holds: ${holds}`);
+  return `${out.join("\n")}\n`;
+}
+
+/** A table as the admin and the hall print one: columns padded to their widest cell, two spaces apart. */
+export function table(header: string[], rows: string[][]): string {
+  const all = [header, ...rows];
+  const widths = header.map((_, i) => Math.max(...all.map((r) => (r[i] ?? "").length)));
+  return all.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join("  ").trimEnd()).join("\n") + "\n";
+}
+
+/** Summary, guidance, and `commands` with their arguments, as help's lines. */
+function shopLines(manifest: Manifest, commands: readonly Command[], invokedAs: string): string[] {
   const out: string[] = [`${manifest.name}: ${manifest.summary}`];
   if (manifest.guidance?.trim()) out.push("", manifest.guidance.trimEnd());
   out.push("", "commands:");
-  for (const cmd of allowedCommands(manifest, grant)) {
+  for (const cmd of commands) {
     out.push(`  town ${invokedAs} ${synopsis(cmd)}`);
     out.push(`      ${cmd.summary} (${cmd.effect})`);
     const args = cmd.args ?? [];
@@ -76,12 +107,7 @@ export function helpForGrant(manifest: Manifest, grant: GrantView, invokedAs: st
       out.push(`      ${flagWithValue(a).padEnd(width)}${notes ? `  ${notes}` : ""}`.trimEnd());
     }
   }
-  out.push("", `this grant: ${grant.label}; ${grant.expiresAt === null ? "does not expire" : `expires ${isoTime(grant.expiresAt)}`}`);
-  const words = constraintLines(manifest, grant);
-  if (words.length) out.push("constraints:", ...words.map((w) => `  ${w}`));
-  else out.push("constraints: none");
-  out.push("", "Add --json to any call for a JSON envelope of ok, output, notices, and exit.");
-  return `${out.join("\n")}\n`;
+  return out;
 }
 
 /** The `usage:` line for one command, or for the shop when `command` is null, rendered for the grant. */

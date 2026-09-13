@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-12
 see: hall
-note: "written 12 Sep 2026, the day compose closed: the town's hall, where an agent finds, writes, publishes, and asks for shops, as a shop the town is born with. Nothing built yet; hall phase 0 is next."
+note: "written 12 Sep 2026, the day compose closed: the town's hall, where an agent finds, writes, publishes, and asks for shops, as a shop the town is born with. Hall phase 0 closed the same day: town/hall in every store, search, show, spec, request, and requests through the gate with no process, and the admin's permit verbs, proved in process. Hall phase 1, the bundle and the publish, is next."
 ---
 
 # Hall — the journeys

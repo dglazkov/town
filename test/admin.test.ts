@@ -4,7 +4,12 @@
 // `credential add|ls|rm` with the secret from a pipe and never printed,
 // `shop test --user` and `shop add --user` running a shop's tests through
 // a teller, and the binding at `grant new` as `grant ls` and
-// `credential rm` show it.
+// `credential rm` show it. Hall phase 0: `permit ls`, `permit approve`
+// making a grant with its source, narrowing, refusing wider, replacing a
+// held grant, refusing an uncovered dependency or an unmet need with the
+// permit still pending, and `permit deny`; the hall refused at `shop add`
+// and `shop rm`; `source` in `grant ls` and `owner` in `shop ls`; and
+// `user add` refusing a name that is not a namespace.
 
 import { spawn } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -13,7 +18,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main, type Io } from "../src/admin.js";
-import { openStore } from "../src/store.js";
+import { openStore, type Store } from "../src/store.js";
 import { readKey } from "../src/vault.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
@@ -282,5 +287,164 @@ describe("shop test --user", () => {
     expect(added, added.stderr).toEqual({ exit: 0, stdout: "ok the origin answers\nadded test/teller 0.0.1\n", stderr: "" });
     expect(origin.seen.map((s) => [s.url, s.headers.authorization])).toEqual([["/hello", `Bearer ${SECRET}`]]);
     expect((await admin(["shop", "add", MEMORY, "--user", "dimitri"])).stderr).toBe("townd admin: shop add refused: town/memory has no credentials to meet; leave out --user\n");
+  });
+});
+
+describe("the hall at the box", () => {
+  it("is in a new store's shop ls with this town's version and owner -, and the columns are there", async () => {
+    const ls = await admin(["shop", "ls"]);
+    expect(ls.exit, ls.stderr).toBe(0);
+    const [header, ...rows] = ls.stdout.trimEnd().split("\n");
+    expect(header).toMatch(/^name\s+version\s+owner\s+commands\s+depends\s+added$/);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatch(/^town\/hall\s+0\.1\.0\s+-\s+search,show,spec,validate,test,publish,request,requests\s+-\s+\d{4}-/);
+    expect((await admin(["grant", "ls"])).stdout).toMatch(/^id\s+pass\s+shop\s+commands\s+source\s+constraints\s+credentials\s+expires\s+state\s+last use\n$/);
+  });
+
+  it("refuses shop rm town/hall as the town's own, and shop add of a manifest named town/hall or saying runtime: town", async () => {
+    const rm = await admin(["shop", "rm", "town/hall"]);
+    expect(rm).toEqual({ exit: 1, stdout: "", stderr: "townd admin: shop rm refused: town/hall is the town's own shop, in every town from its first open; revoke the grants at it instead\n" });
+    const named = mkdtempSync(path.join(os.tmpdir(), "town-admin-hall-"));
+    try {
+      cpSync(MEMORY, named, { recursive: true });
+      const text = readFileSync(path.join(named, "manifest.yaml"), "utf8");
+      writeFileSync(path.join(named, "manifest.yaml"), text.replace("name: town/memory", "name: town/hall"));
+      const byName = await admin(["shop", "add", named]);
+      expect(byName).toEqual({ exit: 1, stdout: "", stderr: "townd admin: shop add refused: town/hall is the town's own shop, in every town from its first open; name the shop under another namespace\n" });
+      writeFileSync(path.join(named, "manifest.yaml"), text.replace("runtime: subprocess", "runtime: town"));
+      const byRuntime = await admin(["shop", "add", named]);
+      expect(byRuntime.exit).toBe(1);
+      expect(byRuntime.stderr).toBe("runtime: is town, the runtime of the town's own shop and no other; write runtime: subprocess instead (spec §2)\ntownd admin: shop add refused: the manifest has a mistake, above\n");
+    } finally {
+      rmSync(named, { recursive: true, force: true });
+    }
+    expect((await admin(["shop", "ls"])).stdout.trimEnd().split("\n").slice(1).map((l) => l.split(/\s+/)[0])).toEqual(["town/hall"]);
+  });
+
+  it("refuses user add of a name that is not a namespace", async () => {
+    expect(await admin(["user", "add", "Dimitri_G"])).toEqual({
+      exit: 1,
+      stdout: "",
+      stderr: 'townd admin: user name "Dimitri_G" is not a namespace; write lowercase letters, digits, and "-", starting with a letter, since it is the first part of the name of every shop the user\'s agents publish\n',
+    });
+  });
+
+  it("grants the hall as any shop, at four commands", async () => {
+    await addUser("dimitri");
+    const pass = (await admin(["pass", "new", "--user", "dimitri", "--label", "agent"])).stderr.trim();
+    const g = await admin(["grant", "new", "--pass", pass, "--shop", "town/hall", "--commands", "spec,validate,test,publish"]);
+    expect(g.exit, g.stderr).toBe(0);
+    expect((await admin(["grant", "ls"])).stdout).toMatch(new RegExp(`^${g.stdout.trim()}\\s+${pass}\\s+town/hall\\s+spec,validate,test,publish\\s+-\\s+-\\s+-\\s+-\\s+live\\s+-$`, "m"));
+  });
+});
+
+describe("permit", () => {
+  let pass: string;
+
+  /** A store over the test's data directory for `fn`, closed after: the agent's side, as the hall writes it. */
+  function withStore<T>(fn: (store: Store) => T): T {
+    const store = openStore(data);
+    try {
+      return fn(store);
+    } finally {
+      store.close();
+    }
+  }
+
+  const request = (shop: string, commands: string[], constraints: Record<string, Record<string, unknown>> = {}, why = "to clear finished items") =>
+    withStore((s) => s.newPermit({ passId: pass, shop, commands, constraints: constraints as never, why }, Date.now()).id);
+
+  const rowOf = (out: string, id: string) => out.split("\n").find((l) => l.startsWith(id)) ?? "";
+
+  beforeEach(async () => {
+    expect((await admin(["shop", "add", MEMORY])).exit).toBe(0);
+    await addUser("dimitri");
+    pass = (await admin(["pass", "new", "--user", "dimitri", "--label", "agent"])).stderr.trim();
+  });
+
+  it("ls shows a header and no rows, then each permit with its pass, user, shop, commands, constraints, why, asked, and pending", async () => {
+    const empty = await admin(["permit", "ls"]);
+    expect(empty).toEqual({ exit: 0, stdout: "id  pass  user  shop  commands  constraints  why  asked  state\n", stderr: "" });
+    const id = request("town/memory", ["remember", "recall"], { "remember.key": { prefix: "notes/" } });
+    const ls = await admin(["permit", "ls"]);
+    expect(rowOf(ls.stdout, id)).toMatch(new RegExp(`^${id}\\s+${pass}\\s+dimitri\\s+town/memory\\s+remember,recall\\s+remember\\.key prefix notes/\\s+to clear finished items\\s+\\d{4}-\\S+\\s+pending$`));
+    expect((await admin(["permit", "ls", "--pass", "pass_other"])).stdout.trimEnd().split("\n")).toHaveLength(1);
+  });
+
+  it("approve makes the grant as asked, with source permit <id>, and the permit approved as it", async () => {
+    const id = request("town/memory", ["remember", "recall"], { "remember.key": { prefix: "notes/" } });
+    const r = await admin(["permit", "approve", id]);
+    expect(r.exit, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^grant_[0-9a-f]{16}\n$/);
+    const grant = r.stdout.trim();
+    expect(rowOf((await admin(["grant", "ls"])).stdout, grant)).toMatch(new RegExp(`^${grant}\\s+${pass}\\s+town/memory\\s+remember,recall\\s+permit ${id}\\s+remember\\.key prefix notes/\\s+-\\s+-\\s+live\\s+-$`));
+    expect(rowOf((await admin(["permit", "ls"])).stdout, id)).toMatch(new RegExp(`\\sapproved as ${grant}$`));
+    // A decided permit is not decided again.
+    const again = await admin(["permit", "deny", id]);
+    expect(again.exit).toBe(1);
+    expect(again.stderr).toMatch(new RegExp(`^townd admin: permit ${id} was approved at \\S+; a decided permit is not decided again, so the agent asks again\\n$`));
+    expect((await admin(["permit", "approve", id])).stderr).toMatch(/was approved at/);
+  });
+
+  it("approve narrows to the commands given, keeps the permit's constraints on them, adds the operator's, and refuses wider with the permit pending", async () => {
+    const id = request("town/memory", ["remember", "recall"], { "remember.key": { prefix: "notes/" }, "recall.key": { prefix: "notes/" } });
+    const wider = await admin(["permit", "approve", id, "--commands", "forget"]);
+    expect(wider).toEqual({
+      exit: 1,
+      stdout: "",
+      stderr: `townd admin: permit approve refused: --commands: forget is wider than ${id} asked; write some of remember,recall, or leave it out for all it asked\ntownd admin: ${id} is still pending\n`,
+    });
+    expect((await admin(["permit", "approve", id, "--commands", "recall,forget"])).exit).toBe(1);
+    expect(rowOf((await admin(["permit", "ls"])).stdout, id)).toMatch(/\spending$/);
+    expect(withStore((s) => s.listGrants(pass))).toEqual([]);
+    const r = await admin(["permit", "approve", id, "--commands", "recall", "--constraint", "recall.key regex notes/[a-z]+", "--expires", "30d"]);
+    expect(r.exit, r.stderr).toBe(0);
+    const grant = withStore((s) => s.grantById(r.stdout.trim()))!;
+    expect(grant).toMatchObject({ commands: ["recall"], constraints: { "recall.key": { prefix: "notes/", regex: "notes/[a-z]+" } }, source: `permit ${id}` });
+    expect(grant.expiresAt).not.toBeNull();
+    expect(rowOf((await admin(["permit", "ls"])).stdout, id)).toMatch(new RegExp(`\\sapproved as ${grant.id} with recall$`));
+  });
+
+  it("approve revokes the pass's live grant at the shop and names it", async () => {
+    const held = (await admin(["grant", "new", "--pass", pass, "--shop", "town/memory", "--commands", "recall"])).stdout.trim();
+    const id = request("town/memory", ["recall", "forget"]);
+    const r = await admin(["permit", "approve", id]);
+    expect(r.exit, r.stderr).toBe(0);
+    const lines = r.stdout.split("\n");
+    expect(lines[0]).toBe(`revoked ${held} at town/memory, which ${id} replaces`);
+    expect(lines[1]).toMatch(/^grant_[0-9a-f]{16}$/);
+    expect(withStore((s) => s.grantsForPass(pass).map((g) => [g.id, g.commands, g.source]))).toEqual([[lines[1], ["recall", "forget"], `permit ${id}`]]);
+    expect(rowOf((await admin(["grant", "ls"])).stdout, held)).toMatch(/\srevoked\s+-$/);
+  });
+
+  it("approve at a composed shop whose dependencies the pass does not hold is refused in grant new's words, and the permit stays pending", async () => {
+    withStore((s) => s.upsertShop({ ...s.getShop("town/memory")!.manifest, name: "test/composed", depends: [{ shop: "town/memory", commands: ["remember", "recall"] }] }));
+    const id = request("test/composed", ["recall"]);
+    const r = await admin(["permit", "approve", id]);
+    expect(r).toEqual({
+      exit: 1,
+      stdout: "",
+      stderr: `townd admin: permit approve refused: pass ${pass} holds no grant at town/memory covering remember, recall; grant one with townd admin grant new --pass ${pass} --shop town/memory --commands remember,recall first\ntownd admin: ${id} is still pending\n`,
+    });
+    expect(rowOf((await admin(["permit", "ls"])).stdout, id)).toMatch(/\spending$/);
+    expect((await admin(["grant", "new", "--pass", pass, "--shop", "town/memory", "--commands", "remember,recall"])).exit).toBe(0);
+    expect((await admin(["permit", "approve", id])).exit).toBe(0);
+  });
+
+  it("approve at a shop with a need the user has no credential for is refused, and the permit stays pending", async () => {
+    expect((await admin(["type", "add", "test-origin", "--origin", "https://api.example.internal", "--header", "Authorization: Bearer {token}"])).exit).toBe(0);
+    withStore((s) => s.upsertShop({ ...s.getShop("town/memory")!.manifest, name: "test/needy", credentials: [{ type: "test-origin" }] }));
+    const id = request("test/needy", ["recall"]);
+    const r = await admin(["permit", "approve", id]);
+    expect(r.stderr).toBe(`townd admin: permit approve refused: user dimitri holds no test-origin credential; add one with townd admin credential add\ntownd admin: ${id} is still pending\n`);
+    expect(withStore((s) => s.permitById(id)?.decision)).toBeNull();
+  });
+
+  it("deny records the decision and makes no grant; a missing permit is refused", async () => {
+    const id = request("town/memory", ["forget"]);
+    expect(await admin(["permit", "deny", id])).toEqual({ exit: 0, stdout: `denied ${id}\n`, stderr: "" });
+    expect(rowOf((await admin(["permit", "ls"])).stdout, id)).toMatch(/\sdenied$/);
+    expect(withStore((s) => s.listGrants(pass))).toEqual([]);
+    expect(await admin(["permit", "deny", "prm_nothing"])).toEqual({ exit: 1, stdout: "", stderr: "townd admin: permit prm_nothing does not exist; townd admin permit ls lists them\n" });
   });
 });

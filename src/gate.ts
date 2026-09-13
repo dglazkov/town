@@ -13,6 +13,10 @@
 // gate for the caller one deeper. A shop that fails after one of its calls
 // was denied is the agent's denial, in the inner call's words; a tree
 // deeper than eight is the town's failure.
+//
+// The town's own shop, a manifest whose runtime is `town`, is decided by
+// steps 1 to 5 as any shop is; at the sixth there is no binding and no
+// process, and the hall's answer (hall.ts) is the outcome.
 
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
@@ -21,6 +25,7 @@ import type { ResultClass } from "./audit.js";
 import { respond, type Answer } from "./clerk.js";
 import { firstMiss, splitTarget } from "./constraints.js";
 import { denials } from "./denials.js";
+import { runHall } from "./hall.js";
 import { helpForGrant, helpForGrants, typedName, usageFor } from "./help.js";
 import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
@@ -278,6 +283,15 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   const miss = firstMiss(grant.constraints, command, parsed.values);
   if (miss) {
     return { ...atArgs, error: denials.constraint(miss.arg, miss.kind, miss.rule), exit: 2, result: "denied", detail: `constraint ${command}.${miss.arg} ${miss.kind}` };
+  }
+
+  // 6, for the town's own shop: no binding, no process, the hall's outcome
+  // taken whole. It answers an agent's pass alone; a shop's call or a shop
+  // test's tree cannot reach it, since no manifest may depend on it.
+  if (manifest.runtime === "town") {
+    if (caller || !pass) return { ...atArgs, error: denials.townFailed(), exit: 1, result: "town-error", detail: "hall-caller" };
+    const hall = await runHall({ store, now: () => now }, { pass, grant, command, values: parsed.values, stdin: req.stdin, callId: base.callId });
+    return { ...atArgs, ...hall };
   }
 
   // 6. The bindings, then the runtime. Only now is a credential opened,

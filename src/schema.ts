@@ -27,8 +27,8 @@ function loadSqlite(): typeof import("node:sqlite") {
   }
 }
 
-/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2. */
-export const SCHEMA_VERSION = 3;
+/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3. */
+export const SCHEMA_VERSION = 4;
 
 /** The type every store is made with. */
 export const SEEDED_TYPES: ReadonlyArray<Omit<CredentialType, "addedAt">> = [
@@ -118,6 +118,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS calls_call_id ON calls(call_id);
 CREATE INDEX IF NOT EXISTS calls_parent ON calls(parent);
 `;
 
+// Schema 4, hall's: the permits table, and at most one pending permit of
+// a pass at a shop. `shops.owner` and `grants.source` are added by the
+// migration, on a new store as on compose's.
+const HALL_TABLES = `
+CREATE TABLE IF NOT EXISTS permits (
+  id TEXT PRIMARY KEY,
+  pass_id TEXT NOT NULL REFERENCES passes(id),
+  shop TEXT NOT NULL,
+  commands TEXT NOT NULL,
+  constraints TEXT NOT NULL,
+  why TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER,
+  decision TEXT,
+  grant_id TEXT
+);
+CREATE INDEX IF NOT EXISTS permits_pass ON permits(pass_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS permits_pending ON permits(pass_id, shop) WHERE decision IS NULL;
+`;
+
 type Row = Record<string, unknown>;
 
 export function setMeta(db: Database, key: string, value: string): void {
@@ -146,12 +166,14 @@ export function openDatabase(dataDir: string): Database {
 }
 
 /**
- * Brings an older store to schema 3, a step at a time. From gate's (no
+ * Brings an older store to schema 4, a step at a time. From gate's (no
  * `meta.schema`) to 2: the two tables, the two columns, the seeded type.
  * From vault's 2 to 3: `calls.call_id`, each old row given one, and
- * `calls.parent`, null for every old row. Done under a write lock, so a
- * second process opening the same file at the same moment finds the
- * work done.
+ * `calls.parent`, null for every old row. From compose's 3 to 4: the
+ * permits table, `shops.owner` and `grants.source`, null for every old
+ * row: an operator's shop and an operator's grant. Done under a write
+ * lock, so a second process opening the same file at the same moment
+ * finds the work done.
  */
 function migrate(db: Database, dataDir: string, now = Date.now()): void {
   const version = () => Number(getMeta(db, "schema") ?? "1");
@@ -180,6 +202,12 @@ function migrate(db: Database, dataDir: string, now = Date.now()): void {
       db.exec("UPDATE calls SET call_id = 'call_' || lower(hex(randomblob(8))) WHERE call_id IS NULL");
       db.exec(COMPOSE_INDEXES);
       setMeta(db, "schema", "3");
+    }
+    if (version() < 4) {
+      db.exec(HALL_TABLES);
+      addColumn("shops", "owner", "TEXT");
+      addColumn("grants", "source", "TEXT");
+      setMeta(db, "schema", "4");
     }
     db.exec("COMMIT");
   } catch (err) {

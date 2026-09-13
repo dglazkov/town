@@ -86,6 +86,7 @@ export function treeOf(manifest: Manifest, store: Store): { grants: Grant[]; nee
     expiresAt: null,
     revokedAt: null,
     credentials: {},
+    source: null,
   }));
   return { grants, needs: [...needs] };
 }

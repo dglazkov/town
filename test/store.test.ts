@@ -5,7 +5,10 @@
 // seen by the first on its next read. Vault's schema 2: credential types
 // and sealed credentials, and a store gate made migrated in place.
 // Compose's schema 3: every call's id and its parent's, a store vault made
-// migrated in place, liveness gaining `lacks`, and the call tree.
+// migrated in place, liveness gaining `lacks`, and the call tree. Hall's
+// schema 4: the permits table, `shops.owner`, `grants.source`, a store
+// compose made migrated in place, the hall's row written on every open,
+// permits made, replaced, decided, and listed, and a user's name a namespace.
 
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -13,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadShop } from "../src/shoptest.js";
+import { HALL } from "../src/hall.js";
 import type { Manifest } from "../src/manifest.js";
 import { StoreError, hashToken, openStore, type Store } from "../src/store.js";
 import { ensureKey } from "../src/vault.js";
@@ -42,10 +46,13 @@ function passFor(user = "dimitri", now = 1000) {
 }
 
 describe("the schema", () => {
-  it("lives at <data>/town.db with gate's tables, vault's two, compose's two columns, and meta.schema 3", () => {
+  it("lives at <data>/town.db with gate's tables, vault's two, compose's two columns, hall's table and two columns, and meta.schema 4", () => {
     const tables = (store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
-    expect(tables).toEqual(["calls", "credential_types", "credentials", "grants", "meta", "passes", "shops", "users"]);
-    expect(store.getMeta("schema")).toBe("3");
+    expect(tables).toEqual(["calls", "credential_types", "credentials", "grants", "meta", "passes", "permits", "shops", "users"]);
+    expect(store.getMeta("schema")).toBe("4");
+    expect(columns(store, "permits")).toEqual(["id", "pass_id", "shop", "commands", "constraints", "why", "created_at", "decided_at", "decision", "grant_id"]);
+    expect(columns(store, "shops").at(-1)).toBe("owner");
+    expect(columns(store, "grants").at(-1)).toBe("source");
     expect(columns(store, "grants")).toContain("credentials");
     expect(columns(store, "calls")).toContain("credentials");
     expect(columns(store, "calls").slice(-2)).toEqual(["call_id", "parent"]);
@@ -68,6 +75,15 @@ describe("users", () => {
     expect(u.id).toMatch(/^user_[0-9a-f]{16}$/);
     expect(store.listUsers()).toEqual([u]);
     expect(() => store.addUser("dimitri")).toThrow(StoreError);
+  });
+
+  it("refuses a name that is not a namespace, since a user's name is the first part of the shops its agents publish", () => {
+    for (const name of ["Dimitri_G", "dimitri.g", "9lives", "-x", "Dimitri"]) {
+      expect(() => store.addUser(name), name).toThrow(`user name ${JSON.stringify(name)} is not a namespace; write lowercase letters, digits, and "-", starting with a letter`);
+    }
+    expect(() => store.addUser("town")).toThrow("user name town is the operator's namespace; write another name");
+    expect(store.addUser("dimitri-g").name).toBe("dimitri-g");
+    expect(store.listUsers().map((u) => u.name)).toEqual(["dimitri-g"]);
   });
 });
 
@@ -145,7 +161,7 @@ describe("shops", () => {
   it("upserts latest only, lists, and removes", async () => {
     const m = await loadShop(MEMORY);
     store.upsertShop({ ...m, version: "0.2.0" }, 2000);
-    expect(store.listShops()).toHaveLength(1);
+    expect(store.listShops().map((s) => s.name)).toEqual(["town/hall", "town/memory"]);
     expect(store.getShop("town/memory")).toMatchObject({ version: "0.2.0", addedAt: 2000 });
     expect(store.getShop("town/memory")?.manifest.commands.map((c) => c.name)).toEqual(["remember", "recall", "list", "forget"]);
     expect(store.removeShop("town/memory")).toBe(true);
@@ -203,7 +219,7 @@ describe("a store gate made", () => {
     expect(store.calls()).toMatchObject([{ at: 40, passId: "pass_1", result: "ok", command: "recall" }]);
     expect(store.getMeta("address")).toBe("http://127.0.0.1:7000");
 
-    expect(store.getMeta("schema")).toBe("3");
+    expect(store.getMeta("schema")).toBe("4");
     expect(store.listTypes().map((t) => [t.name, t.origin, t.header])).toEqual([["github-token", "https://api.github.com", "Authorization: Bearer {token}"]]);
     expect(columns(store, "credentials")).toEqual(["id", "user_id", "type", "label", "sealed", "created_at", "revoked_at"]);
     expect(store.db.prepare("SELECT credentials FROM grants WHERE id = 'grant_1'").get()).toEqual({ credentials: "{}" });
@@ -212,17 +228,17 @@ describe("a store gate made", () => {
 
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("3");
+    expect(store.getMeta("schema")).toBe("4");
     expect(store.listUsers()).toHaveLength(1);
   });
 
   it("refuses a store a newer town made", () => {
-    store.setMeta("schema", "4");
+    store.setMeta("schema", "5");
     store.close();
-    expect(() => openStore(dir)).toThrow(/is schema 4, newer than this town's 3/);
+    expect(() => openStore(dir)).toThrow(/is schema 5, newer than this town's 4/);
     const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
     const db = new DatabaseSync(path.join(dir, "town.db"));
-    db.prepare("UPDATE meta SET value = '3' WHERE key = 'schema'").run();
+    db.prepare("UPDATE meta SET value = '4' WHERE key = 'schema'").run();
     db.close();
     store = openStore(dir);
   });
@@ -247,7 +263,7 @@ describe("a store vault made", () => {
     expect(before.calls).toHaveLength(3);
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("3");
+    expect(store.getMeta("schema")).toBe("4");
     expect(store.listUsers().map((u) => u.name)).toEqual(["dimitri"]);
     const [pass] = store.listPasses();
     expect(pass).toMatchObject({ id: "pass_a648d98fa018fc7c", userName: "dimitri", label: "research assistant", revokedAt: null });
@@ -279,7 +295,7 @@ describe("a store vault made", () => {
     store.close();
     store = openStore(dir);
     expect(store.calls().map((c) => c.callId)).toEqual(calls.map((c) => c.callId));
-    expect(store.getMeta("schema")).toBe("3");
+    expect(store.getMeta("schema")).toBe("4");
     expect(store.listTypes()).toEqual([]);
   });
 });
@@ -579,5 +595,141 @@ describe("a grant's liveness", () => {
     store.upsertShop({ ...memory, credentials: [{ type: "test-origin" }] }, 1500);
     expect(store.grantState(g.id, 2000)).toEqual({ kind: "unmet", type: "test-origin" });
     expect(store.grantsForPass(pass.id, 2000)).toEqual([]);
+  });
+});
+
+describe("the hall's row", () => {
+  it("is in a store made new, this town's manifest with no owner, and a second open leaves one row as it was", () => {
+    expect(store.getShop("town/hall")).toMatchObject({ name: "town/hall", version: HALL.version, manifest: HALL, owner: null, ownerName: null });
+    const before = store.getShop("town/hall")!;
+    store.close();
+    store = openStore(dir);
+    expect(store.listShops().filter((x) => x.name === "town/hall")).toEqual([before]);
+    expect((store.db.prepare("SELECT COUNT(*) AS n FROM shops WHERE name = 'town/hall'").get() as { n: number }).n).toBe(1);
+  });
+
+  it("is written again on open when it was removed or is not this town's", () => {
+    store.removeShop("town/hall");
+    store.upsertShop({ ...HALL, name: "town/hall", version: "0.0.9" }, 5);
+    store.close();
+    store = openStore(dir);
+    expect(store.getShop("town/hall")?.manifest).toEqual(HALL);
+    store.removeShop("town/hall");
+    store.close();
+    store = openStore(dir);
+    expect(store.getShop("town/hall")?.manifest).toEqual(HALL);
+  });
+});
+
+describe("a store compose made", () => {
+  const FIXTURE = readFileSync(path.resolve(import.meta.dirname, "fixtures/compose-store.sql"), "utf8");
+  const KEY = Buffer.from(/^-- vault\.key: ([0-9a-f]{64})$/m.exec(FIXTURE)![1]!, "hex");
+  const TABLES = ["users", "passes", "grants", "shops", "calls", "meta", "credential_types", "credentials"];
+
+  it("opens with every row of every table intact, and gains the permits table, shops.owner, grants.source, and the hall's row", () => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(path.join(os.tmpdir(), "town-store-compose-"));
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+    const compose = new DatabaseSync(path.join(dir, "town.db"));
+    compose.exec(FIXTURE);
+    const before = Object.fromEntries(TABLES.map((t) => [t, compose.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
+    compose.close();
+    expect(before.meta).toEqual([{ key: "schema", value: "3" }]);
+    expect(before.calls).toHaveLength(4);
+
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("4");
+    expect(columns(store, "permits")).toEqual(["id", "pass_id", "shop", "commands", "constraints", "why", "created_at", "decided_at", "decision", "grant_id"]);
+    expect(store.listPermits()).toEqual([]);
+    // Every old row is as compose left it, with the new columns null: an operator's shop and an operator's grant.
+    for (const t of TABLES) {
+      const after = store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>;
+      const old = after.filter((r) => !(t === "shops" && r.name === "town/hall") && !(t === "meta" && r.key !== "schema"));
+      const want = (before[t] as Array<Record<string, unknown>>).map((r) =>
+        t === "shops" ? { ...r, owner: null } : t === "grants" ? { ...r, source: null } : t === "meta" ? { ...r, value: "4" } : { ...r },
+      );
+      expect(old, t).toEqual(want);
+    }
+    expect(store.listShops().map((x) => [x.name, x.owner])).toEqual([["town/hall", null], ["town/memory", null]]);
+    expect(store.getShop("town/hall")?.manifest).toEqual(HALL);
+    expect(store.listGrants().map((g) => [g.id, g.source, g.state.kind])).toEqual([["grant_1034b03fbec81982", null, "live"]]);
+    expect(store.openCredential("credential_5827672da5fc655b", KEY)).toBe("compose-fixture-not-a-token");
+    expect(store.callTree("call_00000000000000a2").map((c) => c.command)).toEqual(["run", "recall"]);
+
+    // A second open migrates nothing and leaves one hall row.
+    store.close();
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("4");
+    expect(store.listShops().map((x) => x.name)).toEqual(["town/hall", "town/memory"]);
+  });
+
+  it("keeps a user made before the namespace rule", () => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(path.join(os.tmpdir(), "town-store-compose-"));
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+    const compose = new DatabaseSync(path.join(dir, "town.db"));
+    compose.exec(FIXTURE);
+    compose.prepare("INSERT INTO users (id, name, created_at) VALUES ('user_old', 'Dimitri_G', 7)").run();
+    compose.close();
+    store = openStore(dir);
+    expect(store.userByName("Dimitri_G")).toEqual({ id: "user_old", name: "Dimitri_G", createdAt: 7 });
+  });
+});
+
+describe("permits", () => {
+  function permit(passId: string, extra: Partial<{ shop: string; commands: string[]; why: string }> = {}, now = 1000) {
+    return store.newPermit({ passId, shop: "town/memory", commands: ["forget"], constraints: { "forget.key": { prefix: "notes/" } }, why: "to clear finished items", ...extra }, now);
+  }
+
+  it("are made pending, found by id, and listed by pass, oldest first", () => {
+    const { pass } = passFor();
+    const other = passFor("ada").pass;
+    const p = permit(pass.id);
+    expect(p).toEqual({
+      id: expect.stringMatching(/^prm_[0-9a-f]{16}$/), passId: pass.id, userName: "dimitri", shop: "town/memory", commands: ["forget"],
+      constraints: { "forget.key": { prefix: "notes/" } }, why: "to clear finished items", createdAt: 1000, decidedAt: null, decision: null, grantId: null,
+    });
+    expect(store.permitById(p.id)).toEqual(p);
+    const q = permit(other.id, {}, 900);
+    const r = permit(pass.id, { shop: "town/hall", commands: ["request"], why: "" }, 1100);
+    expect(store.listPermits(pass.id).map((x) => x.id)).toEqual([p.id, r.id]);
+    expect(store.listPermits().map((x) => x.id)).toEqual([q.id, p.id, r.id]);
+    expect(store.permitById("prm_nothing")).toBeNull();
+  });
+
+  it("replace a pending one of the pass at the shop, and only that one", () => {
+    const { pass } = passFor();
+    const other = passFor("ada").pass;
+    const first = permit(pass.id);
+    const theirs = permit(other.id);
+    const second = permit(pass.id, { commands: ["forget", "list"] }, 2000);
+    expect(store.listPermits().map((x) => [x.id, x.passId, x.commands])).toEqual([[theirs.id, other.id, ["forget"]], [second.id, pass.id, ["forget", "list"]]]);
+    expect(store.permitById(first.id)).toBeNull();
+    // A decided permit is not replaced: it is the record of a decision.
+    store.decidePermit(second.id, "denied", null, 2500);
+    const third = permit(pass.id, {}, 3000);
+    expect(store.listPermits(pass.id).map((x) => [x.id, x.decision])).toEqual([[second.id, "denied"], [third.id, null]]);
+  });
+
+  it("are decided once, approved naming the grant or denied, and a decided or missing permit is refused", () => {
+    const { pass } = passFor();
+    const p = permit(pass.id);
+    const g = store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["forget"], constraints: {}, expiresAt: null, source: `permit ${p.id}` }, 1500);
+    expect(store.decidePermit(p.id, "approved", g.id, 1500)).toMatchObject({ decision: "approved", decidedAt: 1500, grantId: g.id });
+    expect(store.grantById(g.id)?.source).toBe(`permit ${p.id}`);
+    expect(() => store.decidePermit(p.id, "denied", null, 1600)).toThrow(`permit ${p.id} was approved at 1970-01-01T00:00:01Z; a decided permit is not decided again`);
+    const d = permit(pass.id, {}, 1700);
+    expect(store.decidePermit(d.id, "denied", null, 1800)).toMatchObject({ decision: "denied", decidedAt: 1800, grantId: null });
+    expect(() => store.decidePermit(d.id, "approved", g.id, 1900)).toThrow(/was denied at/);
+    expect(() => store.decidePermit("prm_nothing", "denied", null)).toThrow("permit prm_nothing does not exist; townd admin permit ls lists them");
+    expect(() => permit("pass_nothing")).toThrow(/does not exist/);
+    expect(() => permit(pass.id, { shop: "town/nothing" })).toThrow(/is not in this town/);
+  });
+
+  it("leave a grant's source null for the operator's grant new", () => {
+    const { pass } = passFor();
+    expect(store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null }, 1000).source).toBeNull();
   });
 });

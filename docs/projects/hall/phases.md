@@ -28,11 +28,14 @@ names no shop.
 
 ---
 
-**Where we are: hall planned, 12 September 2026.** Nothing built. Next
-is hall phase 0, the hall as a shop, which waits on nothing. No phase
-of this project waits on a person: there is no token, no cloud
-resource, and no hand a journey names; the walk costs one model
-session.
+**Where we are: hall phase 0 closed, 12 September 2026.** Next is
+hall phase 1, the bundle and the publish, which waits on nothing. The
+hall is in every town as `town/hall`: schema 4 with permits, owners,
+and sources; the gate's door that answers it with no process; `search`,
+`show`, `spec`, `request`, and `requests`; and the admin's permit verbs,
+all proved in process. No phase of this project waits on a person:
+there is no token, no cloud resource, and no hand a journey names; the
+walk costs one model session.
 
 The order is dependency order. Phase 0 is the hall in the town: the
 store's fourth schema with the hall's row, permits, owners, and
@@ -119,7 +122,36 @@ fails), `permit approve` accepting a command the permit did not ask for
 (the wider test fails), and the hall's row not written on open (the
 store's test fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held as written: 423 tests
+in both rings, typecheck clean, `shop ls` listing `town/hall` alone,
+`shop rm town/hall` refused as the town's own, `permit ls` a bare
+header, and each of the three mutations failing its tests.
+
+**Findings:**
+
+- **2026-09-12 — The phase took thirty-three minutes of wall clock.**
+  The docs agreed; the one detour was the split below, committed on its
+  own as 77318d8 before the phase's work. No return to the builder.
+- **2026-09-12 — `store.ts` and `admin.ts` split along their nouns.**
+  The store, 829 to 375, gave `schema.ts`, `credentials.ts`, `audit.ts`,
+  and `liveness.ts`; the admin, 720 to 414, gave `grants.ts` and
+  `publish.ts`. The ratchet is empty.
+- **2026-09-12 — `request` checks shop, commands, and constraints
+  only.** Dependencies and needs are `permit approve`'s, through the
+  whole of `checkGrant`, so a permit at a composed or needy shop is made
+  and waits for its dependencies.
+- **2026-09-12 — `user add town` is refused too.** A user named `town`
+  would own the operator's namespace at publish; the design's namespace
+  rule did not name it.
+- **2026-09-12 — Approval drops the permit's constraints on commands it
+  did not grant,** since a grant may not constrain a command it lacks;
+  a replaced pending permit is deleted and the new one gets a new id.
+- **2026-09-12 — The compose-era fixture is a dump of a real town.**
+  `test/fixtures/compose-store.sql` is `sqlite3 .dump` of a data
+  directory `townd admin` made at 77318d8, its vault key a fixture's.
+- **2026-09-12 — Open: `shop add` over a published shop clears its
+  owner.** `upsertShop` writes owner on conflict too. Hall phase 1
+  decides it at `src/publish.ts`'s two front doors.
 
 ---
 

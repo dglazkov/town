@@ -175,7 +175,7 @@ it("is added on the github-token, and walks journey 1 steps 1 to 6 over the real
     { method: "GET", url: "/repos/octocat/Hello-World/issues?state=open&per_page=100&page=1", authorization: `Bearer ${SECRET}` },
     { method: "GET", url: "/repos/octocat/Hello-World/issues?state=open&per_page=100&page=1", authorization: `Bearer ${SECRET}` },
   ]);
-  expect(admin("shop", "ls").stdout).toMatch(/^town\/watch\s+0\.1\.0\s+mark,changes\s+town\/github\[list\] town\/memory\[remember,recall\]\s/m);
+  expect(admin("shop", "ls").stdout).toMatch(/^town\/watch\s+0\.1\.0\s+-\s+mark,changes\s+town\/github\[list\] town\/memory\[remember,recall\]\s/m);
 
   // Journey 1's grants: github at list and show on the one repo, memory at three, watch at both, unconstrained.
   const pass = ok(admin("pass", "new", "--user", "dimitri", "--label", "issue watcher"));

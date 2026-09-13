@@ -229,8 +229,10 @@ The rules, each a refusal citing §8:
   where by the provider's own menus, `Figma > Settings > Security`.
 - `origin` is an absolute `http:` or `https:` URL with no query,
   fragment, or userinfo; `header` is `<Name>: <value with {token}>`;
-  `authorize` and `token` are `https:` URLs; `scopes` is a non-empty
-  list of strings. The checks are `parseOrigin` and
+  `authorize` and `token` are `https:` URLs, or `http:` on a loopback
+  host (`127.0.0.1`, `[::1]`, `localhost`), as RFC 8252 allows a native
+  app's loopback and as the `command` ring's fake authorization server
+  needs; `scopes` is a non-empty list of strings. The checks are `parseOrigin` and
   `parseHeaderTemplate`, vault's.
 - A need naming a type the town holds, held or proposed, with no
   definition is met by that type. One with a definition must match the
@@ -465,7 +467,11 @@ text|markdown]`, about eighty lines: a GET of
 paragraphs walked to text, headings as `#` lines in `markdown`. A
 non-2xx answer is exit 1 with the status and nothing else. One test,
 `read --doc-id no-such-document` expecting exit 1, which reaches Google
-signed and reads nothing; the read is the walk's. The operator adds it
+signed and reads nothing; the read is the walk's. The rings never reach
+Google: their `gdocs` is a copy of `shops/gdocs` with its origin and
+endpoints written over by the fakes' addresses, as consent phase 0's
+`test/fixtures/figma-shop` is, and the real manifest is proved by
+`validate` in checkout and against Google by hand. The operator adds it
 with `shop add shops/gdocs --user dimitri --client-id <id>`, which,
 being the operator's, holds the type as the manifest defines it, taking
 the registration as `type add` does, and says so. A credential cannot

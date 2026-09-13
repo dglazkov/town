@@ -15,7 +15,8 @@ import path from "node:path";
 import { BODY_LIMIT_BYTES, parseCall, respond, type WireResponse } from "./clerk.js";
 import { denials } from "./denials.js";
 import { argvHash, gate, newCallId, storeVault, type CallRequest, type GateDeps, type Outcome } from "./gate.js";
-import { hashToken, openStore, type Store } from "./store.js";
+import { hashToken } from "./passes.js";
+import { openStore, type Store } from "./store.js";
 import { VaultError, readKey, requireKey } from "./vault.js";
 import { openWall, type Wall, type WallKind } from "./wall.js";
 

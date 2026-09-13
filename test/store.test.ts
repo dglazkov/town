@@ -27,7 +27,8 @@ import { loadShop } from "../src/shoptest.js";
 import { parseManifest } from "../src/manifest.js";
 import { HALL } from "../src/hall.js";
 import type { Manifest } from "../src/manifest.js";
-import { StoreError, hashToken, openStore, type Store } from "../src/store.js";
+import { hashToken } from "../src/passes.js";
+import { StoreError, openStore, type Store } from "../src/store.js";
 import { ensureKey } from "../src/vault.js";
 
 let dir: string;

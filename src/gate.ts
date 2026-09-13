@@ -35,7 +35,8 @@ import { noticesFor, type Notice } from "./notices.js";
 import { due, parseValue, refresh, refreshed, type OAuthValue } from "./oauth.js";
 import type { Client, CredentialType } from "./credentials.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
-import { hashToken, type Grant, type Pass, type Store } from "./store.js";
+import { hashToken, type Pass } from "./passes.js";
+import type { Grant, Store } from "./store.js";
 import { VaultError } from "./vault.js";
 import type { Wall, WallKind } from "./wall.js";
 

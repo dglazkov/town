@@ -12,7 +12,8 @@
 // credential, which is the operator's.
 
 import type { Credential, CredentialType } from "./credentials.js";
-import type { Permit, Store } from "./store.js";
+import type { Permit } from "./permits.js";
+import type { Store } from "./store.js";
 
 /** One need of a shop, as the town stands: its type, or null when the town no longer holds it, the user's live credentials of it, and the guidance shown with it. */
 export interface NeedState {

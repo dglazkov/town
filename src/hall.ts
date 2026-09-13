@@ -31,7 +31,8 @@ import { parseManifest, type Manifest } from "./manifest.js";
 import { breaksDependents, revisedClause, sendShop } from "./publish.js";
 import { townShops } from "./shoptest.js";
 import { SPEC } from "./spec.js";
-import { StoreError, type Grant, type Pass, type Store } from "./store.js";
+import type { Pass } from "./passes.js";
+import { StoreError, type Grant, type Store } from "./store.js";
 
 /** The hall's manifest, as the design writes it. */
 export const HALL_YAML = `name: town/hall

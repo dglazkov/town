@@ -15,7 +15,9 @@ import { table } from "./help.js";
 import type { GrantState } from "./liveness.js";
 import type { Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
-import { StoreError, type Grant, type Permit, type Store, type User } from "./store.js";
+import type { User } from "./passes.js";
+import type { Permit } from "./permits.js";
+import { StoreError, type Grant, type Store } from "./store.js";
 
 /** What a grant is made of once its checks pass, less when it expires. */
 export interface GrantFields {

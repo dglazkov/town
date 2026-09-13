@@ -36,7 +36,8 @@ import { HALL_NAME, type Manifest, type Need } from "./manifest.js";
 import { definesType } from "./needs.js";
 import type { RunCredential } from "./runtime.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
-import { StoreError, type Pass, type Store } from "./store.js";
+import type { Pass } from "./passes.js";
+import { StoreError, type Store } from "./store.js";
 import { VaultError, ensureKey, readKey } from "./vault.js";
 import type { Wall } from "./wall.js";
 

@@ -3,7 +3,8 @@
 // seven days remain. Rendered as `town-notice: <kind> key=value …` lines
 // on stderr, or as objects in the `--json` envelope's `notices`.
 
-import type { Grant, Pass } from "./store.js";
+import type { Pass } from "./passes.js";
+import type { Grant } from "./store.js";
 
 export const NOTICE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 

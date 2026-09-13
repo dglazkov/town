@@ -23,7 +23,8 @@ import { canonicalArgv, parseArgs, splitWords } from "./args.js";
 import { answerFor, argvHash, newCallId, type Caller, type GateDeps, type TestTree } from "./gate.js";
 import { parseManifest, type Manifest, type ShopTest, type TownShop, type TownType } from "./manifest.js";
 import { run, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
-import type { Grant, Pass, Store } from "./store.js";
+import type { Pass } from "./passes.js";
+import type { Grant, Store } from "./store.js";
 import type { Wall } from "./wall.js";
 
 export interface TestResult {

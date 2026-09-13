@@ -51,7 +51,8 @@ import { run } from "../src/runtime.js";
 import { decideAndRecord } from "../src/server.js";
 import { SPEC } from "../src/spec.js";
 import { loadShop } from "../src/shoptest.js";
-import { openStore, type Pass, type Store } from "../src/store.js";
+import type { Pass } from "../src/passes.js";
+import { openStore, type Store } from "../src/store.js";
 import { openWall } from "../src/wall.js";
 import { recordingWall, type RecordingWall } from "./helpers/wall.js";
 

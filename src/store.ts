@@ -5,12 +5,14 @@
 // another process is seen by the next call. A grant's liveness is one
 // query for what a grant decides alone, then a walk over the pass's
 // grants for its shop's dependencies, in src/liveness.ts. The tables and
-// their migrations are src/schema.ts; the credential and audit queries
-// are src/credentials.ts and src/audit.ts, called from here by name.
+// their migrations are src/schema.ts; the grant queries are here, and the
+// rest are their nouns' files, called from here by name: users and
+// passes src/passes.ts, shops src/shops.ts, permits src/permits.ts,
+// credentials src/credentials.ts, and calls src/audit.ts.
 // Every open writes the hall's row from src/hall.ts, so a town is born
 // with its own shop and always holds this town's version of it.
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync as Database } from "node:sqlite";
@@ -23,24 +25,13 @@ import { HALL } from "./hall.js";
 import { GRANTS_WITH_STATE, withLiveness, type GrantState } from "./liveness.js";
 import type { Manifest } from "./manifest.js";
 import type { OAuthValue } from "./oauth.js";
-import { isoTime } from "./notices.js";
+import * as passes from "./passes.js";
+import type { Pass, User } from "./passes.js";
+import * as permits from "./permits.js";
+import type { Permit } from "./permits.js";
 import { getMeta, openDatabase, setMeta } from "./schema.js";
-
-export interface User {
-  id: string;
-  name: string;
-  createdAt: number;
-}
-
-export interface Pass {
-  id: string;
-  userId: string;
-  userName: string;
-  label: string;
-  createdAt: number;
-  expiresAt: number | null;
-  revokedAt: number | null;
-}
+import * as shops from "./shops.js";
+import type { ShopRow } from "./shops.js";
 
 export interface Grant {
   id: string;
@@ -57,42 +48,8 @@ export interface Grant {
   source: string | null;
 }
 
-export interface ShopRow {
-  name: string;
-  version: string;
-  manifest: Manifest;
-  addedAt: number;
-  /** The user whose agent published it, by id; null for a shop the operator added, and the hall. */
-  owner: string | null;
-  /** That user's name; null when there is no owner. */
-  ownerName: string | null;
-  /** When its tests last passed on this code; null for a shop with needs published and not yet approved, so an approval runs them. */
-  testedAt: number | null;
-}
-
-/** A grant an agent proposed with `request`, pending until a person decides it. */
-export interface Permit {
-  id: string;
-  passId: string;
-  userName: string;
-  shop: string;
-  commands: string[];
-  constraints: Constraints;
-  /** One line a person reads; empty when the agent gave none. */
-  why: string;
-  createdAt: number;
-  decidedAt: number | null;
-  decision: "approved" | "denied" | null;
-  /** The grant an approval made; null otherwise. */
-  grantId: string | null;
-}
-
 /** A refusal the admin can print as it is. */
 export class StoreError extends Error {}
-
-export function hashToken(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
-}
 
 export function newId(kind: string): string {
   return `${kind}_${randomBytes(8).toString("hex")}`;
@@ -158,76 +115,38 @@ export class Store {
     return getMeta(this.db, key);
   }
 
-  // users
+  // users and passes: src/passes.ts
 
   addUser(name: string, now = Date.now()): User {
-    // A user's name is the namespace its agents publish under, the first part of a shop's name.
-    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-      throw new StoreError(`user name ${JSON.stringify(name)} is not a namespace; write lowercase letters, digits, and "-", starting with a letter, since it is the first part of the name of every shop the user's agents publish`);
-    }
-    if (name === HALL.name.split("/")[0]) {
-      throw new StoreError(`user name ${name} is the operator's namespace; write another name`);
-    }
-    if (this.userByName(name)) throw new StoreError(`user ${name} already exists`);
-    const user = { id: newId("user"), name, createdAt: now };
-    this.db.prepare("INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)").run(user.id, name, now);
-    return user;
+    return passes.addUser(this, name, now);
   }
 
   userByName(name: string): User | null {
-    const row = this.db.prepare("SELECT * FROM users WHERE name = ?").get(name) as Row | undefined;
-    return row ? toUser(row) : null;
+    return passes.userByName(this, name);
   }
 
   listUsers(): User[] {
-    return (this.db.prepare("SELECT * FROM users ORDER BY created_at, name").all() as Row[]).map(toUser);
+    return passes.listUsers(this);
   }
 
-  // passes
-
-  /** A new pass for `userName`; the token is returned here and stored nowhere but as its hash. */
   newPass(userName: string, label: string, expiresAt: number | null, now = Date.now()): { pass: Pass; token: string } {
-    const user = this.userByName(userName);
-    if (!user) throw new StoreError(`user ${userName} does not exist; add it with townd admin user add ${userName}`);
-    if (label.trim() === "") throw new StoreError("a pass needs a --label saying what holds it");
-    const token = randomBytes(32).toString("base64url");
-    const id = newId("pass");
-    this.db
-      .prepare("INSERT INTO passes (id, user_id, label, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, user.id, label, hashToken(token), now, expiresAt);
-    return { pass: this.passById(id)!, token };
+    return passes.newPass(this, userName, label, expiresAt, now);
   }
 
-  /** The pass whose token hashes to `tokenHash`, whatever its state; read from the file every time. */
   passByTokenHash(tokenHash: string): Pass | null {
-    const row = this.db
-      .prepare("SELECT p.*, u.name AS user_name FROM passes p JOIN users u ON u.id = p.user_id WHERE p.token_hash = ?")
-      .get(tokenHash) as Row | undefined;
-    return row ? toPass(row) : null;
+    return passes.passByTokenHash(this, tokenHash);
   }
 
   passById(id: string): Pass | null {
-    const row = this.db
-      .prepare("SELECT p.*, u.name AS user_name FROM passes p JOIN users u ON u.id = p.user_id WHERE p.id = ?")
-      .get(id) as Row | undefined;
-    return row ? toPass(row) : null;
+    return passes.passById(this, id);
   }
 
   listPasses(): Array<Pass & { lastUse: number | null }> {
-    const rows = this.db
-      .prepare(
-        `SELECT p.*, u.name AS user_name, (SELECT MAX(at) FROM calls c WHERE c.pass_id = p.id) AS last_use
-         FROM passes p JOIN users u ON u.id = p.user_id ORDER BY p.created_at, p.id`,
-      )
-      .all() as Row[];
-    return rows.map((r) => ({ ...toPass(r), lastUse: nullableNumber(r.last_use) }));
+    return passes.listPasses(this);
   }
 
   revokePass(id: string, now = Date.now()): Pass {
-    const pass = this.passById(id);
-    if (!pass) throw new StoreError(`pass ${id} does not exist; townd admin pass ls lists them`);
-    if (pass.revokedAt === null) this.db.prepare("UPDATE passes SET revoked_at = ? WHERE id = ?").run(now, id);
-    return this.passById(id)!;
+    return passes.revokePass(this, id, now);
   }
 
   // grants
@@ -307,84 +226,48 @@ export class Store {
     return this.grantById(id)!;
   }
 
-  // shops
+  // shops: src/shops.ts
 
-  /**
-   * Latest only: the row for `manifest.name`, with `owner` the publishing
-   * user's id, or null for the operator's, and `testedAt` when its tests
-   * passed on this code, or null when they have not run on it.
-   */
   upsertShop(manifest: Manifest, now = Date.now(), owner: string | null = null, testedAt: number | null = now): void {
-    this.db
-      .prepare(
-        `INSERT INTO shops (name, version, manifest, added_at, owner, tested_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(name) DO UPDATE SET version = excluded.version, manifest = excluded.manifest, added_at = excluded.added_at, owner = excluded.owner, tested_at = excluded.tested_at`,
-      )
-      .run(manifest.name, manifest.version, JSON.stringify(manifest), now, owner, testedAt);
+    shops.upsertShop(this, manifest, now, owner, testedAt);
   }
 
-  /** Records that the shop's tests passed on its code at `now`. */
   markTested(name: string, now = Date.now()): void {
-    this.db.prepare("UPDATE shops SET tested_at = ? WHERE name = ?").run(now, name);
+    shops.markTested(this, name, now);
   }
 
   getShop(name: string): ShopRow | null {
-    const row = this.db.prepare(`${SHOP_SELECT} WHERE s.name = ?`).get(name) as Row | undefined;
-    return row ? toShop(row) : null;
+    return shops.getShop(this, name);
   }
 
   listShops(): ShopRow[] {
-    return (this.db.prepare(`${SHOP_SELECT} ORDER BY s.name`).all() as Row[]).map(toShop);
+    return shops.listShops(this);
   }
 
   removeShop(name: string): boolean {
-    return Number(this.db.prepare("DELETE FROM shops WHERE name = ?").run(name).changes) > 0;
+    return shops.removeShop(this, name);
   }
 
-  // permits
+  // permits: src/permits.ts
 
-  /** A pending permit of the pass at the shop; a pending one of the pass at that shop is replaced, in one write. */
   newPermit(p: { passId: string; shop: string; commands: string[]; constraints: Constraints; why: string }, now = Date.now()): Permit {
-    const pass = this.passById(p.passId);
-    if (!pass) throw new StoreError(`pass ${p.passId} does not exist; townd admin pass ls lists them`);
-    if (!this.getShop(p.shop)) throw new StoreError(`shop ${p.shop} is not in this town; townd admin shop ls lists them`);
-    const id = `prm_${randomBytes(8).toString("hex")}`;
-    this.inTransaction(() => {
-      this.db.prepare("DELETE FROM permits WHERE pass_id = ? AND shop = ? AND decision IS NULL").run(p.passId, p.shop);
-      this.db
-        .prepare("INSERT INTO permits (id, pass_id, shop, commands, constraints, why, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(id, p.passId, p.shop, JSON.stringify(p.commands), JSON.stringify(p.constraints), p.why, now);
-    });
-    return this.permitById(id)!;
+    return permits.newPermit(this, p, now);
   }
 
   permitById(id: string): Permit | null {
-    const row = this.db.prepare(`${PERMIT_SELECT} WHERE r.id = ?`).get(id) as Row | undefined;
-    return row ? toPermit(row) : null;
+    return permits.permitById(this, id);
   }
 
-  /** Every permit, or one pass's, oldest first, decided ones included. */
   listPermits(passId?: string): Permit[] {
-    const order = "ORDER BY r.created_at, r.id";
-    const rows = (passId === undefined ? this.db.prepare(`${PERMIT_SELECT} ${order}`).all() : this.db.prepare(`${PERMIT_SELECT} WHERE r.pass_id = ? ${order}`).all(passId)) as Row[];
-    return rows.map(toPermit);
+    return permits.listPermits(this, passId);
   }
 
-  /** The permit, when it is there and not yet decided; else the refusal saying which. */
   pendingPermit(id: string): Permit {
-    const permit = this.permitById(id);
-    if (!permit) throw new StoreError(`permit ${id} does not exist; townd admin permit ls lists them`);
-    if (permit.decision !== null) {
-      throw new StoreError(`permit ${id} was ${permit.decision} at ${isoTime(permit.decidedAt!)}; a decided permit is not decided again, so the agent asks again`);
-    }
-    return permit;
+    return permits.pendingPermit(this, id);
   }
 
-  /** Records a person's decision on a pending permit, with the grant an approval made; a decided permit is refused. */
   decidePermit(id: string, decision: "approved" | "denied", grantId: string | null, now = Date.now()): Permit {
-    this.pendingPermit(id);
-    this.db.prepare("UPDATE permits SET decision = ?, decided_at = ?, grant_id = ? WHERE id = ? AND decision IS NULL").run(decision, now, grantId, id);
-    return this.permitById(id)!;
+    return permits.decidePermit(this, id, decision, grantId, now);
   }
 
   // credential types and credentials: src/credentials.ts
@@ -492,25 +375,6 @@ export function nullableNumber(v: unknown): number | null {
   return v === null || v === undefined ? null : Number(v);
 }
 
-const SHOP_SELECT = "SELECT s.*, u.name AS owner_name FROM shops s LEFT JOIN users u ON u.id = s.owner";
-const PERMIT_SELECT = "SELECT r.*, u.name AS user_name FROM permits r JOIN passes p ON p.id = r.pass_id JOIN users u ON u.id = p.user_id";
-
-function toUser(r: Row): User {
-  return { id: String(r.id), name: String(r.name), createdAt: Number(r.created_at) };
-}
-
-function toPass(r: Row): Pass {
-  return {
-    id: String(r.id),
-    userId: String(r.user_id),
-    userName: String(r.user_name),
-    label: String(r.label),
-    createdAt: Number(r.created_at),
-    expiresAt: nullableNumber(r.expires_at),
-    revokedAt: nullableNumber(r.revoked_at),
-  };
-}
-
 function toGrant(r: Row): Grant {
   return {
     id: String(r.id),
@@ -523,34 +387,5 @@ function toGrant(r: Row): Grant {
     revokedAt: nullableNumber(r.revoked_at),
     credentials: JSON.parse(String(r.credentials ?? "{}")) as Record<string, string>,
     source: r.source === null || r.source === undefined ? null : String(r.source),
-  };
-}
-
-function toShop(r: Row): ShopRow {
-  const owner = r.owner === null || r.owner === undefined ? null : String(r.owner);
-  return {
-    name: String(r.name),
-    version: String(r.version),
-    manifest: JSON.parse(String(r.manifest)) as Manifest,
-    addedAt: Number(r.added_at),
-    owner,
-    ownerName: r.owner_name === null || r.owner_name === undefined ? null : String(r.owner_name),
-    testedAt: nullableNumber(r.tested_at),
-  };
-}
-
-function toPermit(r: Row): Permit {
-  return {
-    id: String(r.id),
-    passId: String(r.pass_id),
-    userName: String(r.user_name),
-    shop: String(r.shop),
-    commands: JSON.parse(String(r.commands)) as string[],
-    constraints: JSON.parse(String(r.constraints)) as Constraints,
-    why: String(r.why),
-    createdAt: Number(r.created_at),
-    decidedAt: nullableNumber(r.decided_at),
-    decision: r.decision === null ? null : (String(r.decision) as "approved" | "denied"),
-    grantId: r.grant_id === null ? null : String(r.grant_id),
   };
 }

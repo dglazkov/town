@@ -8,7 +8,8 @@ import type { Constraints, ConstraintValue } from "./constraints.js";
 import { splitTarget } from "./constraints.js";
 import type { Arg, Command, ConstraintKind, Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
-import type { Grant, Pass, Store } from "./store.js";
+import type { Pass } from "./passes.js";
+import type { Grant, Store } from "./store.js";
 
 /** What help needs of a grant: its commands, its constraints, the pass's label, and when it ends. */
 export interface GrantView {

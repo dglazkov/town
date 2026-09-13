@@ -465,7 +465,7 @@ taking the registration as `type add` does.
 
 Schema 6, and a store made by wall is migrated in place on open:
 `credential_types.kind` default `token`, `state` default `held`,
-`proposed_by`, `oauth`, `client`; `credentials.scopes`, `revoked_why`;
+`proposed_by`, `guidance` default empty, `oauth`, `client`; `credentials.scopes`, `revoked_why`;
 `shops.tested_at`, set to `added_at` for every existing row, since each
 was tested when it was added. Permits are hall's; a permit's needs are
 read from the shop's manifest and the user's credentials when listed,

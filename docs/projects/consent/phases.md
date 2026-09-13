@@ -140,7 +140,7 @@ conductor starts, published by a pass through the built `town`; `permit
 show` read and its three lines typed as printed, and nothing else; the
 call answered.
 
-**Status: OPEN.**
+**Status: NOT STARTED.**
 
 ---
 
@@ -217,7 +217,7 @@ text; `credential ls` showing scopes and no value; `strings town.db`
 holding none of the tokens. The registration and the credential kept
 for phase 2.
 
-**Status: OPEN.**
+**Status: NOT STARTED.**
 
 ---
 
@@ -263,4 +263,4 @@ wait, whether the agent's words and the checklist were enough to make
 the token and reach the grant without another source, and how many
 round trips `validate` took, recorded as findings.
 
-**Status: OPEN.**
+**Status: NOT STARTED.**

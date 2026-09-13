@@ -1,6 +1,6 @@
 # Wall — the design
 
-**12 September 2026.** Wall phases 0 and 1 closed. The project's status lives
+**12 September 2026.** Done: all three phases closed. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §13 in
@@ -185,7 +185,9 @@ rides in argv, so it is visible to `ps` on the box; it names paths and
 ports and holds no secret.
 
 What the wall does not do: it does not hide the process list, the
-system's files, or the clock; it does not limit memory or CPU; and it
+system's files, the clock, or what the kernel says without a file: the
+box's name, the operator's name and uid, and the network interfaces,
+which wall phase 2's agent found and flagged; it does not limit memory or CPU; and it
 does not stop a shop from exec'ing what it can read, `/bin/sh` and
 `/usr/bin/curl` included, since those run inside the same wall and are
 refused the same things.

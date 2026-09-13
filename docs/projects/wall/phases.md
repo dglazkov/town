@@ -24,13 +24,12 @@ Gate's, vault's, compose's, and hall's rules still hold, and
 
 ---
 
-**Where we are: wall phase 1 closed, 12 September 2026.** Next is
-wall phase 2, the walk. `townd
-serve` and `admin` wall every shop by the box's Seatbelt unless `--wall
-none` is written, and refuse a box without one; the audit has its
-`wall` column; the `command` ring runs walled; and the exfil test reads
-`EPERM` for the key walled and the key under `none`. The walk is one
-local model session, no token, nothing asked. Two
+**Where we are: done, 12 September 2026.** All three phases closed;
+no wall phase is next. A real agent wrote a shop that pried, published
+it, and ran it walled by Seatbelt; it reported its own directory and
+state readable and the town's files, the home, and the network refused,
+and, asked for a web page's title, said its shops cannot reach the
+web. Nothing waits on a person. Two
 facts were measured before the docs were written and shape them: Docker
 Desktop on this box cannot give a container the call's windows, a unix
 socket in a bind mount being refused and a container with no network
@@ -264,4 +263,35 @@ directory, and the published shop's directory under the data directory
 finds it only in the grant file. How the agent described the wall, and
 what it tried, recorded as findings.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. `pnpm test` exit 0 at 468 tests, and
+the walk held: `published dimitri/probe` three times, every call at the
+shop `seatbelt`, no row `none`, the report and the refusal as the
+journey writes them, the token only in the grant file.
+
+**Findings:**
+
+- **2026-09-12 — The walk: 17 rows, 0 denied; by wall, `seatbelt` 3
+  and `-` 14.** The three were the probe's calls. Sonnet 5, Bash alone,
+  four prompts, 49 turns, $1.79, over the Proof's dollar.
+- **2026-09-12 — The first prompt spent its dollar before any
+  `validate`,** 26 turns against Claude Code's check refusing a heredoc
+  holding a brace and a quote; resumed, it validated once refused §2,
+  tested, and published.
+- **2026-09-12 — The first report skipped the town's files.** Asked
+  whether the shop could see them, the agent added probes: the data
+  directory, `shops/`, and `state/` all `EPERM`. It read no refusal as a
+  bug.
+- **2026-09-12 — The agent flagged what the wall does not hide:** the
+  hostname, the user's name and uid, and the network interfaces with
+  the LAN address and MACs, besides `/etc/passwd` and a listing of `/`.
+- **2026-09-12 — Asked for example.com's title, the shop got
+  `ENOTFOUND`,** and the agent said shops cannot reach the internet,
+  naming a credential-backed origin as the way; no `request`, no
+  workaround.
+- **2026-09-12 — A publish's tests with no dependency make no rows,**
+  so "test calls walled" shows in no audit row here; `publish.test.ts`
+  proves it by a test that fails walled.
+- **2026-09-12 — `__CF_USER_TEXT_ENCODING` was in the shop's
+  environment:** macOS adds it to every process, as gate's tests
+  subtract it.
+- **2026-09-12 — The phase took about twenty minutes of wall clock.**

@@ -20,7 +20,10 @@ Town Hall as a shop the town is born with, where an agent finds,
 writes, publishes, and asks for shops, and a person decides. The
 fifth is [project wall](docs/projects/wall/design.md): a shop's
 process enclosed, so it reads its own directory and its state, reaches
-the call's windows, and nothing else on the box.
+the call's windows, and nothing else on the box. The sixth is
+[project consent](docs/projects/consent/design.md): a credential type
+proposed by an agent's manifest, approved by a person who reads its
+origin, connected at that person's terminal, and bound by a permit.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

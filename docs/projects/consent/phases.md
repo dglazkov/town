@@ -30,14 +30,14 @@ untouched, and `src/cli.ts` learns nothing here, not `consent`, not
 
 ---
 
-**Where we are: 13 September 2026.** Consent phase 3 is next, the
-words that change and the token that falls short, written after
-consent phase 2's walk found its two Opens; it needs no person. Consent
-phases 0 to 2 are closed: a real agent proposed a Figma type, a person
-with no Figma account made the token from its guidance, the checklist
-reached a grant with the tests run at approval, and `town/gdocs` read a
-Google document on a real consent. `~/town-consent` keeps the Google
-registration.
+**Where we are: 13 September 2026.** Consent is done: all four
+phases closed, nothing waits. A real agent proposed a Figma type, a
+person with no Figma account made the token from its guidance, the
+checklist reached a grant with the tests run at approval, and
+`town/gdocs` read a Google document on a real consent; consent phase 3
+closed the walk's two holes, a republish's guidance reaching the type
+and a credential replaced under its grants from a line `permit show`
+prints. `~/town-consent` keeps the Google registration.
 
 The order is dependency order. Phase 0 is the type with the shop: the
 manifest's need grown, guidance included, proposed and held types, the
@@ -337,7 +337,7 @@ round trips `validate` took, recorded as findings.
 **Status: CLOSED.** 13 Sep 2026. `pnpm test` exit 0 at 555 tests, and
 the walk held as the Proof names it: a Figma type proposed, published,
 its tests run at approval, the shop used, `town/gdocs` read, no call
-denied, and no secret in any file searched; two Opens below.
+denied, and no secret in any file searched; its two holes went to consent phase 3.
 
 **Findings:**
 
@@ -352,13 +352,13 @@ denied, and no secret in any file searched; two Opens below.
   comments need `file_comments:read` and got 403. The agent read the
   scope from the 403, fixed the guidance, and, told no permit waited,
   asked with `request`.
-- **2026-09-13 — Open: a republish's guidance never reaches the box.**
+- **2026-09-13 — A republish's guidance never reached the box.**
   The held type keeps its first proposal's words, so `permit show`
-  printed the wrong scope after the fix. Waits on consent phase 3.
-- **2026-09-13 — Open: the checklist cannot replace a credential.** The
+  printed the wrong scope after the fix. Closed by consent phase 3.
+- **2026-09-13 — The checklist could not replace a credential.** The
   new permit marked the credential `done` on the under-scoped token; the
-  conductor typed `credential rm` first, a word nothing printed. Waits
-  on consent phase 3.
+  conductor typed `credential rm` first, a word nothing printed. Closed
+  by consent phase 3.
 - **2026-09-13 — Tests that expect a failure prove reach, not scope:**
   both approvals ran 2/2, `figma:1` a row, on a token that could not
   read comments.
@@ -376,7 +376,7 @@ denied, and no secret in any file searched; two Opens below.
 
 ## Phase 3: The words that change and the token that falls short
 
-**Closes:** journey 4 in full; consent phase 2's two Opens.
+**Closes:** journey 4 in full; the two holes consent phase 2's walk found.
 
 **Work:** `src/publish.ts`, `src/hall.ts`, and `src/credentials.ts`: a
 publish or `shop add` of a type's proposer with a matching definition
@@ -415,13 +415,39 @@ provider, no retry, no notice of a 403 to the person.
 
 **Proof:** `pnpm build && pnpm test && pnpm typecheck` exit 0, both
 rings. Falsified by at least one mutation: the proposer's guidance not
-written (journey 4 step 3's words fail), `--replace` leaving grants on
-the old credential (the call still 403 and the grant-reads test
-fails), and the replacement line left out (the checklist test ends with
+written (journey 4 step 2's publish line fails), `--replace` leaving
+grants on the old credential (the grant-reads test fails), and the
+replacement line left out (the checklist test ends with
 `comments` refused). Then by hand, from this checkout: a served town,
 the 0.1.0 bundle published through the built `town`, approved by the
 checklist on a narrow token, `comments` refused; 0.2.0 republished, a
 request, `permit show` read and its lines typed as printed; `comments`
 answered.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held: 565 tests, both
+rings, typecheck; the three mutations each failed their named tests;
+and by hand, `permit show`'s replacement and approve lines typed as
+printed moved the grant to a wide token and `comments` answered.
+
+**Findings:**
+
+- **2026-09-13 — The phase took about thirty-five minutes of wall
+  clock.** No split, no return to the builder; the Proof's predicted
+  failures for two mutations were rewritten to what fails.
+- **2026-09-13 — A stale type is caught at journey 4 step 2, not 3:**
+  `permit show` at the proposing shop prints the shop's own manifest
+  words, so the publish line and `credential add`'s prompt catch it.
+- **2026-09-13 — A grant left on a replaced credential is denied, not
+  403:** the old one is revoked in the same write, so the grant is not
+  live and the call is exit 2.
+- **2026-09-13 — `or, to use a new secret instead:` is a line of its
+  own,** the command beneath it, so each command still runs in `sh` as
+  printed; the heading itself does not.
+- **2026-09-13 — The replacement is offered for every need the user
+  holds,** operator types included; the one-line checklist is now a shop
+  with no needs.
+- **2026-09-13 — The 0.2.0 fixture tests `comments`,** so approval on a
+  narrow token fails 1/2; a test that reads what the scope guards
+  proves the scope, as consent phase 2's tests could not.
+- **2026-09-13 — §8 says the proposer's republish writes its guidance,**
+  paid for by tightening `depends`; the spec is still 298 lines.

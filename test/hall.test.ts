@@ -26,7 +26,12 @@
 // publish grant made before the shop gained a need revoked, `tested_at`
 // null and cleared by a republish, `requests`, `show`, and `search` with
 // needs and the shop's guidance, and the sources of every grant after each
-// step.
+// step. Consent phase 3: the proposer's republish writing its guidance onto
+// the type, proposed and held, and saying so; the host rule on the new
+// words; another shop's words leaving the type's
+// as they are while its own show with its permit, in `show`, and in
+// `requests`; the line over a person's grant naming `request`; and the
+// store refusing a host or a moved definition.
 
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -35,6 +40,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Io } from "../src/admin.js";
 import { parseArgs, splitWords } from "../src/args.js";
+import { checklist } from "../src/checklist.js";
 import { denials } from "../src/denials.js";
 import { gate, shopDir, type CallRequest, type GateDeps, type Runtime } from "../src/gate.js";
 import { approvePermit } from "../src/grants.js";
@@ -717,7 +723,7 @@ describe("consent: a shop that proposes a type, through the hall", () => {
     const kept = await send(token, "publish", figma(three.replace("version: 0.1.0", "version: 0.1.1")));
     expect(kept).toMatchObject({
       exit: 0,
-      stdout: `${WAIT}this pass's grant ${approved.grant.id} at dimitri/figma was made by a person, so it stands as it is, and this publish asked for none\npublished dimitri/figma 0.1.1; town figma --help says what it does\n`,
+      stdout: `${WAIT}this pass's grant ${approved.grant.id} at dimitri/figma was made by a person, so it stands as it is, and this publish asked for none; if the shop needs a new secret, town hall request --shop dimitri/figma asks a person\npublished dimitri/figma 0.1.1; town figma --help says what it does\n`,
     });
     expect(store.getShop("dimitri/figma")).toMatchObject({ version: "0.1.1", testedAt: null });
     expect(store.listPermits(pass.id).map((p) => p.decision)).toEqual(["approved"]);
@@ -744,5 +750,99 @@ describe("consent: a shop that proposes a type, through the hall", () => {
     expect(store.getShop("dimitri/figma")?.testedAt).toBeNull();
     expect(runs).toEqual([]);
     expectNoGrantAtNeedsNoPersonMade("publish that gained a need");
+  });
+});
+
+describe("consent phase 3: a type's guidance follows the shop that proposed it", () => {
+  const FIGMA_DIR = path.resolve(import.meta.dirname, "fixtures/figma-shop");
+  const WIDE_DIR = path.resolve(import.meta.dirname, "fixtures/figma-shop-0.2.0");
+  const at = (dir: string) => readFileSync(path.join(dir, "manifest.yaml"), "utf8").replace("http://127.0.0.1:9", "https://api.figma.com");
+  const NARROW = "Make a personal access token at Figma > Settings > Security, with file_content:read, and paste it.";
+  const WIDE = "Make a personal access token at Figma > Settings > Security, with file_content:read and file_comments:read, and paste it.";
+  const OTHER = "Ask the design lead for a token made at Figma > Settings > Security.";
+  const ENTRY = readFileSync(path.join(FIGMA_DIR, "main.mjs"), "utf8");
+  const figma = (manifest: string) => bundleOf({ "manifest.yaml": manifest, "main.mjs": ENTRY });
+  const WAIT = (shop: string) => `tests wait: ${shop} needs figma, which no grant of yours binds; they run when a person approves your permit\n`;
+  const requested = (stdout: string) => /requested (prm_[0-9a-f]{16}),/.exec(stdout)![1]!;
+
+  it("writes the proposer's new words onto the type, proposed and then held, and says so; the definition never moves, the same words say nothing, and a republish over a person's grant says how to ask again", async () => {
+    const { token, pass } = agentWith({ "town/hall": {} });
+    expect((await send(token, "publish", figma(at(FIGMA_DIR)))).exit).toBe(0);
+    expect(store.getType("figma")).toMatchObject({ state: "proposed", guidance: NARROW });
+
+    // Proposed: the republish's words are the type's, and the line says so.
+    const wide = await send(token, "publish", figma(at(WIDE_DIR)));
+    expect(wide).toMatchObject({ exit: 0, stdout: `${WAIT("dimitri/figma")}published dimitri/figma 0.2.0; figma's guidance is now dimitri/figma 0.2.0's; it needs figma, so a person decides at the box: requested ${requested(wide.stdout)}, and town --help shows the answer\n` });
+    expect(store.getType("figma")).toMatchObject({ state: "proposed", proposedBy: "dimitri/figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: WIDE });
+
+    // The same words again: nothing to say.
+    const same = await send(token, "publish", figma(at(WIDE_DIR).replace("version: 0.2.0", "version: 0.2.1")));
+    expect(same.stdout).toContain("published dimitri/figma 0.2.1; it needs figma,");
+    expect(same.stdout).not.toContain("guidance");
+
+    // Words naming a host the type does not send to: refused, and the type's stand.
+    const elsewhere = await send(token, "publish", figma(at(WIDE_DIR).replace("and paste it.", "and paste it at paste.example.com.").replace("version: 0.2.0", "version: 0.2.2")));
+    expect(elsewhere).toMatchObject({ exit: 1, stdout: "credentials[0].guidance: names paste.example.com, which is not where this type sends; say where the secret is made, not where to send it (spec §8)\n" });
+    expect(store.getType("figma")!.guidance).toBe(WIDE);
+
+    // Held, with a person's grant: new words reach the type; the grant stands, and the line says how to ask for a new secret.
+    const permit = requested(same.stdout);
+    store.approveType("figma");
+    const cred = store.addCredential({ userName: "dimitri", type: "figma", label: "figma", value: "figma-not-a-token" }, Buffer.alloc(32, 7), NOW);
+    store.markTested("dimitri/figma", NOW);
+    const approved = approvePermit(store, permit, { commands: undefined, constraints: [], credentials: [], expiresAt: null }, NOW);
+    if (Array.isArray(approved)) throw new Error(approved.join("\n"));
+    const narrowAgain = await send(token, "publish", figma(at(FIGMA_DIR).replace("version: 0.1.0", "version: 0.3.0")));
+    expect(narrowAgain).toMatchObject({
+      exit: 0,
+      stdout: `${WAIT("dimitri/figma")}this pass's grant ${approved.grant.id} at dimitri/figma was made by a person, so it stands as it is, and this publish asked for none; if the shop needs a new secret, town hall request --shop dimitri/figma asks a person\npublished dimitri/figma 0.3.0; figma's guidance is now dimitri/figma 0.3.0's; town figma --help says what it does\n`,
+      detail: "published dimitri/figma 0.3.0",
+    });
+    expect(store.getType("figma")).toMatchObject({ state: "held", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: NARROW });
+    expect(store.grantById(approved.grant.id)).toMatchObject({ revokedAt: null, credentials: { figma: cred.id } });
+    expect(store.listPermits(pass.id).filter((p) => p.decision === null)).toEqual([]);
+  });
+
+  it("leaves the type's words as they are when another shop defines it with its own, and shows that shop's own words with its permit, in show, and in permit show; a shop naming the type bare shows the type's", async () => {
+    const { token } = agentWith({ "town/hall": {} });
+    expect((await send(token, "publish", figma(at(FIGMA_DIR)))).exit).toBe(0);
+    const notes = at(WIDE_DIR).replace("name: dimitri/figma", "name: dimitri/figma-notes").replace(WIDE, OTHER);
+    const other = await send(token, "publish", figma(notes));
+    expect(other.stdout).toBe(`${WAIT("dimitri/figma-notes")}published dimitri/figma-notes 0.2.0; it needs figma, so a person decides at the box: requested ${requested(other.stdout)}, and town --help shows the answer\n`);
+    expect(store.getType("figma")).toMatchObject({ proposedBy: "dimitri/figma", guidance: NARROW });
+
+    store.approveType("figma");
+    store.addCredential({ userName: "dimitri", type: "figma", label: "figma", value: "figma-not-a-token" }, Buffer.alloc(32, 7), NOW);
+
+    // Its own words, attributed to it: show, and the checklist; the proposer's shop shows the type's.
+    const bare = at(FIGMA_DIR).replace("name: dimitri/figma", "name: dimitri/figma-bare").replace(/    origin:.*\n    header:.*\n    guidance:.*\n/, "");
+    const bareSent = await send(token, "publish", figma(bare));
+    expect(bareSent.exit, bareSent.stdout).toBe(0);
+    expect((await hall(token, "show", "--shop", "dimitri/figma-notes")).stdout.endsWith(`needs figma (connected)\ndimitri/figma-notes says: ${OTHER}\n`)).toBe(true);
+    expect((await hall(token, "show", "--shop", "dimitri/figma-bare")).stdout.endsWith(`needs figma (connected)\ndimitri/figma says: ${NARROW}\n`)).toBe(true);
+    expect(checklist(store, store.permitById(requested(other.stdout))!)).toContain(`    dimitri/figma-notes says: ${OTHER}\n    dimitri's: `);
+    expect(checklist(store, store.permitById(requested(bareSent.stdout))!)).toContain(`    dimitri/figma says: ${NARROW}\n    dimitri's: `);
+  });
+
+  it("shows each pending permit's unmet need with its own shop's words in requests", async () => {
+    const { token } = agentWith({ "town/hall": {} });
+    expect((await send(token, "publish", figma(at(FIGMA_DIR)))).exit).toBe(0);
+    expect((await send(token, "publish", figma(at(WIDE_DIR).replace("name: dimitri/figma", "name: dimitri/figma-notes").replace(WIDE, OTHER)))).exit).toBe(0);
+    const lines = (await hall(token, "requests")).stdout.trimEnd().split("\n");
+    // Both permits were asked at the same moment, so the table's order between them is the ids'.
+    expect(lines.slice(3).sort()).toEqual([`dimitri/figma says: ${NARROW}`, `dimitri/figma-notes says: ${OTHER}`]);
+  });
+
+  it("writes guidance only for the proposer, with its definition, and never a host the type does not send to, at the store too", () => {
+    store.proposeType({ name: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: NARROW }, "dimitri/figma", false, NOW);
+    const def = { name: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}" };
+    expect(store.reviseGuidance({ ...def, guidance: WIDE }, "dimitri/figma-notes")).toBe(false);
+    expect(store.reviseGuidance(def, "dimitri/figma")).toBe(false);
+    expect(store.reviseGuidance({ ...def, guidance: `${NARROW}\n` }, "dimitri/figma")).toBe(false);
+    expect(() => store.reviseGuidance({ ...def, guidance: "Paste it at paste.example.com." }, "dimitri/figma")).toThrow("dimitri/figma's guidance for figma names paste.example.com, which is not where this type sends; the validator refuses it (spec §8)");
+    expect(() => store.reviseGuidance({ ...def, origin: "https://api.figma.com/v2", guidance: WIDE }, "dimitri/figma")).toThrow("dimitri/figma's definition of figma is not the town's; the validator refuses it (spec §8)");
+    expect(store.getType("figma")!.guidance).toBe(NARROW);
+    expect(store.reviseGuidance({ ...def, guidance: "Make one at https://api.figma.com/settings, with file_comments:read." }, "dimitri/figma")).toBe(true);
+    expect(store.getType("figma")).toMatchObject({ ...def, state: "proposed", guidance: "Make one at https://api.figma.com/settings, with file_comments:read." });
   });
 });

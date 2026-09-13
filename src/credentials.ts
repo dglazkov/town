@@ -4,12 +4,17 @@
 // one, for one use in memory. The store's methods of these names call here.
 // A type is held, the town's, or proposed by a shop's manifest and held by
 // no credential until a person approves it; a held type's definition is
-// never edited, only removed and added again. An `oauth` type holds its
+// never edited, only removed and added again; its guidance alone follows
+// the shop that proposed it, rewritten by that shop's next publish. A
+// credential is replaced, not removed and added: the new one sealed, every
+// unrevoked grant bound to the old pointed at it, and the old revoked, in
+// one write. An `oauth` type holds its
 // registration, the client id and secret sealed under the vault's key, and
 // an `oauth` credential's value is the tokens as JSON, connected by
 // src/consent.ts and sealed again by the gate when it refreshes them.
 
 import type { OAuthEndpoints } from "./manifest.js";
+import { namedHosts, sameDefinition } from "./needs.js";
 import { parseEndpoint, type OAuthValue } from "./oauth.js";
 import { StoreError, newId, nullableNumber, type Store } from "./store.js";
 import { parseHeaderTemplate, parseOrigin } from "./teller.js";
@@ -162,6 +167,26 @@ export function proposeType(
   return getType(store, t.name)!;
 }
 
+/**
+ * Writes the guidance of `by`'s manifest onto the type `by` proposed, held
+ * or proposed, when the need's definition is the type's and its words
+ * differ; the origin, header, and `oauth` a person approved never move. A
+ * shop that did not propose the type, a need with no guidance, and the same
+ * words write nothing. The words name no host the type does not send to, as
+ * the validator refuses (spec §8). Whether it wrote.
+ */
+export function reviseGuidance(store: Store, t: TypeDefinition, by: string): boolean {
+  const held = getType(store, t.name);
+  const words = (t.guidance ?? "").trim();
+  if (!held || held.proposedBy !== by || words === "" || words === held.guidance) return false;
+  if (!sameDefinition(held, { type: t.name, origin: t.origin, header: t.header, ...(t.oauth ? { oauth: t.oauth } : {}) })) throw new StoreError(`${by}'s definition of ${t.name} is not the town's; the validator refuses it (spec §8)`);
+  const sends = [held.origin, ...(held.oauth ? [held.oauth.authorize, held.oauth.token] : [])].map((u) => new URL(u).hostname.toLowerCase());
+  const other = namedHosts(words).find((h) => !sends.includes(h));
+  if (other !== undefined) throw new StoreError(`${by}'s guidance for ${t.name} names ${other}, which is not where this type sends; the validator refuses it (spec §8)`);
+  store.db.prepare("UPDATE credential_types SET guidance = ? WHERE name = ? AND proposed_by = ?").run(words, t.name, by);
+  return true;
+}
+
 /** The refusal for a credential at a proposed type, naming the verb that makes it the town's. */
 export function proposedRefusal(t: CredentialType): string {
   return `type ${t.name} is proposed by ${t.proposedBy} and not yet the town's; townd admin type approve ${t.name} makes it so`;
@@ -299,6 +324,42 @@ export function revokeCredential(store: Store, id: string, now = Date.now(), why
   if (!c) throw new StoreError(`credential ${id} does not exist; townd admin credential ls lists them`);
   if (c.revokedAt === null) store.db.prepare("UPDATE credentials SET revoked_at = ?, revoked_why = ? WHERE id = ?").run(now, why, id);
   return credentialById(store, id)!;
+}
+
+/**
+ * The credential `--replace <id>` names for a new credential of `type` for
+ * `userName`; else the refusal, thrown, naming which: none by that id, one
+ * already revoked, one of another type, or another user's.
+ */
+export function checkReplace(store: Store, id: string, userName: string, type: string): Credential {
+  const c = credentialById(store, id);
+  if (!c) throw new StoreError(`--replace ${id}: credential ${id} does not exist; townd admin credential ls --user ${userName} lists ${userName}'s`);
+  if (c.revokedAt !== null) throw new StoreError(`--replace ${id}: credential ${id} is revoked${c.revokedWhy ? ` (${c.revokedWhy})` : ""}, so nothing reads it to replace; leave out --replace`);
+  if (c.type !== type) throw new StoreError(`--replace ${id}: credential ${id} is of type ${c.type}, not ${type}; a credential is replaced by one of its own type`);
+  if (c.userName !== userName) throw new StoreError(`--replace ${id}: credential ${id} is user ${c.userName}'s, not ${userName}'s; a credential is replaced by one of its own user's`);
+  return c;
+}
+
+/**
+ * A credential replaced, in one write: `make` seals the new one; then, the
+ * old checked as checkReplace checks it, every unrevoked grant bound to the
+ * old is bound to the new instead, its shop, commands, constraints, and
+ * source untouched, and the old is revoked, `replaced by <new id>`. The new
+ * credential and the grants moved, by id; nothing written on a refusal.
+ */
+export function replaceCredential(store: Store, old: string, make: () => Credential, now = Date.now()): { credential: Credential; moved: Array<{ id: string; shop: string }> } {
+  return store.inTransaction(() => {
+    const c = make();
+    checkReplace(store, old, c.userName, c.type);
+    const bound = store.db.prepare("SELECT DISTINCT g.id, g.shop, g.credentials FROM grants g, json_each(g.credentials) j WHERE j.value = ? AND g.revoked_at IS NULL ORDER BY g.id").all(old) as Row[];
+    const moved = bound.map((g) => {
+      const binding = Object.fromEntries(Object.entries(JSON.parse(String(g.credentials)) as Record<string, string>).map(([type, id]) => [type, id === old ? c.id : id]));
+      store.db.prepare("UPDATE grants SET credentials = ? WHERE id = ?").run(JSON.stringify(binding), String(g.id));
+      return { id: String(g.id), shop: String(g.shop) };
+    });
+    revokeCredential(store, old, now, `replaced by ${c.id}`);
+    return { credential: credentialById(store, c.id)!, moved };
+  });
 }
 
 /** How many sealed rows there are, revoked credentials and types' registrations included: rows the vault's key must be there to open. */

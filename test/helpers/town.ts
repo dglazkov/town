@@ -182,13 +182,13 @@ export interface OriginProcess {
  * a command test's `town` and `townd` run synchronously and would stall an
  * origin in this process. It writes its URL, then one JSON line per request
  * before answering it, to a file, so `seen()` read after a call returns
- * holds that call's requests.
+ * holds that call's requests. `args` are its own: `--wide <token>`.
  */
-export async function originProcess(): Promise<OriginProcess> {
+export async function originProcess(args: string[] = []): Promise<OriginProcess> {
   const dir = tmp("origin");
   const log = path.join(dir, "seen.jsonl");
   const fd = openSync(log, "w");
-  const child = spawn(process.execPath, ["--no-warnings", path.join(ROOT, "test/helpers/origin.ts")], { stdio: ["ignore", fd, "pipe"] });
+  const child = spawn(process.execPath, ["--no-warnings", path.join(ROOT, "test/helpers/origin.ts"), ...args], { stdio: ["ignore", fd, "pipe"] });
   closeSync(fd);
   const lines = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
   for (let i = 0; lines().length === 0; i++) {

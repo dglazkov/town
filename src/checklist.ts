@@ -3,29 +3,38 @@
 // things a person types at the box to get from a pending permit to a
 // grant, in order, each the exact command with its ids filled in. The
 // words about where a secret is made are a type's guidance, the proposing
-// shop's, attributed to it wherever a person or an agent reads them. The
+// shop's, attributed to it wherever a person or an agent reads them; with
+// a permit or a shop's needs, the words are that shop's own manifest's,
+// falling back to the type's when it writes none. For a need the user
+// already holds, the checklist offers the line that replaces the
+// credential with a new secret, never required and never done. The
 // agent's view says whether a need is connected and never names a
 // credential, which is the operator's.
 
 import type { Credential, CredentialType } from "./credentials.js";
 import type { Permit, Store } from "./store.js";
 
-/** One need of a shop, as the town stands: its type, or null when the town no longer holds it, and the user's live credentials of it. */
+/** One need of a shop, as the town stands: its type, or null when the town no longer holds it, the user's live credentials of it, and the guidance shown with it. */
 export interface NeedState {
   type: string;
   t: CredentialType | null;
   held: Credential[];
+  /** The shop's own words for the need under its name, or the type's under its author's; null when neither has any. */
+  said: string | null;
 }
 
 /** The shop's needs for `userName`, in manifest order; empty for a shop with none or not in the town. */
 export function needStates(store: Store, shop: string, userName: string): NeedState[] {
   const user = store.userByName(userName);
-  return (store.getShop(shop)?.manifest.credentials ?? []).map(({ type }) => ({
-    type,
-    t: store.getType(type),
-    held: user ? store.liveCredentials(user.id, type) : [],
-  }));
+  return (store.getShop(shop)?.manifest.credentials ?? []).map(({ type, guidance }) => {
+    const t = store.getType(type);
+    const own = (guidance ?? "").trim();
+    return { type, t, held: user ? store.liveCredentials(user.id, type) : [], said: own === "" ? guidanceLine(t) : saying(shop, own) };
+  });
 }
+
+/** Words under their author's name, on one line. */
+const saying = (by: string, words: string) => `${by} says: ${words.trim().replace(/\s+/g, " ")}`;
 
 /** Who wrote a type's guidance: the shop that proposed it, or the operator. */
 export function guidanceBy(t: CredentialType): string {
@@ -35,7 +44,7 @@ export function guidanceBy(t: CredentialType): string {
 /** A type's guidance as one line under its author's name, `dimitri/figma says: …`; null when it has none. */
 export function guidanceLine(t: CredentialType | null): string | null {
   if (!t || t.guidance.trim() === "") return null;
-  return `${guidanceBy(t)} says: ${t.guidance.trim().replace(/\s+/g, " ")}`;
+  return saying(guidanceBy(t), t.guidance);
 }
 
 /**
@@ -61,6 +70,9 @@ export function needsPhrase(states: readonly NeedState[]): string {
   return `needs ${states.map((s) => `${s.type} (${s.held.length ? "connected" : "none connected"})`).join(", ")}`;
 }
 
+/** The heading of the lines that replace a credential the user holds with a new secret. */
+export const INSTEAD = "or, to use a new secret instead:";
+
 /** One thing to do: the exact command, and whether the town already shows it done. */
 export interface Todo {
   done: boolean;
@@ -73,9 +85,10 @@ export interface Todo {
  * approved and a credential added; for a need of the operator's type, a
  * credential when the user holds none; an `oauth` type approved with its
  * registration from $CLIENT_ID and $CLIENT_SECRET, and connected; then
- * the approval, saying the tests it runs first when the shop's tests have
- * not run on its code.
- * A permit with nothing left to do but approve is that one line.
+ * above the approval, for each need the user holds, INSTEAD and the line
+ * replacing each such credential, never done; then the approval, saying
+ * the tests it runs first when the shop's tests have not run on its code.
+ * A permit with nothing to do or offer but approval is that one line.
  */
 export function todos(store: Store, permit: Permit): Todo[] {
   const out: Todo[] = [];
@@ -91,6 +104,8 @@ export function todos(store: Store, permit: Permit): Todo[] {
       out.push({ done: held.length > 0, line: credentialLine(t, type, permit.userName) });
     }
   }
+  const instead = states.flatMap(({ type, t, held }) => held.map((c) => ({ done: false, line: `${credentialLine(t, type, permit.userName)} --replace ${c.id}` })));
+  if (instead.length) out.push({ done: false, line: INSTEAD }, ...instead);
   const shop = store.getShop(permit.shop);
   const tests = shop && states.length && shop.testedAt === null ? shop.manifest.tests.length : 0;
   // The note rides as a shell comment, so the line runs as printed.
@@ -122,15 +137,15 @@ export function checklist(store: Store, permit: Permit): string {
   const lines: string[] = [shop ? `${shop.name}: ${shop.manifest.summary}` : `${permit.shop}: not in this town`];
   const states = needStates(store, permit.shop, permit.userName);
   lines.push(states.length ? "needs:" : "needs: none");
-  for (const { type, t, held } of states) {
+  for (const s of states) {
+    const { type, t, held } = s;
     if (!t) {
       lines.push(`  ${type}: not in this town`);
       continue;
     }
     lines.push(`  ${type}: ${t.state}, ${t.kind}, sent to ${t.origin} in ${t.header}`);
     if (t.oauth) lines.push(`    consent at ${t.oauth.authorize}, scopes ${t.oauth.scopes.join(", ")}`);
-    const said = guidanceLine(t);
-    if (said) lines.push(`    ${said}`);
+    if (s.said) lines.push(`    ${s.said}`);
     lines.push(`    ${held.length ? `${permit.userName}'s: ${held.map((c) => c.id).join(", ")}` : "none connected"}`);
   }
   const body = `${lines.join("\n")}\n`;

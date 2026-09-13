@@ -17,7 +17,11 @@
 // gate refreshes it for a call. A sent shop with needs runs no test, since no
 // person has bound a credential to it: its tests wait for the permit's
 // approval, where `testAtApproval` runs them on the credentials a person
-// chose, recorded under the approval's row.
+// chose, recorded under the approval's row. A type's origin, header, and
+// `oauth` are what a person approved, and neither door moves them; its
+// guidance follows its proposer: the shop that proposed it, put in again
+// with other words beside the same definition, writes them onto the type,
+// and the door's line says so.
 
 import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -271,8 +275,8 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
       return refuse(`${manifest.name}'s test${failing.length === 1 ? "" : "s"} ${failing.map((r) => `'${r.name}'`).join(", ")} failed; fix the shop and add it again`);
     }
     // A type held above is the town's already, so this holds nothing twice.
-    const stopped = await putInPlace(store, staging, manifest, { owner: null, testedAt: now, held: true }, now);
-    io.out(`added ${manifest.name} ${manifest.version}\n`);
+    const { stopped, revised } = await putInPlace(store, staging, manifest, { owner: null, testedAt: now, held: true }, now);
+    io.out(`added ${manifest.name} ${manifest.version}${revisedClause(manifest, revised)}\n`);
     for (const line of stopped) io.out(`${line}\n`);
     return 0;
   } finally {
@@ -302,25 +306,34 @@ async function checkCopy(store: Store, staging: string, types: ReturnType<Store[
   return breaksDependents(store, manifest) ?? manifest;
 }
 
+/** `; figma's guidance is now dimitri/figma 0.2.0's`, a clause for each type whose guidance the shop's manifest wrote; empty for none. */
+export function revisedClause(manifest: Manifest, revised: readonly string[]): string {
+  return revised.map((type) => `; ${type}'s guidance is now ${manifest.name} ${manifest.version}'s`).join("");
+}
+
 /**
  * The copy put in place, both doors': the shop's directory moved aside,
  * the copy moved in, the types the manifest defines that the town lacks
- * written, proposed or `held`, and the row upserted with `owner` and
+ * written, proposed or `held`, the guidance of each it proposed and defines
+ * with other words written onto it, and the row upserted with `owner` and
  * `testedAt`, in one write, the old directory removed. Then the grants at
  * the shop live before and not after, one line each, and a line on what to
- * do when one binds no credential.
+ * do when one binds no credential; and the types whose guidance it wrote.
  */
-async function putInPlace(store: Store, staging: string, manifest: Manifest, row: { owner: string | null; testedAt: number | null; held: boolean }, now: number): Promise<string[]> {
+async function putInPlace(store: Store, staging: string, manifest: Manifest, row: { owner: string | null; testedAt: number | null; held: boolean }, now: number): Promise<{ stopped: string[]; revised: string[] }> {
   const final = shopDir(store, manifest.name);
   const old = `${staging}-old`;
   const had = await lstat(final).then(() => true, () => false);
   const liveBefore = store.liveGrantsAt(manifest.name, now).map((g) => g.id);
   if (had) await rename(final, old);
   await rename(staging, final);
+  const revised: string[] = [];
   store.inTransaction(() => {
     for (const n of (manifest.credentials ?? []).filter(definesType)) {
       // A type held above is already the town's, and a sent shop's proposal holds no registration.
       if (!store.getType(n.type)) store.proposeType(definition(n), manifest.name, row.held, now);
+      // The words follow the shop that proposed the type; the definition a person approved does not move.
+      else if (store.reviseGuidance(definition(n), manifest.name)) revised.push(n.type);
     }
     store.upsertShop(manifest, now, row.owner, row.testedAt);
   });
@@ -332,16 +345,17 @@ async function putInPlace(store: Store, staging: string, manifest: Manifest, row
     return `${id} at ${manifest.name} is no longer live: ${why}`;
   });
   if (states.some((x) => x.state.kind === "unmet")) lines.push("a grant made again with townd admin grant new binds a credential for each need");
-  return lines;
+  return { stopped: lines, revised };
 }
 
 /**
  * What the hall's door did with a sent shop: its tests' results, and for a
  * publish whose tests all passed, the lines naming the grants that stopped
- * being live; `kept` false otherwise. `waits` is the shop's needs, whose
- * tests did not run; empty for a shop with none.
+ * being live and the types whose guidance it wrote; `kept` false otherwise.
+ * `waits` is the shop's needs, whose tests did not run; empty for a shop
+ * with none.
  */
-export type Sent = { manifest: Manifest; results: TestResult[]; waits: string[]; kept: boolean; stopped: string[] } | { refused: string[] };
+export type Sent = { manifest: Manifest; results: TestResult[]; waits: string[]; kept: boolean; stopped: string[]; revised: string[] } | { refused: string[] };
 
 /**
  * The hall's front door, publishing steps 6 to 8: the bundle's files
@@ -378,9 +392,9 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
     const waits = (manifest.credentials ?? []).map((n) => n.type);
     const timeout = deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs };
     const results = waits.length ? [] : await testShop(staging, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
-    if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, waits, kept: false, stopped: [] };
-    const stopped = await putInPlace(store, staging, manifest, { owner: req.pass.userId, testedAt: waits.length ? null : now, held: false }, now);
-    return { manifest, results, waits, kept: true, stopped };
+    if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, waits, kept: false, stopped: [], revised: [] };
+    const { stopped, revised } = await putInPlace(store, staging, manifest, { owner: req.pass.userId, testedAt: waits.length ? null : now, held: false }, now);
+    return { manifest, results, waits, kept: true, stopped, revised };
   } finally {
     await rm(staging, { recursive: true, force: true });
   }

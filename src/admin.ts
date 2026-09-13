@@ -59,7 +59,7 @@ const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb>
   permit ls [--pass <id>] | permit show <id> | permit approve <id> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--credential <id>]... [--expires <duration>] | permit deny <id>
   shop add <dir> [--user <name> [--credential <id>]... [--client-id <id>]] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
   type add <name> --origin <url> --header '<Name>: <value with {token}>' [--guidance <text>] [--kind oauth --authorize <url> --token <url> --scopes a,b --client-id <id>] | type approve <name> [--client-id <id>] | type ls | type rm <name>
-  credential add --user <name> --type <type> [--label <text>] | credential connect --user <name> --type <type> [--label <text>] [--port <n>] [--timeout <wait>] | credential ls [--user <name>] | credential rm <id>
+  credential add --user <name> --type <type> [--label <text>] [--replace <id>] | credential connect --user <name> --type <type> [--label <text>] [--replace <id>] [--port <n>] [--timeout <wait>] | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
 a secret, and an oauth client's secret, is read on stdin. durations: <n>d, <n>h, <n>m; a wait, <n>m or <n>s. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
 
@@ -70,7 +70,7 @@ export interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance", "kind", "authorize", "token", "scopes", "client-id", "port", "timeout"];
+const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance", "kind", "authorize", "token", "scopes", "client-id", "port", "timeout", "replace"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];

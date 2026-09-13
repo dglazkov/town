@@ -290,7 +290,7 @@ it("walks consent's journey 1 steps 1 to 6 and journey 2 steps 1 to 4: a type pr
   expect(added.stderr).toBe(`dimitri/figma says: ${GUIDANCE}\n`);
   expect(added.stdout).toMatch(/^credential_[0-9a-f]{16}\n$/);
   const cred = added.stdout.trim();
-  expect(todoLines(atBox(town, `townd admin permit show ${permit}`).stdout).map((t) => t.done)).toEqual([true, true, false]);
+  expect(todoLines(atBox(town, `townd admin permit show ${permit}`).stdout).map((t) => t.done)).toEqual([true, true, false, false, false]);
   const approved = atBox(town, todo[2]!.line);
   expect(approved.exit, approved.stderr).toBe(0);
   expect(approved.stdout).toMatch(/^ok a file answers\ngrant_[0-9a-f]{16}\n$/);
@@ -546,8 +546,14 @@ it("walks consent's journey 2 steps 5, 6, and 9 and journey 3 steps 1 to 6: an o
   writeFileSync(path.join(pryDir, "main.mjs"), readFileSync(path.join(ROOT, "test/fixtures/prying/main.mjs"), "utf8").replace("given.public !== false", "given.public === true"));
   const pryPermit = /requested (prm_[0-9a-f]{16}),/.exec(say(send(a, "prying", "publish")).stdout)![1]!;
   const pryTodo = todoLines(box(`townd admin permit show ${pryPermit}`).stdout);
-  expect(pryTodo.map((t) => [t.done, t.line])).toEqual([[true, todo[0]!.line], [true, todo[1]!.line], [false, `townd admin permit approve ${pryPermit}  # runs dimitri/prying's 1 test on it first`]]);
-  expect(box(pryTodo[2]!.line).exit).toBe(0);
+  expect(pryTodo.map((t) => [t.done, t.line])).toEqual([
+    [true, todo[0]!.line],
+    [true, todo[1]!.line],
+    [false, "or, to use a new secret instead:"],
+    [false, `${todo[1]!.line} --replace ${cred}`],
+    [false, `townd admin permit approve ${pryPermit}  # runs dimitri/prying's 1 test on it first`],
+  ]);
+  expect(box(pryTodo[4]!.line).exit).toBe(0);
   const pried = typed(a, `printf '%s' '{"public": false}' | town prying pry`);
   expect(pried.exit, pried.stderr).toBe(0);
   const probes = pried.stdout.trim().split("\n").map((l) => JSON.parse(l) as { act: string; target: string; result: string });

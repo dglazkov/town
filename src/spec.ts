@@ -221,14 +221,14 @@ town. It names the credential types it needs and the shops it calls:
                  holds it, or, for a type it lacks, a proposal.
       guidance   with a definition, one paragraph of at most 600 characters
                  for whoever makes the secret: where, and what to allow. It
-                 names no host, bare or in a URL, the type does not send to.
+                 names no host, bare or in a URL, the type does not send to;
+                 the proposing shop's republish writes it onto the type.
       oauth      with a definition, for an OAuth type: { authorize, token,
                  scopes }, two https: URLs and a list; never a client id,
                  secret, or redirect: a registration is the operator's.
-    depends      optional list of dependencies, each { shop, commands }
-                 and no other key, one per shop, never this shop nor
-                 town/hall: a shop the town holds, and a non-empty list
-                 of commands that shop has. Refusals name what it holds.
+    depends      optional list, each { shop, commands } and no other key,
+                 one per shop, never this shop nor town/hall: a shop the
+                 town holds and a non-empty list of its commands.
 
 A need: send $TOWN_CREDENTIAL_<TYPE> (§7) the request you would send the
 type's origin, path and all, with no credential; the town signs it, and

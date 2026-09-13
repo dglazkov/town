@@ -405,6 +405,10 @@ export class Store {
     return credentials.proposeType(this, t, proposedBy, held, now, registration);
   }
 
+  reviseGuidance(t: TypeDefinition, by: string): boolean {
+    return credentials.reviseGuidance(this, t, by);
+  }
+
   checkApprove(name: string, withClient: boolean): CredentialType {
     return credentials.checkApprove(this, name, withClient);
   }
@@ -451,6 +455,14 @@ export class Store {
 
   revokeCredential(id: string, now = Date.now(), why: string | null = null): Credential {
     return credentials.revokeCredential(this, id, now, why);
+  }
+
+  checkReplace(id: string, userName: string, type: string): Credential {
+    return credentials.checkReplace(this, id, userName, type);
+  }
+
+  replaceCredential(old: string, make: () => Credential, now = Date.now()): { credential: Credential; moved: Array<{ id: string; shop: string }> } {
+    return credentials.replaceCredential(this, old, make, now);
   }
 
   sealedRows(): number {

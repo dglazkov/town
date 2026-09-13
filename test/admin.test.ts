@@ -29,6 +29,14 @@
 // before the URL, and `credential ls` with scopes, no value, and `revoked
 // (refresh refused)`; and `shop add --user --client-id` holding an oauth
 // type in one step, refused naming `connect`, then adding the shop.
+// Consent phase 3: `credential add --replace` moving every unrevoked grant
+// on the old credential to the new with shop, commands, constraints,
+// expiry, and source unchanged, the old revoked `replaced by <id>`, the
+// moves printed, and each refusal writing nothing; `credential connect
+// --replace` through the fake authorization server; the checklist's
+// replacement line present for a held need, absent for an unmet one, never
+// done, and typed as printed; and the proposer's republish and `shop add`
+// changing what `type approve` and `credential add` print.
 
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -504,10 +512,10 @@ describe("consent: a type proposed with the shop", () => {
   const manifestText = () => readFileSync(path.join(FIGMA_DIR, "manifest.yaml"), "utf8").replace("http://127.0.0.1:9", origin.url);
 
   /** The figma shop published through the hall by dimitri's agent, as `tar … | town hall publish` sends it: the pass, and the permit its publish asked for. */
-  async function published(): Promise<{ pass: string; permit: string }> {
+  async function published(manifest = manifestText()): Promise<{ pass: string; permit: string }> {
     const root = mkdtempSync(path.join(os.tmpdir(), "town-admin-figma-"));
     try {
-      writeFileSync(path.join(root, "manifest.yaml"), manifestText());
+      writeFileSync(path.join(root, "manifest.yaml"), manifest);
       cpSync(path.join(FIGMA_DIR, "main.mjs"), path.join(root, "main.mjs"));
       const tar = spawnSync("tar", ["--format", "ustar", "-cf", "-", "-C", root, "."], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
       const store = openStore(data);
@@ -532,6 +540,8 @@ describe("consent: a type proposed with the shop", () => {
   const CRED = `        printf '%s\\n' "$TOKEN" | townd admin credential add --user dimitri --type figma --label figma`;
   const APPROVE = (id: string) => `        townd admin permit approve ${id}  # runs dimitri/figma's 1 test on it first`;
   const done = (line: string) => `  done${line.slice(6)}`;
+  const INSTEAD = "        or, to use a new secret instead:";
+  const REPLACE = (cred: string) => `${CRED} --replace ${cred}`;
 
   it("shows the proposed type in type ls, refuses a credential at it, and type approve prints what it approves, the shop's guidance under its name", async () => {
     await published();
@@ -604,21 +614,24 @@ describe("consent: a type proposed with the shop", () => {
     expect(two).toContain(`  figma: held, token, sent to ${origin.url} in X-Figma-Token: {token}\n`);
     expect(two).toContain(`    dimitri's: ${cred}\n`);
     expect(two).toMatch(new RegExp(`\\s+pending\\s+figma: ${cred}\\n`));
-    expect(todo(two)).toBe(`to do:\n${done(TYPE)}\n${done(CRED)}\n${APPROVE(permit)}\n`);
+    // Held, the checklist offers the replacement above the approval, never marked done.
+    expect(todo(two)).toBe(`to do:\n${done(TYPE)}\n${done(CRED)}\n${INSTEAD}\n${REPLACE(cred)}\n${APPROVE(permit)}\n`);
     expect((await admin(["permit", "approve", permit])).exit).toBe(0);
     expect(todo((await admin(["permit", "show", permit])).stdout)).toBe("to do: nothing; it was approved\n");
 
-    // One line: a shop with no needs, and a shop whose need is the operator's type the user already holds, whose tests ran when it was added.
+    // One line: a shop with no needs; a shop whose need is the operator's type the user already holds, whose tests ran when it was added, offers the replacement too.
     expect((await admin(["shop", "add", MEMORY])).exit).toBe(0);
     const memory = withStore((s) => s.newPermit({ passId: pass, shop: "town/memory", commands: ["recall"], constraints: {}, why: "" }).id);
     const shown = (await admin(["permit", "show", memory])).stdout;
     expect(shown).toContain("town/memory: Short notes, kept by key.\nneeds: none\n");
     expect(todo(shown)).toBe(`to do:\n        townd admin permit approve ${memory}\n`);
     expect((await admin(["type", "add", "test-origin", "--origin", origin.url, "--header", "Authorization: Bearer {token}"])).exit).toBe(0);
-    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf(SECRET))).exit).toBe(0);
+    const origins = (await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf(SECRET))).stdout.trim();
     expect((await admin(["shop", "add", TELLER, "--user", "dimitri"])).exit).toBe(0);
     const teller = withStore((s) => s.newPermit({ passId: pass, shop: "test/teller", commands: ["get"], constraints: {}, why: "" }).id);
-    expect(todo((await admin(["permit", "show", teller])).stdout)).toBe(`to do:\n        townd admin permit approve ${teller}\n`);
+    expect(todo((await admin(["permit", "show", teller])).stdout)).toBe(
+      `to do:\n${INSTEAD}\n        printf '%s\\n' "$TOKEN" | townd admin credential add --user dimitri --type test-origin --label test-origin --replace ${origins}\n        townd admin permit approve ${teller}\n`,
+    );
     expect((await admin(["permit", "show", "prm_nothing"])).stderr).toBe("townd admin: permit prm_nothing does not exist; townd admin permit ls lists them\n");
   });
 
@@ -640,12 +653,13 @@ describe("consent: a type proposed with the shop", () => {
     expect(origin.seen).toEqual([]);
 
     // 3. The tests, on the binding, through a teller: a failure waits, the shop untested, the run recorded under its approval's row.
-    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).exit).toBe(0);
+    const cred = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
     failing = true;
     const failed = await admin(["permit", "approve", permit]);
     expect(failed.exit).toBe(1);
     expect(failed.stdout).toBe('not ok a file answers: expected stdout to contain "200", got "500\\nthe origin is down"\n');
-    expect(failed.stderr).toBe(refusedWith("tests 1/1 failed; the shop needs work, and the permit waits", [APPROVE(permit)]));
+    // What remains is the approval, and the replacement offered above it.
+    expect(failed.stderr).toBe(refusedWith("tests 1/1 failed; the shop needs work, and the permit waits", [INSTEAD, REPLACE(cred), APPROVE(permit)]));
     expect(pending()).toBe(true);
     expect(withStore((s) => s.getShop("dimitri/figma")!.testedAt)).toBeNull();
     const [approval] = withStore((s) => s.calls({ shop: "dimitri/figma" }).filter((c) => c.parent === null));
@@ -748,6 +762,127 @@ describe("consent: a type proposed with the shop", () => {
     }
     const grants = withStore((s) => s.grantsForPass(pass).filter((g) => g.shop === "dimitri/figma"));
     expect(grants.map((g) => [g.source, Object.keys(g.credentials)]), typed.join("\n")).toEqual([[`permit ${permit}`, ["figma"]]]);
+  });
+
+  const WIDE_TOKEN = "figma-wide-not-a-real-token";
+  const WIDE_GUIDANCE = "Make a personal access token at Figma > Settings > Security, with file_content:read and file_comments:read, and paste it.";
+  const wideManifest = () => readFileSync(path.resolve(import.meta.dirname, "fixtures/figma-shop-0.2.0/manifest.yaml"), "utf8").replace("http://127.0.0.1:9", origin.url);
+
+  /** A `to do:` line typed into the admin as a shell reads it: `printf '%s\n' "$TOKEN" |` hands `token` over stdin, and a comment is not a word. */
+  async function typeLine(line: string, token: string): Promise<Ran> {
+    const piped = /^printf '%s\\n' "\$TOKEN" \| (.*)$/.exec(line);
+    const split = splitWords((piped ? piped[1]! : line).replace(/\s+#.*$/, ""));
+    if (!split.ok) throw new Error(split.error);
+    const [binary, verb, ...words] = split.words;
+    expect([binary, verb], line).toEqual(["townd", "admin"]);
+    return admin(words, piped ? pipeOf(`${token}\n`) : undefined);
+  }
+
+  it("credential add --replace seals the new secret and in one write binds every unrevoked grant that read the old to it, shop, commands, constraints, expiry, and source unchanged, revokes the old replaced by the new, and prints each grant moved", async () => {
+    const { pass, permit } = await published();
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    const old = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
+    const first = (await admin(["permit", "approve", permit])).stdout.trim().split("\n").at(-1)!;
+    // A second pass's grant with constraints and an expiry, and a third's revoked, each on the old credential.
+    const [second, revoked] = withStore((s) => {
+      const p2 = s.newPass("dimitri", "second", null).pass.id;
+      const g2 = s.newGrant({ passId: p2, shop: "dimitri/figma", commands: ["file"], constraints: { "file.key": { max_length: 40 } }, expiresAt: Date.now() + 86_400_000, credentials: { figma: old }, source: null });
+      const p3 = s.newPass("dimitri", "third", null).pass.id;
+      const g3 = s.newGrant({ passId: p3, shop: "dimitri/figma", commands: ["comments"], constraints: {}, expiresAt: null, credentials: { figma: old } });
+      s.revokeGrant(g3.id);
+      return [g2.id, g3.id];
+    });
+    const before = withStore((s) => s.listGrants());
+
+    const replaced = await admin(["credential", "add", "--user", "dimitri", "--type", "figma", "--label", "wider", "--replace", old], pipeOf(`${WIDE_TOKEN}\n`));
+    expect(replaced.exit, replaced.stderr).toBe(0);
+    expect(replaced.stdout).toMatch(/^credential_[0-9a-f]{16}\n$/);
+    const fresh = replaced.stdout.trim();
+    expect(replaced.stderr).toBe(`dimitri/figma says: ${GUIDANCE}\n${[first, second].sort().map((g) => `${g} at dimitri/figma now uses ${fresh}\n`).join("")}`);
+    expect(opened(fresh)).toBe(WIDE_TOKEN);
+
+    // The grants read: each unrevoked one that read the old reads the new, and nothing else of it changed; the revoked one is left as it was.
+    const after = withStore((s) => s.listGrants());
+    expect(after).toEqual(before.map((g) => (g.revokedAt === null && g.credentials.figma === old ? { ...g, credentials: { figma: fresh } } : g)));
+    expect(after.find((g) => g.id === revoked)!.credentials).toEqual({ figma: old });
+    expect(withStore((s) => s.grantsForPass(pass).filter((g) => g.shop === "dimitri/figma").map((g) => [g.id, g.credentials.figma]))).toEqual([[first, fresh]]);
+    expect(withStore((s) => after.filter((g) => g.revokedAt === null).every((g) => Object.values(g.credentials).every((id) => s.credentialById(id)!.revokedAt === null)))).toBe(true);
+    expect(withStore((s) => s.credentialById(old))).toMatchObject({ revokedWhy: `replaced by ${fresh}`, grants: [revoked] });
+    expect(withStore((s) => s.credentialById(old)!.revokedAt)).not.toBeNull();
+    const ls = (await admin(["credential", "ls"])).stdout;
+    expect(ls).toMatch(new RegExp(`^${old}\\s+dimitri\\s+figma\\s+-\\s+\\S+\\s+revoked \\(replaced by ${fresh}\\)\\s+-\\s+${revoked}$`, "m"));
+    expect(ls).toMatch(new RegExp(`^${fresh}\\s+dimitri\\s+figma\\s+wider\\s+\\S+\\s+active\\s+-\\s+${[first, second].sort().join(",")}$`, "m"));
+    expect((await admin(["grant", "ls"])).stdout).toMatch(new RegExp(`^${first}\\s.*\\sfigma=${fresh}\\s+-\\s+live\\s`, "m"));
+    expect(replaced.stdout + replaced.stderr + ls).not.toContain(WIDE_TOKEN);
+  });
+
+  it("credential add --replace is refused for a credential that does not exist, is revoked, is of another type, or is another user's, naming which, before the guidance and the prompt, and writes nothing", async () => {
+    await published();
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    await addUser("ada");
+    const old = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
+    const fresh = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma", "--replace", old], pipeOf(WIDE_TOKEN))).stdout.trim();
+    const removed = (await admin(["credential", "add", "--user", "dimitri", "--type", "github-token"], pipeOf(SECRET))).stdout.trim();
+    const github = (await admin(["credential", "add", "--user", "dimitri", "--type", "github-token"], pipeOf(SECRET))).stdout.trim();
+    expect((await admin(["credential", "rm", removed])).exit).toBe(0);
+    const adas = (await admin(["credential", "add", "--user", "ada", "--type", "figma"], pipeOf("ada-not-a-token"))).stdout.trim();
+    const town = () => withStore((s) => [s.listCredentials(), s.listGrants(), s.calls()]);
+    const before = town();
+    for (const [id, type, line] of [
+      [old, "figma", `--replace ${old}: credential ${old} is revoked (replaced by ${fresh}), so nothing reads it to replace; leave out --replace`],
+      [removed, "github-token", `--replace ${removed}: credential ${removed} is revoked, so nothing reads it to replace; leave out --replace`],
+      [github, "figma", `--replace ${github}: credential ${github} is of type github-token, not figma; a credential is replaced by one of its own type`],
+      [adas, "figma", `--replace ${adas}: credential ${adas} is user ada's, not dimitri's; a credential is replaced by one of its own user's`],
+      ["credential_0000000000000000", "figma", "--replace credential_0000000000000000: credential credential_0000000000000000 does not exist; townd admin credential ls --user dimitri lists dimitri's"],
+    ]) {
+      expect(await admin(["credential", "add", "--user", "dimitri", "--type", type!, "--replace", id!], pipeOf(WIDE_TOKEN)), id).toEqual({ exit: 1, stdout: "", stderr: `townd admin: ${line}\n` });
+      expect(town(), id).toEqual(before);
+    }
+  });
+
+  it("permit show offers the replacement for a need the user holds, never done and above the approval, and none for an unmet need; typed as printed, the replacement then the approval run the tests on the new secret and bind it", async () => {
+    const { pass, permit } = await published();
+    const offered = async () => todo((await admin(["permit", "show", permit])).stdout);
+    expect(await offered()).not.toContain("or, to use a new secret instead:");
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    expect(await offered()).toBe(`to do:\n${done(TYPE)}\n${CRED}\n${APPROVE(permit)}\n`);
+    const old = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
+    const held = await offered();
+    expect(held).toBe(`to do:\n${done(TYPE)}\n${done(CRED)}\n${INSTEAD}\n${REPLACE(old)}\n${APPROVE(permit)}\n`);
+
+    // Typed as printed: the line after the heading, then the approval.
+    const lines = held.trimEnd().split("\n").slice(1);
+    const replacement = lines[lines.indexOf(INSTEAD) + 1]!.slice(8);
+    const r = await typeLine(replacement, WIDE_TOKEN);
+    expect(r.exit, r.stderr).toBe(0);
+    const fresh = r.stdout.trim();
+    expect(await offered()).toBe(`to do:\n${done(TYPE)}\n${done(CRED)}\n${INSTEAD}\n${REPLACE(fresh)}\n${APPROVE(permit)}\n`);
+    const approved = await typeLine(lines.at(-1)!.slice(8), WIDE_TOKEN);
+    expect(approved.exit, approved.stderr).toBe(0);
+    expect(origin.seen.map((x) => x.headers["x-figma-token"])).toEqual([WIDE_TOKEN]);
+    expect(withStore((s) => s.grantsForPass(pass).find((g) => g.shop === "dimitri/figma")!.credentials)).toEqual({ figma: fresh });
+  });
+
+  it("the proposer's republish before approval changes what type approve and credential add print; shop add of the proposer writes its words and says so, and of another shop leaves them", async () => {
+    await published();
+    await published(wideManifest());
+    expect(withStore((s) => s.getType("figma"))).toMatchObject({ state: "proposed", guidance: WIDE_GUIDANCE });
+    expect((await admin(["type", "approve", "figma"])).stdout).toContain(`\ndimitri/figma says: ${WIDE_GUIDANCE}\napproved figma`);
+    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stderr).toBe(`dimitri/figma says: ${WIDE_GUIDANCE}\n`);
+
+    const words = "Make a token at Figma > Settings > Security with both read scopes, and paste it.";
+    const dir = mkdtempSync(path.join(os.tmpdir(), "town-admin-figma-proposer-"));
+    try {
+      writeFileSync(path.join(dir, "manifest.yaml"), manifestText().replace("version: 0.1.0", "version: 0.3.0").replace(GUIDANCE, words));
+      cpSync(path.join(FIGMA_DIR, "main.mjs"), path.join(dir, "main.mjs"));
+      expect(await admin(["shop", "add", dir, "--user", "dimitri"])).toEqual({ exit: 0, stdout: "ok a file answers\nadded dimitri/figma 0.3.0; figma's guidance is now dimitri/figma 0.3.0's\n", stderr: "" });
+      expect(withStore((s) => s.getType("figma"))).toMatchObject({ state: "held", origin: origin.url, header: "X-Figma-Token: {token}", guidance: words });
+      writeFileSync(path.join(dir, "manifest.yaml"), manifestText().replace("name: dimitri/figma", "name: team/figma-sketch").replace(GUIDANCE, "Ask the design lead."));
+      expect(await admin(["shop", "add", dir, "--user", "dimitri"])).toEqual({ exit: 0, stdout: "ok a file answers\nadded team/figma-sketch 0.1.0\n", stderr: "" });
+      expect(withStore((s) => s.getType("figma")!.guidance)).toBe(words);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -981,5 +1116,35 @@ describe("consent phase 1: the oauth kind at the box", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("credential connect --replace moves the grants to the new consent and revokes the old, replaced by it; a refusal comes before any listener and writes nothing", async () => {
+    const { pass, permit } = await published();
+    expect((await admin(["type", "approve", "google-oauth", "--client-id", CLIENT.clientId], pipeOf(CLIENT.clientSecret))).exit).toBe(0);
+    const old = (await connectAtBox()).stdout.trim();
+    const approved = await admin(["permit", "approve", permit]);
+    expect(approved.exit, approved.stderr).toBe(0);
+    const grant = approved.stdout.trim().split("\n").at(-1)!;
+    const before = withStore((s) => s.grantById(grant)!);
+
+    const c = await connectAtBox(["--replace", old]);
+    expect(c.exit, c.stderr).toBe(0);
+    expect(c.browser).toBe("connected; you can close this tab\n");
+    const fresh = c.stdout.trim();
+    expect(fresh).toMatch(/^credential_[0-9a-f]{16}$/);
+    expect(c.stderr.trimEnd().split("\n").at(-1)).toBe(`${grant} at dimitri/gdocs now uses ${fresh}`);
+    expect(withStore((s) => s.grantById(grant))).toEqual({ ...before, credentials: { "google-oauth": fresh } });
+    expect(withStore((s) => s.grantsForPass(pass).map((g) => g.id))).toContain(grant);
+    expect((await admin(["credential", "ls"])).stdout).toMatch(new RegExp(`^${old}\\s.*\\srevoked \\(replaced by ${fresh}\\)\\s`, "m"));
+    expect(withStore((s) => parseValue(s.openCredential(fresh, readKey(data)!))!.refresh_token)).toBe(auth.issued.refresh.at(-1));
+
+    const github = (await admin(["credential", "add", "--user", "dimitri", "--type", "github-token"], pipeOf(SECRET))).stdout.trim();
+    const town = () => withStore((s) => [s.listCredentials(), s.listGrants(), s.calls()]);
+    const was = town();
+    const authorized = auth.events.filter((e) => e.kind === "authorize").length;
+    expect(await connectAtBox(["--replace", old])).toEqual({ exit: 1, stdout: "", stderr: `townd admin: --replace ${old}: credential ${old} is revoked (replaced by ${fresh}), so nothing reads it to replace; leave out --replace\n`, browser: "" });
+    expect(await connectAtBox(["--replace", github])).toEqual({ exit: 1, stdout: "", stderr: `townd admin: --replace ${github}: credential ${github} is of type github-token, not google-oauth; a credential is replaced by one of its own type\n`, browser: "" });
+    expect(town()).toEqual(was);
+    expect(auth.events.filter((e) => e.kind === "authorize")).toHaveLength(authorized);
   });
 });

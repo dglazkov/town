@@ -12,7 +12,10 @@
 // Whatever the end, the listener is closed and one audit row says it:
 // pass none, shop none, `connected <type> for <user> in <n>s` or
 // `consent refused <why>`. The secret, the tokens, the verifier, and the
-// state stay in this process's memory and the sealed row.
+// state stay in this process's memory and the sealed row. With `--replace
+// <credential>`, checked before any listener, the new credential takes the
+// old one's place under its grants and the old is revoked, in one write,
+// each grant moved printed on stderr after the id.
 
 import { timingSafeEqual } from "node:crypto";
 import http, { type ServerResponse } from "node:http";
@@ -36,6 +39,8 @@ export interface ConnectRequest {
   type: string;
   /** The credential's label; the type's name when omitted. */
   label?: string;
+  /** A credential of the user's at the type, which the new one replaces under every grant bound to it. */
+  replace?: string;
   /** The listener's port; a free one when omitted or 0. */
   port?: number;
   timeoutMs?: number;
@@ -61,6 +66,7 @@ type Ended =
  */
 export async function connect(store: Store, key: () => Buffer, req: ConnectRequest, io: ConnectIo, now: () => number = Date.now): Promise<number> {
   const t = connectableType(store, req.userName, req.type);
+  if (req.replace !== undefined) store.checkReplace(req.replace, req.userName, t.name);
   const client = store.openClient(t.name, key());
   const timeoutMs = req.timeoutMs ?? CONSENT_TIMEOUT_MS;
   const { verifier, challenge } = pkce();
@@ -125,8 +131,9 @@ export async function connect(store: Store, key: () => Buffer, req: ConnectReque
     }
     const { tokens } = ended;
     let c: Credential;
+    let moved: Array<{ id: string; shop: string }> = [];
     try {
-      c = store.connectCredential(
+      const make = () => store.connectCredential(
         {
           userName: req.userName,
           type: t.name,
@@ -136,6 +143,8 @@ export async function connect(store: Store, key: () => Buffer, req: ConnectReque
         key(),
         ended.at,
       );
+      if (req.replace === undefined) c = make();
+      else ({ credential: c, moved } = store.replaceCredential(req.replace, make, ended.at));
     } catch (err) {
       await answer(ended.res, BROWSER_NOT_CONNECTED);
       throw err;
@@ -143,6 +152,7 @@ export async function connect(store: Store, key: () => Buffer, req: ConnectReque
     await answer(ended.res, BROWSER_CONNECTED);
     record(store, call, req, started, "ok", `connected ${t.name} for ${req.userName} in ${Math.round((ended.at - started) / 1000)}s`, now);
     io.out(`${c.id}\n`);
+    for (const g of moved) io.err(`${g.id} at ${g.shop} now uses ${c.id}\n`);
     return 0;
   } finally {
     await new Promise<void>((resolve) => {

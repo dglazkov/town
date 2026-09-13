@@ -4,7 +4,11 @@
 // registration given with `--client-id` and the client secret on stdin;
 // `credential add` with the secret on stdin, refused at an `oauth` type;
 // `credential connect`, the consent (src/consent.ts); `credential ls` with
-// scopes and why a credential was revoked; and `credential rm`. A value
+// scopes and why a credential was revoked; and `credential rm`. `add` and
+// `connect` take `--replace <credential>`: the new credential takes the
+// old one's place under every unrevoked grant bound to it, and the old is
+// revoked, `replaced by <new id>`, in one write, each grant moved printed
+// on stderr. A value
 // read here is sealed by the store and never printed. The admin's
 // `dispatch` hands these verbs here with its parsed flags.
 
@@ -84,12 +88,21 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       }
       if (t.state === "proposed") throw new StoreError(proposedRefusal(t));
       if (t.kind === "oauth") throw new StoreError(oauthRefusal(t, userName));
+      // A replacement refused writes nothing and reads nothing: before the guidance and the prompt.
+      const replace = one(p, "replace");
+      if (replace !== undefined) store.checkReplace(replace, userName, type);
       // What to paste, in the words of whoever wrote the type, before the prompt reads it.
       const said = guidanceLine(t);
       if (said) io.err(`${said}\n`);
       const value = await readSecret(io);
-      const c = store.addCredential({ userName, type, label, value }, ensureKey(store.dataDir), now);
-      io.out(`${c.id}\n`);
+      const make = () => store.addCredential({ userName, type, label, value }, ensureKey(store.dataDir), now);
+      if (replace === undefined) {
+        io.out(`${make().id}\n`);
+        return 0;
+      }
+      const { credential, moved } = store.replaceCredential(replace, make, now);
+      io.out(`${credential.id}\n`);
+      for (const g of moved) io.err(`${g.id} at ${g.shop} now uses ${credential.id}\n`);
       return 0;
     }
     case "credential connect": {
@@ -98,10 +111,11 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       const timeout = one(p, "timeout");
       if (port !== undefined && !/^\d{1,5}$/.test(port)) throw new UsageError(`--port ${port} is not a port; write a number from 0 to 65535, or leave it out for a free one`);
       const label = one(p, "label");
+      const replace = one(p, "replace");
       return connect(
         store,
         () => ensureKey(store.dataDir),
-        { userName: one(p, "user", true), type: one(p, "type", true), ...(label === undefined ? {} : { label }), ...(port === undefined ? {} : { port: Number(port) }), ...(timeout === undefined ? {} : { timeoutMs: waitOf(timeout) }) },
+        { userName: one(p, "user", true), type: one(p, "type", true), ...(label === undefined ? {} : { label }), ...(replace === undefined ? {} : { replace }), ...(port === undefined ? {} : { port: Number(port) }), ...(timeout === undefined ? {} : { timeoutMs: waitOf(timeout) }) },
         io,
         io.now ?? Date.now,
       );

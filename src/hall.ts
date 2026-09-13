@@ -14,17 +14,21 @@
 // needs is a door of its own at the tests and the grant: its tests wait,
 // since no person has bound a credential to it, and its publish asks for
 // a permit in the publish grant's place, so a person decides at the box.
+// Its publish writes its words onto a type it proposed and says so, and a
+// republish that leaves a person's grant standing says how to ask again.
+// Wherever a permit or a shop's needs are shown, the guidance printed is
+// the shop's own manifest's, falling back to the type's.
 
 import { parse as parseYaml } from "yaml";
 import type { ArgValues } from "./args.js";
 import type { ResultClass } from "./audit.js";
 import { readBundle } from "./bundle.js";
 import type { GateDeps } from "./gate.js";
-import { guidanceLine, needStates, needsPhrase } from "./checklist.js";
+import { needStates, needsPhrase } from "./checklist.js";
 import { checkGrantAtShop, permitTable } from "./grants.js";
 import { allowedCommands, helpForShop, typedName } from "./help.js";
 import { parseManifest, type Manifest } from "./manifest.js";
-import { breaksDependents, sendShop } from "./publish.js";
+import { breaksDependents, revisedClause, sendShop } from "./publish.js";
 import { townShops } from "./shoptest.js";
 import { SPEC } from "./spec.js";
 import { StoreError, type Grant, type Pass, type Store } from "./store.js";
@@ -148,7 +152,7 @@ export async function runHall(deps: HallDeps, call: HallCall): Promise<HallOutco
       const shop = store.getShop(name);
       if (!shop) return refused([`--shop: ${name} is not a shop in this town; town hall search lists the shops it holds`], "no-shop");
       const states = needStates(store, name, call.pass.userName);
-      const said = states.map((n) => guidanceLine(n.t)).filter((l): l is string => l !== null);
+      const said = states.map((n) => n.said).filter((l): l is string => l !== null);
       const needs = states.length ? [needsPhrase(states), ...said].map((l) => `${l}\n`).join("") : "";
       return ok(helpForShop(shop.manifest, heldAt(shop.manifest, store.grantsForPass(call.pass.id, now))) + needs);
     }
@@ -179,7 +183,7 @@ export async function runHall(deps: HallDeps, call: HallCall): Promise<HallOutco
       const said = new Set<string>();
       for (const p of permits.filter((x) => x.decision === null)) {
         for (const n of needStates(store, p.shop, p.userName)) {
-          const line = n.held.length ? null : guidanceLine(n.t);
+          const line = n.held.length ? null : n.said;
           if (line) said.add(line);
         }
       }
@@ -227,21 +231,22 @@ async function send(deps: HallDeps, call: HallCall, now: number): Promise<HallOu
   if (!sent.kept) return { stdout: lines.join(""), exit: 0, result: "ok", detail: tests };
 
   lines.push(...sent.stopped.map((l) => `${l}\n`));
+  const published = `published ${shop.name} ${shop.version}${revisedClause(shop, sent.revised)}`;
   if (sent.waits.length) {
     const asked = permitInPlace(store, call.pass, shop, now);
     if ("stands" in asked) {
-      lines.push(`this pass's grant ${asked.stands.id} at ${shop.name} was made by a person, so it stands as it is, and this publish asked for none\n`);
+      lines.push(`this pass's grant ${asked.stands.id} at ${shop.name} was made by a person, so it stands as it is, and this publish asked for none; if the shop needs a new secret, town hall request --shop ${shop.name} asks a person\n`);
       const typed = typedName(shop.name, store.grantsForPass(call.pass.id, now).map((g) => g.shop));
-      lines.push(`published ${shop.name} ${shop.version}; town ${typed} --help says what it does\n`);
+      lines.push(`${published}; town ${typed} --help says what it does\n`);
       return { stdout: lines.join(""), exit: 0, result: "ok", detail: `published ${shop.name} ${shop.version}` };
     }
-    lines.push(`published ${shop.name} ${shop.version}; it needs ${sent.waits.join(", ")}, so a person decides at the box: requested ${asked.permit}, and town --help shows the answer\n`);
+    lines.push(`${published}; it needs ${sent.waits.join(", ")}, so a person decides at the box: requested ${asked.permit}, and town --help shows the answer\n`);
     return { stdout: lines.join(""), exit: 0, result: "ok", detail: `published ${shop.name} ${shop.version}; requested ${asked.permit}` };
   }
   const stands = publishGrant(store, call.pass, shop, now);
   if (stands) lines.push(`this pass's grant ${stands.id} at ${shop.name} was made by a person, so it stands as it is, and this publish made none\n`);
   const typed = typedName(shop.name, store.grantsForPass(call.pass.id, now).map((g) => g.shop));
-  lines.push(`published ${shop.name} ${shop.version}; town ${typed} --help says what it does\n`);
+  lines.push(`${published}; town ${typed} --help says what it does\n`);
   return { stdout: lines.join(""), exit: 0, result: "ok", detail: `published ${shop.name} ${shop.version}` };
 }
 

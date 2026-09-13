@@ -28,14 +28,14 @@ names no shop.
 
 ---
 
-**Where we are: hall phase 0 closed, 12 September 2026.** Next is
-hall phase 1, the bundle and the publish, which waits on nothing. The
-hall is in every town as `town/hall`: schema 4 with permits, owners,
-and sources; the gate's door that answers it with no process; `search`,
-`show`, `spec`, `request`, and `requests`; and the admin's permit verbs,
-all proved in process. No phase of this project waits on a person:
-there is no token, no cloud resource, and no hand a journey names; the
-walk costs one model session.
+**Where we are: hall phase 1 closed, 12 September 2026.** Next is
+hall phase 2, the walk, which waits on nothing: the conductor drives a
+real Claude Code session at the cost of one model session, with no
+token, cloud resource, or hand. An agent's shop now crosses the wire
+as a ustar tar on stdin, is validated, tested as the agent in scratch,
+and published under its user's name with a grant at it; a request says
+what its approval would drop; and every journey step but the walk's is
+proved in both rings and walked by hand against a real town.
 
 The order is dependency order. Phase 0 is the hall in the town: the
 store's fourth schema with the hall's row, permits, owners, and
@@ -149,9 +149,9 @@ header, and each of the three mutations failing its tests.
 - **2026-09-12 — The compose-era fixture is a dump of a real town.**
   `test/fixtures/compose-store.sql` is `sqlite3 .dump` of a data
   directory `townd admin` made at 77318d8, its vault key a fixture's.
-- **2026-09-12 — Open: `shop add` over a published shop clears its
-  owner.** `upsertShop` writes owner on conflict too. Hall phase 1
-  decides it at `src/publish.ts`'s two front doors.
+- **2026-09-12 — `shop add` over a published shop clears its owner.**
+  `upsertShop` writes owner on conflict; hall phase 1 kept it, since the
+  operator's door is owner none, and tests it both ways.
 
 ---
 
@@ -237,7 +237,37 @@ listing `forget` and the to-do shop still, and
 `audit --call` on the publish showing its tests' calls, typed as
 journey 1 writes them.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held as written: 442 tests
+in both rings, typecheck clean, a 295-line spec naming `town/hall`, the
+three mutations each failing its tests, and the walk by hand against a
+real town through publish, request, approval, and the publish's tree.
+
+**Findings:**
+
+- **2026-09-12 — The phase took forty minutes of wall clock.** One
+  doc fix came first (c0f7852) and one design change midway (b4514b3);
+  the builder was sent back once, for it.
+- **2026-09-12 — An approval that replaces a grant can take away.**
+  Journey 1 step 7 as first written left memory at `forget` alone and
+  the agent's to-do shop not live. Now a request names what its
+  approval would drop.
+- **2026-09-12 — Every `tar -C <dir> .` begins with `./`.** The reader
+  skips the root's entry; the design's "empty or `.` path is refused"
+  would have refused every tar the box makes.
+- **2026-09-12 — macOS tar skips a path too long for ustar, exit 0,**
+  and its pax tar holds binary xattr headers, so `town` refuses it as
+  not text before the hall's pax refusal can speak.
+- **2026-09-12 — A failed test line ends with the denial's line,** at
+  both doors, so the operator's `shop test` text changed too. Bundle
+  refusals cite §1; dependency refusals count as §8 in `detail`.
+- **2026-09-12 — A publish revokes every unrevoked publish grant of the
+  pass at the shop,** live or not, so a stale one cannot come back
+  beside the new one.
+- **2026-09-12 — A publish's inner rows carry the publish's start
+  time:** the gate hands the hall one clock reading per call.
+- **2026-09-12 — Journey 3 step 5's thirty-second stop is not walked
+  for a published shop.** It is the runtime path every shop runs, which
+  the runtime tests prove.
 
 ---
 

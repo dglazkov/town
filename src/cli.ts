@@ -1,6 +1,7 @@
 // town, the agent's binary: a pipe. It finds the grant file, posts what
-// it was typed and its stdin (when stdin is a pipe or a file) to the
-// town, prints what comes back, and exits with the code it was given. Its two flags, --json and --grant,
+// it was typed and its stdin (when stdin is a pipe or a file, and is text)
+// to the town, prints what comes back, and exits with the code it was
+// given. Its two flags, --json and --grant,
 // are taken wherever they stand; every other word goes to the town as
 // typed. It knows no shop, no command, no argument, and no verb of the
 // operator's; the town answers for all of them.
@@ -34,7 +35,16 @@ export async function main(argv: readonly string[]): Promise<number> {
   const grant = readGrantFile(file);
   if (!grant) return say(json, denials.badGrantFile(file), 3);
 
-  const stdin = stdinIsData() ? await readStdin() : null;
+  let stdin: string | null = null;
+  if (stdinIsData()) {
+    const bytes = await readStdin();
+    // The town carries text: bytes that are not UTF-8 are refused here, before any request.
+    try {
+      stdin = bytes.length ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) : null;
+    } catch {
+      return say(json, denials.stdinNotText(), 1);
+    }
+  }
 
   let answer: { stdout: string; stderr: string; exit: number };
   try {
@@ -95,10 +105,10 @@ function stdinIsData(): boolean {
   }
 }
 
-async function readStdin(): Promise<string | null> {
+async function readStdin(): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  return chunks.length ? Buffer.concat(chunks).toString("utf8") : null;
+  return Buffer.concat(chunks);
 }
 
 /** A line the command says for itself, before any answer: on stderr, or as the envelope with --json. */

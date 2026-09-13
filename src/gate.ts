@@ -47,13 +47,15 @@ export interface CallRequest {
 
 /**
  * Who makes a shop's call, and the calling shop's manifest. An agent's
- * call carries its pass by id, re-read on every call. A shop test carries
- * no pass: the tree's grants, the test's user, scratch state root, and the
- * credentials it was given. `parent` is the id of the call whose shop is
- * calling, and `depth` how many shops are above this call: 1 for a call
- * an agent's shop makes.
+ * call carries its pass by id, re-read on every call, and a state root
+ * when the tree runs in scratch, as the hall's tests of a sent shop do:
+ * handed to the runtime in place of the store's, and carried to every
+ * call below. A shop test at the box carries no pass: the tree's grants,
+ * the test's user, scratch state root, and the credentials it was given.
+ * `parent` is the id of the call whose shop is calling, and `depth` how
+ * many shops are above this call: 1 for a call an agent's shop makes.
  */
-export type Caller = ({ passId: string } | { test: TestTree }) & { manifest: Manifest; parent: string | null; depth: number };
+export type Caller = ({ passId: string; stateRoot?: string } | { test: TestTree }) & { manifest: Manifest; parent: string | null; depth: number };
 
 /** The deepest a call may be: a shop calling a shop, eight shops down. Past it is the town's failure. */
 export const MAX_DEPTH = 8;
@@ -290,7 +292,7 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   // test's tree cannot reach it, since no manifest may depend on it.
   if (manifest.runtime === "town") {
     if (caller || !pass) return { ...atArgs, error: denials.townFailed(), exit: 1, result: "town-error", detail: "hall-caller" };
-    const hall = await runHall({ store, now: () => now }, { pass, grant, command, values: parsed.values, stdin: req.stdin, callId: base.callId });
+    const hall = await runHall({ ...deps, now: () => now }, { pass, grant, command, values: parsed.values, stdin: req.stdin, callId: base.callId });
     return { ...atArgs, ...hall };
   }
 
@@ -301,10 +303,11 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   const runtime = deps.runtime ?? run;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const below = { manifest, parent: base.callId, depth: (caller?.depth ?? 0) + 1 };
-  const deeper: Caller = test ? { test, ...below } : { passId: pass!.id, ...below };
+  const scratch = caller && "passId" in caller ? caller.stateRoot : undefined;
+  const deeper: Caller = test ? { test, ...below } : { passId: pass!.id, ...(scratch === undefined ? {} : { stateRoot: scratch }), ...below };
   const r = await runtime(shopDir(store, manifest.name), manifest, command, parsed.values, {
     user: test ? test.user : pass!.userId,
-    stateRoot: test ? test.stateRoot : store.stateRoot,
+    stateRoot: test ? test.stateRoot : (scratch ?? store.stateRoot),
     stdin: req.stdin,
     timeoutMs,
     ...(credentials.length ? { credentials } : {}),

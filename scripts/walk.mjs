@@ -6,7 +6,9 @@
 //                                            the same for the github shop, on the token read from stdin
 //   node scripts/walk.mjs --shop watch --repo <owner/name> < <token file>
 //                                            github, memory, and watch over them, three grants, on the token read from stdin
-//   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result, credentials served
+//   node scripts/walk.mjs --shop hall        the memory shop, a pass with the hall whole and memory at three commands; no token
+//   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result, credentials served,
+//                                            and the hall's rows by command and detail with the grants' sources
 //   node scripts/walk.mjs --search <root> [<path>...] < <token file>
 //                                            files under the root and the paths holding the token's bytes
 //   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root
@@ -80,6 +82,21 @@ function watchPlan(repo, token) {
     repo,
     token,
     narrowed: { shop: "town/memory", commands: "recall", constraints: [] },
+    expires: "1d",
+  };
+}
+
+/** The hall's walk, journey 1's pass: dimitri's, the hall with every command and memory at remember, recall, and list, unconstrained. */
+function hallPlan() {
+  return {
+    user: "dimitri",
+    shops: [{ dir: MEMORY }],
+    grants: [
+      { shop: "town/hall", commands: "search,show,spec,validate,test,publish,request,requests", constraints: [] },
+      { shop: "town/memory", commands: "remember,recall,list", constraints: [] },
+    ],
+    shop: "town/hall",
+    permits: true,
     expires: "1d",
   };
 }
@@ -229,14 +246,15 @@ async function setUp(plan) {
     chmodSync(path.join(shim, "town"), 0o755);
 
     town = await startTown(root, data);
-    mustAdmin(data, "user", "add", "walker");
-    if (plan.token !== undefined) mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", "walker", "--type", "github-token", "--label", "walk");
+    const user = plan.user ?? "walker";
+    mustAdmin(data, "user", "add", user);
+    if (plan.token !== undefined) mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", user, "--type", "github-token", "--label", "walk");
     for (const shop of plan.shops) {
       // A shop marked `user` runs its tests through a teller against GitHub, on the walker's token, its dependencies' tests included.
-      const added = mustAdmin(data, "shop", "add", shop.dir, ...(shop.user ? ["--user", "walker"] : []));
+      const added = mustAdmin(data, "shop", "add", shop.dir, ...(shop.user ? ["--user", user] : []));
       if (plan.token !== undefined) process.stdout.write(added.stdout);
     }
-    const pass = mustAdmin(data, "pass", "new", "--user", "walker", "--label", "walk");
+    const pass = mustAdmin(data, "pass", "new", "--user", user, "--label", "walk");
     const passId = pass.stderr.trim();
     const grantFile = path.join(agent, ".town", "grant");
     writeFileSync(grantFile, pass.stdout, { mode: 0o600 });
@@ -258,6 +276,9 @@ async function setUp(plan) {
           ``,
         ]
       : [];
+    const permits = plan.permits
+      ? [`to decide what the agent asks for, at the box:`, `  node ${TOWND} admin permit ls --pass ${passId}`, `  node ${TOWND} admin permit approve <id>`, ``]
+      : [];
 
     process.stdout.write(
       [
@@ -278,6 +299,7 @@ async function setUp(plan) {
         `  node ${TOWND} admin grant ls --pass ${passId}`,
         ``,
         ...narrowing,
+        ...permits,
         `status:      node ${SELF} --status ${root}`,
         ...(plan.token === undefined ? [] : [`search:      node ${SELF} --search ${root} <transcript> < <token file>`]),
         `teardown:    node ${SELF} --teardown ${root}`,
@@ -353,6 +375,41 @@ function status(root) {
   for (const [type, t] of types) process.stdout.write(`credentials: ${type} ${t.requests} requests over ${t.rows} rows, ${t.none} of them with none\n`);
   const bareTotal = [...bare.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows for ${shop} with no credential served: ${bareTotal}${bareTotal ? `; ${[...bare].map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}\n`);
+  if (shop === "town/hall") process.stdout.write(hallCounts(audit.stdout, grants.stdout));
+}
+
+/**
+ * The survey's counts from the hall's rows: per command, how many rows and
+ * what their details say, `refused` with the sections refused, `tests`
+ * split into all passed and some failed, `published`, `requested`, and the
+ * gate's words for a denial; then the pass's grants by source.
+ */
+function hallCounts(auditTable, grantTable) {
+  const shops = column(auditTable, "shop");
+  const commands = column(auditTable, "command");
+  const details = column(auditTable, "detail");
+  const tally = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
+  const byCommand = new Map();
+  shops.forEach((s, i) => {
+    if (s !== "town/hall" || commands[i] === "-") return;
+    const c = byCommand.get(commands[i]) ?? { rows: 0, kinds: new Map(), sections: new Map() };
+    c.rows += 1;
+    const detail = details[i] === "-" ? "" : details[i];
+    const tests = /^tests (\d+)\/(\d+)$/.exec(detail);
+    if (tests) tally(c.kinds, tests[1] === tests[2] ? "tests all passed" : "tests some failed");
+    else if (detail.startsWith("refused §")) {
+      tally(c.kinds, "refused");
+      for (const section of detail.slice("refused ".length).split(",")) tally(c.sections, section);
+    } else tally(c.kinds, detail === "" ? "ok" : detail.split(" ")[0]);
+    byCommand.set(commands[i], c);
+  });
+  const said = (m) => [...m].map(([k, v]) => `${k} ${v}`).join(", ");
+  const lines = [`hall rows by command: ${[...byCommand.values()].reduce((a, c) => a + c.rows, 0)}`];
+  for (const [command, c] of byCommand) lines.push(`  ${command} ${c.rows}: ${said(c.kinds)}${c.sections.size ? `; sections refused: ${said(c.sections)}` : ""}`);
+  const sources = new Map();
+  for (const source of column(grantTable, "source")) tally(sources, source === "-" ? "operator" : source.startsWith("permit ") ? "permit" : source);
+  lines.push(`grants by source: ${said(sources)}`);
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -449,17 +506,20 @@ async function teardown(root) {
 
 const [flag, ...words] = process.argv.slice(2);
 if (flag === undefined) await setUp(memoryPlan());
-else if (flag === "--shop") {
+else if (flag === "--shop" && words[0] === "hall") {
+  if (words.length > 1) die("--shop hall takes no other flag; it needs no repository and no token");
+  await setUp(hallPlan());
+} else if (flag === "--shop") {
   const opts = new Map();
   for (let i = 0; i < process.argv.length - 2; i += 2) {
     const [name, value] = process.argv.slice(2 + i, 4 + i);
-    if (name !== "--shop" && name !== "--repo") die(`${name} is not a flag of --shop; write --shop github|watch --repo <owner/name>`);
+    if (name !== "--shop" && name !== "--repo") die(`${name} is not a flag of --shop; write --shop hall, or --shop github|watch --repo <owner/name>`);
     if (opts.has(name)) die(`${name} is given twice`);
     if (value === undefined) die(`${name} needs a value`);
     opts.set(name, value);
   }
   const shop = opts.get("--shop");
-  if (!Object.hasOwn(PLANS, shop ?? "")) die(`--shop ${shop} is not a walk's shop; write --shop github or --shop watch, or nothing for the memory walk`);
+  if (!Object.hasOwn(PLANS, shop ?? "")) die(`--shop ${shop} is not a walk's shop; write --shop github, --shop watch, or --shop hall, or nothing for the memory walk`);
   const repo = opts.get("--repo");
   if (repo === undefined) die(`--shop ${shop} needs --repo <owner/name>, the repository the token is scoped to`);
   if (!REPO_SHAPE.test(repo)) die("--repo is not owner/name of letters, digits, _, ., and -");
@@ -469,4 +529,4 @@ else if (flag === "--status" || flag === "--teardown") {
   if (words.length > 1) die(`too many words: ${words.slice(1).join(" ")}`);
   if (flag === "--status") status(words[0]);
   else await teardown(words[0]);
-} else die(`${flag} is not a walk flag; write nothing, --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], or --teardown <root>`);
+} else die(`${flag} is not a walk flag; write nothing, --shop hall, --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], or --teardown <root>`);

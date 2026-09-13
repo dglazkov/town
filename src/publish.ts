@@ -1,19 +1,24 @@
-// Publishing, the operator's front door: `shop test` runs a shop's tests
-// from its directory, and `shop add` copies the directory into the town,
-// tests the copy, and puts it in place. Every shop in the town has every
-// dependency it declares, so an add that would break a dependent is
-// refused, and the grants that stop being live are named.
+// Publishing, with two front doors. The operator's: `shop test` runs a
+// shop's tests from its directory, and `shop add` copies the directory
+// into the town, tests the copy with the operator's tree, and puts it in
+// place with no owner. The hall's: `sendShop` writes a bundle's files to
+// the same staging, tests the copy with the agent's tree, and, for a
+// publish, puts it in place with the agent's user as owner. Both refuse a
+// copy holding anything but plain files, and every shop in the town has
+// every dependency it declares, so a shop that would break a dependent is
+// refused; and both name the grants that stop being live.
 
-import { cp, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Io } from "./admin.js";
-import { shopDir } from "./gate.js";
+import type { BundleFile } from "./bundle.js";
+import { shopDir, type GateDeps } from "./gate.js";
 import { bindNeeds, grantStateText } from "./grants.js";
 import { HALL_NAME, type Manifest } from "./manifest.js";
 import type { RunCredential } from "./runtime.js";
-import { ManifestRefused, loadShop, testShop, townShops, treeOf } from "./shoptest.js";
-import { StoreError, type Store } from "./store.js";
+import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
+import { StoreError, type Pass, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
 
 /** `shop add`'s words for a manifest named as the town's own shop; `runtime: town` is the validator's refusal. */
@@ -39,7 +44,7 @@ export function dependentsOf(store: Store, name: string): Array<{ name: string; 
  * to it, or a command a dependent declares of it that it no longer has.
  * Null when neither.
  */
-function breaksDependents(store: Store, manifest: Manifest): string | null {
+export function breaksDependents(store: Store, manifest: Manifest): string | null {
   const name = manifest.name;
   const byName = new Map(store.listShops().map((s) => [s.name, s.manifest]));
   byName.set(name, manifest);
@@ -184,8 +189,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     throw err;
   }
 
-  await mkdir(store.shopsDir, { recursive: true });
-  const staging = path.join(store.shopsDir, `.staging-${randomBytes(6).toString("hex")}`);
+  const staging = await newStaging(store);
   try {
     await cp(src, staging, {
       recursive: true,
@@ -196,39 +200,109 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
         return true;
       },
     });
-    const late = await strangeEntries(staging);
-    if (late.length) return refuse(`${late.join(", ")} is not a plain file in the copy`);
-    const manifest = await loadShop(staging, types, shops);
-    if (manifest.name === HALL_NAME) return refuse(HALL_REFUSAL);
+    const manifest = await checkCopy(store, staging, types, shops);
+    if (typeof manifest === "string") return refuse(manifest);
     if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
-    const brokenInCopy = breaksDependents(store, manifest);
-    if (brokenInCopy) return refuse(brokenInCopy);
     const results = await testShop(staging, { types, shops, store, ...(credentials.length ? { credentials } : {}) });
     for (const r of results) io.out(r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`);
     const failing = results.filter((r) => !r.ok);
     if (failing.length) {
       return refuse(`${manifest.name}'s test${failing.length === 1 ? "" : "s"} ${failing.map((r) => `'${r.name}'`).join(", ")} failed; fix the shop and add it again`);
     }
-    const final = shopDir(store, manifest.name);
-    const old = `${staging}-old`;
-    const had = await lstat(final).then(() => true, () => false);
-    const liveBefore = store.liveGrantsAt(manifest.name, now).map((g) => g.id);
-    if (had) await rename(final, old);
-    await rename(staging, final);
-    store.upsertShop(manifest, now);
-    if (had) await rm(old, { recursive: true, force: true });
+    const stopped = await putInPlace(store, staging, manifest, null, now);
     io.out(`added ${manifest.name} ${manifest.version}\n`);
-    const stillLive = store.liveOf(liveBefore, now);
-    const stopped = liveBefore.filter((id) => !stillLive.includes(id));
-    if (stopped.length) {
-      const states = stopped.map((id) => ({ id, state: store.grantState(id, now)! }));
-      for (const { id, state } of states) {
-        const why = state.kind === "lacks" ? `${grantStateText(store, store.grantById(id)!, state, now).replace(/^not live: /, "")}, a dependency the shop gained` : "it binds no credential for a need the shop gained";
-        io.out(`${id} at ${manifest.name} is no longer live: ${why}\n`);
-      }
-      if (states.some((x) => x.state.kind === "unmet")) io.out(`a grant made again with townd admin grant new binds a credential for each need\n`);
-    }
+    for (const line of stopped) io.out(`${line}\n`);
     return 0;
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+/** A new staging directory under the town's shops, mode 700, for one shop's copy. */
+async function newStaging(store: Store): Promise<string> {
+  await mkdir(store.shopsDir, { recursive: true });
+  const staging = path.join(store.shopsDir, `.staging-${randomBytes(6).toString("hex")}`);
+  await mkdir(staging, { mode: 0o700 });
+  return staging;
+}
+
+/**
+ * The checks of a shop's copy, both doors': nothing in it but plain files
+ * and directories, its manifest read from the copy against the town's
+ * types and shops (ManifestRefused thrown), not named as the town's own,
+ * and breaking no dependent. The manifest, or the line refusing.
+ */
+async function checkCopy(store: Store, staging: string, types: readonly string[], shops: ReturnType<typeof townShops>): Promise<Manifest | string> {
+  const late = await strangeEntries(staging);
+  if (late.length) return `${late.join(", ")} is not a plain file in the copy`;
+  const manifest = await loadShop(staging, types, shops);
+  if (manifest.name === HALL_NAME) return HALL_REFUSAL;
+  return breaksDependents(store, manifest) ?? manifest;
+}
+
+/**
+ * The copy put in place, both doors': the shop's directory moved aside,
+ * the copy moved in, the row upserted with `owner`, the old directory
+ * removed. Then the grants at the shop live before and not after, one line
+ * each, and a line on what to do when one binds no credential.
+ */
+async function putInPlace(store: Store, staging: string, manifest: Manifest, owner: string | null, now: number): Promise<string[]> {
+  const final = shopDir(store, manifest.name);
+  const old = `${staging}-old`;
+  const had = await lstat(final).then(() => true, () => false);
+  const liveBefore = store.liveGrantsAt(manifest.name, now).map((g) => g.id);
+  if (had) await rename(final, old);
+  await rename(staging, final);
+  store.upsertShop(manifest, now, owner);
+  if (had) await rm(old, { recursive: true, force: true });
+  const stillLive = store.liveOf(liveBefore, now);
+  const states = liveBefore.filter((id) => !stillLive.includes(id)).map((id) => ({ id, state: store.grantState(id, now)! }));
+  const lines = states.map(({ id, state }) => {
+    const why = state.kind === "lacks" ? `${grantStateText(store, store.grantById(id)!, state, now).replace(/^not live: /, "")}, a dependency the shop gained` : "it binds no credential for a need the shop gained";
+    return `${id} at ${manifest.name} is no longer live: ${why}`;
+  });
+  if (states.some((x) => x.state.kind === "unmet")) lines.push("a grant made again with townd admin grant new binds a credential for each need");
+  return lines;
+}
+
+/** What the hall's door did with a sent shop: its tests' results, and for a publish whose tests all passed, the lines naming the grants that stopped being live; `kept` false otherwise. */
+export type Sent = { manifest: Manifest; results: TestResult[]; kept: boolean; stopped: string[] } | { refused: string[] };
+
+/**
+ * The hall's front door, publishing steps 6 to 8: the bundle's files
+ * written to a staging directory under the town's shops, mode 700, and
+ * read back as a shop, the manifest read from the copy the one used from
+ * here; its tests run from the copy as the agent's pass, each in a scratch
+ * state root of its own, every call below decided and recorded by `deps`
+ * under `parent`; and, when `keep` and every test passed, the copy moved
+ * into place with the pass's user as owner. The staging is removed on
+ * every path, and the shop already in the town is untouched until the move.
+ */
+export async function sendShop(deps: GateDeps, req: { pass: Pass; files: ReadonlyMap<string, BundleFile>; parent: string; keep: boolean }, now: number): Promise<Sent> {
+  const { store } = deps;
+  const types = store.listTypes().map((t) => t.name);
+  const shops = townShops(store);
+  const staging = await newStaging(store);
+  try {
+    for (const [rel, file] of req.files) {
+      const to = path.resolve(staging, rel);
+      if (!to.startsWith(staging + path.sep)) return { refused: [`${JSON.stringify(rel)}: is outside the shop in the copy`] };
+      await mkdir(path.dirname(to), { recursive: true, mode: 0o700 });
+      await writeFile(to, file.content, { mode: file.mode & 0o100 ? 0o700 : 0o600, flag: "wx" });
+    }
+    let manifest: Manifest | string;
+    try {
+      manifest = await checkCopy(store, staging, types, shops);
+    } catch (err) {
+      if (err instanceof ManifestRefused) return { refused: err.refusals };
+      throw err;
+    }
+    if (typeof manifest === "string") return { refused: [manifest] };
+    const timeout = deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs };
+    const results = await testShop(staging, { types, shops, store, ...timeout, agent: { deps, pass: req.pass, parent: req.parent } });
+    if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, kept: false, stopped: [] };
+    const stopped = await putInPlace(store, staging, manifest, req.pass.userId, now);
+    return { manifest, results, kept: true, stopped };
   } finally {
     await rm(staging, { recursive: true, force: true });
   }

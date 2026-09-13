@@ -81,8 +81,8 @@ describe("a shop with dependencies", () => {
     );
     const results = await testShop(dir, { types: [], shops: townShops(store), store });
     expect(results.map((r) => [r.name, r.ok, r.why])).toEqual([
-      ["sleep", false, "expected exit 0, got 2"],
-      ["the manifest", false, "expected exit 0, got 2"],
+      ["sleep", false, "expected exit 0, got 2: error: command 'sleep' is not available to this grant"],
+      ["the manifest", false, "expected exit 0, got 2: error: command 'recipe relay' is not available to this grant"],
     ]);
   });
 

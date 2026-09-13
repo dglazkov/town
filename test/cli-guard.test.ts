@@ -3,11 +3,13 @@
 // town's it imports, name no shop, command, or argument of any shop under
 // shops/, none of the operator's verbs, nothing of vault's: no github,
 // no credential, no repo; and nothing of compose's: no depends, no watch,
-// no clerk; and nothing of hall's: no hall, no publish, no permit.
+// no clerk; and nothing of hall's: no hall, no publish, no permit. Its
+// one new line, that stdin is not text, names none of them either.
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";
+import { denials } from "../src/denials.js";
 import { parseManifest, type Manifest, type TownShop } from "../src/manifest.js";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -65,6 +67,14 @@ it.each(["src/cli.ts", "src/denials.ts"])("%s names no shop, command, argument, 
   for (const word of shopWords()) {
     expect(new RegExp(`(^|[^A-Za-z0-9_-])${word.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}([^A-Za-z0-9_-]|$)`, "m").test(source), word).toBe(false);
   }
+});
+
+it("says stdin is not text in one line from denials.ts, naming no shop, command, argument, or verb", () => {
+  const line = denials.stdinNotText();
+  expect(line).toBe("error: stdin is not text; the town carries text, so send a shop as a tar of text files");
+  expect(read("src/cli.ts")).toContain("denials.stdinNotText()");
+  for (const word of FORBIDDEN) expect(line.toLowerCase(), word).not.toContain(word);
+  for (const word of shopWords()) expect(new RegExp(`(^|[^A-Za-z0-9_-])${word.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}([^A-Za-z0-9_-]|$)`).test(line), word).toBe(false);
 });
 
 it("takes --json and --grant as its only flags", () => {

@@ -11,7 +11,7 @@ a section, "(spec §n)"; reread it and write what the refusal says.
 
 ## 1. What a shop is
 
-A shop is a directory:
+A shop is a directory of text files:
 
     manifest.yaml     the declaration, this document's subject
     main.mjs          the entry the manifest names (any name)
@@ -47,7 +47,7 @@ accepted.
     this prose whole, so say it in a command's summary or an arg's doc.
 
     runtime: subprocess
-      the only value in v0.
+      the only value an author writes in v0.
 
     entry: ./main.mjs
       string, a path relative to the shop's directory, inside it.
@@ -196,8 +196,8 @@ per call:
                 URL on loopback that lives as long as the call.
     TOWN_GRANT  with dependencies, the path of a grant file only this
                 call can use, gone when it ends.
-- stdin: the call's stdin, as sent, empty when none. Over one megabyte
-  is refused before the entry runs.
+- stdin: the call's stdin, text as sent, empty when none. Over one
+  megabyte is refused before the entry runs.
 - stdout: the result, passed to the agent as it is.
 - stderr: the shop's own log, kept in the town's audit and shown to the
   agent only when the call fails. The audit never holds an argument, so
@@ -223,9 +223,9 @@ town. It names the credential types it needs and the shops it calls:
                  rides in. A type the town does not hold is refused,
                  naming the ones it does.
     depends      optional list of dependencies, each { shop, commands }
-                 and no other key, one per shop, never this shop: a
-                 shop the town holds, and a non-empty list of commands
-                 that shop has. Refusals name what the town holds.
+                 and no other key, one per shop, never this shop nor
+                 town/hall: a shop the town holds, and a non-empty list
+                 of commands that shop has. Refusals name what it holds.
 
 A need: on each call the town opens a window per need that signs and
 forwards. Send $TOWN_CREDENTIAL_<TYPE> (§7) the request you would send

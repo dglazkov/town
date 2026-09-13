@@ -8,7 +8,9 @@
 // directory exists, a missing or malformed repo and a stdin with no token;
 // neither is run as far as `shop add`, which reaches GitHub. `--search` finds a
 // planted value in a file named as the database's WAL, and none in a
-// clean directory, and never prints it.
+// clean directory, and never prints it. `--shop hall` sets the hall's
+// stage with no token, and `--status` counts the hall's rows by command
+// and detail and the pass's grants by source.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -118,9 +120,56 @@ it.each(["github", "watch"])("refuses --shop %s with no repo, a malformed repo, 
   expect(refused[0]!.stderr).toBe(`walk: --shop ${shop} needs --repo <owner/name>, the repository the token is scoped to\n`);
   expect(refused[1]!.stderr).not.toContain("user");
   expect(refused[3]!.stderr).toContain("stdin");
-  expect(refused[6]!.stderr).toBe(`walk: --shop ${shop}x is not a walk's shop; write --shop github or --shop watch, or nothing for the memory walk\n`);
+  expect(refused[6]!.stderr).toBe(`walk: --shop ${shop}x is not a walk's shop; write --shop github, --shop watch, or --shop hall, or nothing for the memory walk\n`);
   for (const r of refused) expect(r.stderr).not.toContain("tok_never_used");
   expect(roots()).toEqual(before);
+}, 60_000);
+
+it("--shop hall sets the stage with no token, and --status counts the hall's rows by command and detail and the grants by source", () => {
+  expect(walk("--shop", "hall", "--repo", "octo/hello")).toMatchObject({ exit: 1, stdout: "", stderr: "walk: --shop hall takes no other flag; it needs no repository and no token\n" });
+  const up = walk("--shop", "hall");
+  expect(up.exit, up.stderr).toBe(0);
+  const root = /^walk ready: (.+)$/m.exec(up.stdout)![1]!;
+  const w = JSON.parse(readFileSync(path.join(root, "walk.json"), "utf8"));
+  pid = w.pid as number;
+  try {
+    expect(w.shop).toBe("town/hall");
+    expect(Object.keys(w.grants).sort()).toEqual(["town/hall", "town/memory"]);
+    expect(up.stdout).toContain(`admin permit ls --pass ${w.passId}`);
+    expect(up.stdout).toMatch(/^the grants:  grant_[0-9a-f]{16} town\/hall search,show,spec,validate,test,publish,request,requests; no constraints; expires 1d$/m);
+    expect(readdirSync(w.shim)).toEqual(["town"]);
+
+    // The agent's side, scripted: help, a refused validate, a publish, and a request.
+    const agentEnv = { ...env, PATH: `${w.shim}:/usr/bin:/bin` };
+    const sh = (line: string) => spawnSync("/bin/sh", ["-c", line], { cwd: w.agent, env: agentEnv, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 });
+    const help = sh("town --help");
+    expect(help.stdout).toMatch(/^town\/hall\s.*\[search, show, spec, validate, test, publish, request, requests\]$/m);
+    expect(help.stdout).toMatch(/^town\/memory\s+Short notes, kept by key\. \[remember, recall, list\]$/m);
+    const manifest = "name: dimitri/hello\nversion: 0.1.0\nsummary: Says a word.\nruntime: subprocess\nentry: ./main.mjs\ncommands:\n  - name: hi\n    summary: Print a greeting.\n    effect: read\n    output: text\ntests:\n  - name: it greets\n    run: hi\n    expect: { contains: hello }\n";
+    mkdirSync(path.join(w.agent, "hello"));
+    writeFileSync(path.join(w.agent, "hello", "main.mjs"), "process.stdout.write('hello\\n');\n");
+    writeFileSync(path.join(w.agent, "hello", "manifest.yaml"), manifest.replace("dimitri/hello", "walker/hello"));
+    expect(sh("tar --format ustar -cf - -C hello . | town hall validate").stdout).toBe("name: walker/hello is not under your namespace; write dimitri/hello instead (spec §2)\n");
+    writeFileSync(path.join(w.agent, "hello", "manifest.yaml"), manifest);
+    expect(sh("tar --format ustar -cf - -C hello . | town hall validate").status).toBe(0);
+    expect(sh("tar --format ustar -cf - -C hello . | town hall publish").stdout).toBe("ok it greets\npublished dimitri/hello 0.1.0; town hello --help says what it does\n");
+    expect(sh("town hall request --shop town/memory --commands forget").status).toBe(0);
+
+    const status = walk("--status", root);
+    expect(status.exit, status.stderr).toBe(0);
+    const counts = status.stdout.split("hall rows by command: ")[1]!.trimEnd().split("\n");
+    expect(counts).toEqual([
+      "4",
+      "  validate 2: refused 1, valid 1; sections refused: §2 1",
+      "  publish 1: published 1",
+      "  request 1: requested 1",
+      "grants by source: operator 2, publish 1",
+    ]);
+    expect(walk("--teardown", root).exit).toBe(0);
+    expect(existsSync(root)).toBe(false);
+  } finally {
+    if (alive(pid)) process.kill(pid, "SIGKILL");
+  }
 }, 60_000);
 
 it("--status prints the audit as a tree: a shop's calls indented under the call they served, and how many there were", async () => {

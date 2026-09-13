@@ -2,19 +2,24 @@
 // against the manifest and run in order against one scratch state made
 // for that test (spec §6). A shop with needs has its tests run through
 // tellers on the credentials it is given, against the types' origins. A
-// shop with dependencies has its tests run with the tree: its calls pass
-// the gate with a grant at every shop in the tree of exactly the commands
-// declared of it, over the dependencies' code in the town, against the
-// test's scratch state, and nothing is written to the town's store.
+// shop with dependencies has its tests run with the tree, over the
+// dependencies' code in the town, against the test's scratch state, as
+// one of two callers. The operator's, at the box: its calls pass the gate
+// with a grant at every shop in the tree of exactly the commands declared
+// of it, and nothing is written to the town's store. An agent's, for the
+// hall: its calls are the agent's pass with the test's scratch root, so at
+// every dependency the gate cuts the agent's own grants by the manifest,
+// and records each call under the hall's. A line that fails after a call
+// of its was denied says the denial's line.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs, splitWords } from "./args.js";
-import { answerFor, type TestTree } from "./gate.js";
+import { answerFor, type Caller, type GateDeps, type TestTree } from "./gate.js";
 import { parseManifest, type Manifest, type ShopTest, type TownShop } from "./manifest.js";
 import { run, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
-import type { Grant, Store } from "./store.js";
+import type { Grant, Pass, Store } from "./store.js";
 
 export interface TestResult {
   name: string;
@@ -42,6 +47,14 @@ export interface TestShopOptions {
   store?: Store;
   /** One per need of the tree, the shop's and its dependencies', each opened as a teller for the call that needs it. */
   credentials?: RunCredential[];
+  /**
+   * Whom the tree runs as. Omitted, the operator's TestTree over `store`.
+   * Given, the agent's pass: each line runs as its user, through the
+   * town's runtime in `deps`, and every call
+   * below is decided by `deps`'s gate for the pass with the test's scratch
+   * root, under `parent`, the hall's call.
+   */
+  agent?: { deps: GateDeps; pass: Pass; parent: string };
 }
 
 /** The opaque user every shop test runs as. */
@@ -108,8 +121,9 @@ export async function loadShop(dir: string, types?: readonly string[], shops?: r
 export async function testShop(dir: string, opts: TestShopOptions = {}): Promise<TestResult[]> {
   const manifest = await loadShop(dir, opts.types, opts.shops);
   const composed = (manifest.depends ?? []).length > 0;
-  if (composed && !opts.store) throw new Error(`${manifest.name}'s tests call its dependencies, and were given no town to call them in`);
-  const needs = composed ? treeOf(manifest, opts.store!).needs : (manifest.credentials ?? []).map((n) => n.type);
+  if (composed && !opts.store && !opts.agent) throw new Error(`${manifest.name}'s tests call its dependencies, and were given no town to call them in`);
+  // The agent's tree opens its dependencies' bindings at the gate, from the agent's grants; only the operator's is handed credentials.
+  const needs = composed && !opts.agent ? treeOf(manifest, opts.store!).needs : (manifest.credentials ?? []).map((n) => n.type);
   const given = (opts.credentials ?? []).map((c) => c.type);
   if (needs.length !== given.length || !needs.every((t) => given.includes(t))) {
     throw new Error(`${manifest.name}'s tests need credentials of (${needs.join(", ")}) and were given (${given.join(", ")})`);
@@ -128,6 +142,7 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
     let last: RunResult | null = null;
     for (const [i, line] of lines.entries()) {
       const fail = (why: string): TestResult => ({ name: test.name, ok: false, why: `line ${line.n} \`${line.text}\` ${why}` });
+      const agent = opts.agent;
       const split = splitWords(line.text);
       if (!split.ok) return fail(split.error);
       const [command = "", ...words] = split.words;
@@ -135,20 +150,23 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
       if (!parsed.ok) return fail(`is refused: ${parsed.refusals.map((r) => r.message).join("; ")}`);
       const own = (opts.credentials ?? []).filter((c) => (manifest.credentials ?? []).some((n) => n.type === c.type));
       const runOpts: RunOptions = {
-        user: TEST_USER,
+        user: agent ? agent.pass.userId : TEST_USER,
         stateRoot,
         stdin: "",
         ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
         ...(own.length ? { credentials: own } : {}),
       };
-      if (opts.store && (manifest.depends ?? []).length) {
+      if (agent && (manifest.depends ?? []).length) {
+        const caller: Caller = { passId: agent.pass.id, stateRoot, manifest, parent: agent.parent, depth: 1 };
+        runOpts.town = { answer: answerFor(agent.deps, caller) };
+      } else if (opts.store && (manifest.depends ?? []).length) {
         const test: TestTree = { grants: treeOf(manifest, opts.store).grants, user: TEST_USER, stateRoot, credentials: opts.credentials ?? [] };
         const deps = { store: opts.store, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) };
         runOpts.town = { answer: answerFor(deps, { test, manifest, parent: null, depth: 1 }) };
       }
-      const result = await run(dir, manifest, command, parsed.values, runOpts);
+      const result = await (agent?.deps.runtime ?? run)(dir, manifest, command, parsed.values, runOpts);
       if (result.timedOut) return fail("ran out of time");
-      if (i < lines.length - 1 && result.exit !== 0) return fail(`exited ${result.exit}${lastLine(result.stderr)}`);
+      if (i < lines.length - 1 && result.exit !== 0) return fail(`exited ${result.exit}${said(result)}`);
       last = result;
     }
     if (!last) return { name: test.name, ok: false, why: "run has no lines" };
@@ -161,17 +179,19 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
 
 function judge(test: ShopTest, r: RunResult): string | null {
   const e = test.expect;
+  const denied = r.denied === null ? "" : `: ${r.denied}`;
   if ("contains" in e) {
-    return r.stdout.includes(e.contains) ? null : `expected stdout to contain ${JSON.stringify(e.contains)}, got ${JSON.stringify(r.stdout)}`;
+    return r.stdout.includes(e.contains) ? null : `expected stdout to contain ${JSON.stringify(e.contains)}, got ${JSON.stringify(r.stdout)}${denied}`;
   }
   if ("equals" in e) {
     const got = r.stdout.endsWith("\n") ? r.stdout.slice(0, -1) : r.stdout;
-    return got === e.equals ? null : `expected stdout to equal ${JSON.stringify(e.equals)}, got ${JSON.stringify(got)}`;
+    return got === e.equals ? null : `expected stdout to equal ${JSON.stringify(e.equals)}, got ${JSON.stringify(got)}${denied}`;
   }
-  return r.exit === e.exit ? null : `expected exit ${e.exit}, got ${r.exit}${lastLine(r.stderr)}`;
+  return r.exit === e.exit ? null : `expected exit ${e.exit}, got ${r.exit}${said(r)}`;
 }
 
-function lastLine(stderr: string): string {
-  const line = stderr.trim().split("\n").pop();
+/** What a failed line said: the denial of a call it made, or its stderr's last line; empty when neither. */
+function said(r: RunResult): string {
+  const line = r.denied ?? r.stderr.trim().split("\n").pop();
   return line ? `: ${line}` : "";
 }

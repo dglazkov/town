@@ -69,6 +69,9 @@ export const denials = {
   /** Exit 1, from the agent's binary. */
   flagNeedsValue: (flag: string) => `error: ${flag} needs a value`,
 
+  /** Exit 1, from the agent's binary, before any request: the town carries text. */
+  stdinNotText: () => "error: stdin is not text; the town carries text, so send a shop as a tar of text files",
+
   /** Exit 1, from the agent's binary. */
   townUnreachable: () => "error: the town did not answer; try again, or tell the person who gave you this grant",
 } as const;

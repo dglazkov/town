@@ -44,7 +44,7 @@ export interface Need {
   /** With `header`, the type's definition: where its secret may be sent. */
   origin?: string;
   header?: string;
-  /** For an `oauth` type, beside a definition: shape-checked, and refused until consent phase 1. */
+  /** For an `oauth` type, beside a definition: its authorize and token endpoints and its scopes, never its registration. */
   oauth?: OAuthEndpoints;
   /** Beside a definition: prose for the person who makes the secret, the shop's words. */
   guidance?: string;

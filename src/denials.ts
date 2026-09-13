@@ -16,6 +16,9 @@ export const denials = {
   /** Exit 2. A command the grant lacks, and a shop the pass holds no grant for, in the same words. */
   notAvailable: (subject: string) => `error: command '${subject}' is not available to this grant`,
 
+  /** Exit 2. A grant the call found was no longer good at its sixth step, with the clause saying why. */
+  notAvailableSince: (subject: string, why: string) => `error: command '${subject}' is not available to this grant: ${why}`,
+
   /** Exit 2. A value outside one of the grant's constraints. */
   constraint: (arg: string, kind: ConstraintKind, rule: Rule) => {
     const flag = `--${arg}`;
@@ -53,8 +56,8 @@ export const denials = {
   /** Exit 1. Stdin past the limit is refused whole, since a truncated value is a corrupt one. */
   stdinTooLarge: (bytes: number) => `error: stdin is ${bytes} bytes, over the one megabyte limit`,
 
-  /** Exit 1. A request the town could not read as a call. */
-  badCall: () => "error: the town could not read this call",
+  /** Exit 1. A request the town could not parse as a call. */
+  badCall: () => "error: the town could not parse this call",
 
   /** Exit 1. The town failed on its side; the audit has the row. */
   townFailed: () => "error: the town failed on this call",

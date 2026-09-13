@@ -461,7 +461,7 @@ describe("credential types", () => {
   it("are proposed by a shop's manifest, met by the same definition, held by no credential, approved, and removed while no shop names them", async () => {
     const figma = { name: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: "Make a personal access token at Figma > Settings > Security.\n" };
     const made = store.proposeType(figma, "dimitri/figma", false, 50);
-    expect(made).toEqual({ ...figma, guidance: "Make a personal access token at Figma > Settings > Security.", addedAt: 50, kind: "token", state: "proposed", proposedBy: "dimitri/figma", oauth: null });
+    expect(made).toEqual({ ...figma, guidance: "Make a personal access token at Figma > Settings > Security.", addedAt: 50, kind: "token", state: "proposed", proposedBy: "dimitri/figma", oauth: null, hasClient: false });
     // A second proposal of the name is met by the first: nothing is written, the first proposer's guidance stays.
     expect(store.proposeType({ ...figma, guidance: "Another shop's words." }, "ada/figma", false, 60)).toBeNull();
     expect(store.getType("figma")).toEqual(made);
@@ -543,8 +543,8 @@ describe("credentials", () => {
     const b = store.addCredential({ userName: "ada", type: "github-token", label: "", value: "another" }, key, 200);
     expect(a.id).toMatch(/^credential_[0-9a-f]{16}$/);
     expect(store.listCredentials()).toEqual([
-      { id: a.id, userId: a.userId, userName: "dimitri", type: "github-token", label: "PAT", createdAt: 100, revokedAt: null, grants: [] },
-      { id: b.id, userId: b.userId, userName: "ada", type: "github-token", label: "", createdAt: 200, revokedAt: null, grants: [] },
+      { id: a.id, userId: a.userId, userName: "dimitri", type: "github-token", label: "PAT", createdAt: 100, revokedAt: null, revokedWhy: null, scopes: [], grants: [] },
+      { id: b.id, userId: b.userId, userName: "ada", type: "github-token", label: "", createdAt: 200, revokedAt: null, revokedWhy: null, scopes: [], grants: [] },
     ]);
     expect(store.listCredentials("ada").map((c) => c.id)).toEqual([b.id]);
     expect(JSON.stringify(store.listCredentials())).not.toContain(VALUE);

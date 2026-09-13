@@ -93,8 +93,8 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   // Step 3: credential ls with no value; the database holds none as bytes.
   const creds = admin("credential", "ls");
   expect(creds.exit).toBe(0);
-  expect(creds.stdout.split("\n")[0]).toMatch(/^id\s+user\s+type\s+label\s+created\s+state\s+grants$/);
-  expect(rowOf(creds.stdout, c1)).toMatch(/^credential_\S+\s+dimitri\s+test-origin\s+dimitri's PAT\s+\d{4}-\S+\s+active\s+-$/);
+  expect(creds.stdout.split("\n")[0]).toMatch(/^id\s+user\s+type\s+label\s+created\s+state\s+scopes\s+grants$/);
+  expect(rowOf(creds.stdout, c1)).toMatch(/^credential_\S+\s+dimitri\s+test-origin\s+dimitri's PAT\s+\d{4}-\S+\s+active\s+-\s+-$/);
   const dbFiles = () => ["town.db", "town.db-wal"].map((f) => path.join(data, f)).filter((f) => existsSync(f));
   expect(dbFiles().map((f) => path.basename(f))).toContain("town.db-wal");
   for (const f of dbFiles()) expect(readFileSync(f).includes(Buffer.from(SECRET)), path.basename(f)).toBe(false);
@@ -123,7 +123,7 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   expect(first.exit, first.stderr).toBe(0);
   const firstId = first.stdout.trim();
   expect(rowOf(admin("grant", "ls").stdout, firstId)).toMatch(new RegExp(`^${firstId}\\s+${passId}\\s+test/teller\\s+get,post\\s+.*\\s+test-origin=${c1}\\s+-\\s+live\\s+-$`));
-  expect(rowOf(admin("credential", "ls").stdout, c1)).toMatch(new RegExp(`\\sactive\\s+${firstId}$`));
+  expect(rowOf(admin("credential", "ls").stdout, c1)).toMatch(new RegExp(`\\sactive\\s+-\\s+${firstId}$`));
 
   const a: Agent = agent();
   made.push(a.dir, a.home);
@@ -210,7 +210,7 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   expect([dead.exit, oneLine(dead)]).toEqual([2, "error: command 'teller get' is not available to this grant"]);
   expect(a.town("--help")).toEqual({ stdout: "This pass holds no grants.\n", stderr: "", exit: 0 });
   expect(rowOf(admin("grant", "ls").stdout, grantId)).toMatch(new RegExp(`test-origin=${c1}\\s+-\\s+not live: ${c1} removed\\s+\\S+$`));
-  expect(rowOf(admin("credential", "ls").stdout, c1)).toMatch(/\srevoked\s+grant_/);
+  expect(rowOf(admin("credential", "ls").stdout, c1)).toMatch(/\srevoked\s+-\s+grant_/);
   expect(b.town("teller", "get", "--path", "/still")).toEqual({ stdout: "200\nhello from the origin", stderr: "", exit: 0 });
   // The replacement grant is not blocked by the dead one.
   const rebound = admin("grant", "new", "--pass", passId, "--shop", "test/teller", "--commands", "get");

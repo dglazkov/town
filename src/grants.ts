@@ -237,7 +237,10 @@ export function bindNeeds(store: Store, user: User, shop: string, needs: string[
       continue;
     }
     const held = store.liveCredentials(user.id, type);
-    if (held.length === 0) return `user ${user.name} holds no ${type} credential; add one with townd admin credential add --user ${user.name} --type ${type}`;
+    if (held.length === 0) {
+      if (store.getType(type)?.kind === "oauth") return `user ${user.name} holds no ${type} credential; connect one with townd admin credential connect --user ${user.name} --type ${type}`;
+      return `user ${user.name} holds no ${type} credential; add one with townd admin credential add --user ${user.name} --type ${type}`;
+    }
     if (held.length > 1) return `user ${user.name} holds ${held.length} ${type} credentials (${held.map((c) => c.id).join(", ")}); pick one with --credential <id>`;
     out[type] = held[0]!.id;
   }

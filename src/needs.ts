@@ -3,12 +3,13 @@
 // type the town holds, or defines one: exactly as the town holds it, or,
 // for a type the town lacks, a proposal a person approves. A definition is
 // an origin and a header, vault's checks, with `oauth` endpoints and scopes
-// for an OAuth type, shape-checked and refused until consent phase 1, and
+// for an OAuth type, its endpoints https: or http: on loopback, and
 // `guidance`, the shop's words for the person who makes the secret. A
 // registration is never a manifest's. The manifest's validator calls
 // here; every refusal cites §8.
 
 import { describe, isRecord, refusal, type Need, type TownType } from "./manifest.js";
+import { parseEndpoint } from "./oauth.js";
 import { parseHeaderTemplate, parseOrigin } from "./teller.js";
 
 const NEED_FIELDS = ["type", "origin", "header", "oauth", "guidance"];
@@ -30,9 +31,10 @@ export function definesType(n: Need): boolean {
   return n.origin !== undefined || n.header !== undefined || n.oauth !== undefined;
 }
 
-/** Whether a need's definition is the town's type, field for field, `oauth` included. */
+/** Whether a need's definition is the town's type, field for field, `oauth` included, its keys in any order. */
 export function sameDefinition(t: TownType, n: Need): boolean {
-  return t.origin === n.origin && t.header === n.header && JSON.stringify(t.oauth ?? null) === JSON.stringify(n.oauth ?? null);
+  const oauth = (o: Need["oauth"] | null | undefined) => (o ? JSON.stringify([o.authorize, o.token, o.scopes]) : null);
+  return t.origin === n.origin && t.header === n.header && oauth(t.oauth) === oauth(n.oauth);
 }
 
 /** File extensions: a dotted name ending in one is a file's name, like `main.mjs` or `Node.js`, and not a host. */
@@ -108,10 +110,6 @@ export function validateNeeds(needs: unknown, types: readonly (string | TownType
     const need = n as unknown as Need;
     validateDefinition(n, at, out);
     if (out.length > before) return;
-    if (need.oauth !== undefined) {
-      out.push(refusal(`${at}.oauth`, "oauth types come in consent phase 1", "a token type, an origin and a header alone,", 8));
-      return;
-    }
 
     if (types === undefined) {
       out.push(refusal(`${at}.type`, `'${need.type}' cannot be checked with no data directory at hand`, "the verb again with --data <dir>, so the town's types are read,", 8));
@@ -169,7 +167,7 @@ function validateDefinition(n: Record<string, unknown>, at: string, out: string[
   }
 }
 
-/** `oauth`: `{ authorize, token, scopes }`, two https: URLs and a non-empty list of strings, and no registration. The endpoints' hosts, of those that parse. */
+/** `oauth`: `{ authorize, token, scopes }`, two https: URLs (http: on a loopback host) and a non-empty list of strings, and no registration. The endpoints' hosts, of those that parse. */
 function validateOAuth(o: unknown, at: string, out: string[]): string[] {
   if (!isRecord(o)) {
     out.push(refusal(at, "is not a mapping", "{ authorize: <https URL>, token: <https URL>, scopes: [<scope>] }", 8));
@@ -182,13 +180,8 @@ function validateOAuth(o: unknown, at: string, out: string[]): string[] {
   }
   for (const field of ["authorize", "token"] as const) {
     const v = o[field];
-    let url: URL | null = null;
-    try {
-      url = typeof v === "string" ? new URL(v) : null;
-    } catch {
-      url = null;
-    }
-    if (!url || url.protocol !== "https:") out.push(refusal(`${at}.${field}`, describe(v, "an https: URL"), `the provider's ${field} endpoint, an https: URL,`, 8));
+    const url = parseEndpoint(v);
+    if (!url) out.push(refusal(`${at}.${field}`, describe(v, "an https: URL"), `the provider's ${field} endpoint, an https: URL (http: only on a loopback host),`, 8));
     else hosts.push(url.hostname.toLowerCase());
   }
   const scopes = o.scopes;

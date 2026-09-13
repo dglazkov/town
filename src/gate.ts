@@ -4,7 +4,10 @@
 // the words come from denials.ts, help from help.ts, notices from
 // notices.ts. The gate reads the store on every call and keeps nothing.
 // A pass's grants are its live grants (store.ts), and the sixth step is
-// the only place a grant's bindings are opened from the vault.
+// the only place a grant's bindings are opened from the vault. An `oauth`
+// binding's access token is refreshed there when it is within a minute of
+// expiry, before any teller or process, and its row sealed again; a
+// refresh the provider refuses revokes the credential and denies the call.
 //
 // A shop's own call comes from its clerk with a caller in place of a
 // bearer, and its grants are computed, not read: the agent's live grants
@@ -29,6 +32,8 @@ import { runHall } from "./hall.js";
 import { helpForGrant, helpForGrants, typedName, usageFor } from "./help.js";
 import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
+import { due, parseValue, refresh, refreshed, type OAuthValue } from "./oauth.js";
+import type { Client, CredentialType } from "./credentials.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
 import { hashToken, type Grant, type Pass, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
@@ -85,6 +90,41 @@ export type Runtime = typeof run;
 export interface Vault {
   /** Throws a VaultError of KEY_MISSING when there is no key to open with. */
   open(credentialId: string): string;
+  /** An `oauth` type's registration, opened; a vault without it refreshes nothing. */
+  client?(type: string): Client;
+  /** An `oauth` credential's row sealed again with the value a refresh made. */
+  reseal?(credentialId: string, value: OAuthValue): void;
+}
+
+/** The vault over a store and the key `key` finds, read when first needed: the server's, and the admin's for a shop's tests. */
+export function storeVault(store: Store, key: () => Buffer | null): Vault {
+  const k = () => {
+    const found = key();
+    if (!found) throw new VaultError(KEY_MISSING);
+    return found;
+  };
+  return {
+    open: (id) => store.openCredential(id, k()),
+    client: (type) => store.openClient(type, k()),
+    reseal: (id, value) => store.refreshCredential(id, value, k()),
+  };
+}
+
+/** What `revoked_why` says of a credential whose refresh the provider refused. */
+export const REFRESH_REFUSED = "refresh refused";
+
+/** A refresh the token endpoint answered `invalid_grant`: the credential is revoked with why. */
+export class RefreshRefused extends Error {
+  constructor(readonly type: string) {
+    super(`the ${type} refresh was refused`);
+  }
+}
+
+/** Any other failure at the token endpoint: its status, or the word for no answer. The credential stands. */
+export class RefreshFailed extends Error {
+  constructor(readonly type: string, readonly status: number, readonly why: string) {
+    super(`the ${type} refresh failed`);
+  }
 }
 
 /** The audit's words for a call that needed the vault's key and found none. */
@@ -305,7 +345,22 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   // 6. The bindings, then the runtime. Only now is a credential opened,
   // and only now does a process exist. A shop with dependencies is given
   // this gate to answer its calls, for the caller one deeper.
-  const credentials = test ? testBindings(test.credentials, manifest) : openBindings(store, deps.vault, grant, manifest);
+  let credentials: RunCredential[];
+  let note: string | null = null;
+  try {
+    const opened = test ? { credentials: testBindings(test.credentials, manifest), refreshed: [] } : await openBindings(store, deps.vault, grant, manifest, now);
+    credentials = opened.credentials;
+    if (opened.refreshed.length) note = opened.refreshed.map((t) => `refreshed ${t}`).join(", ");
+  } catch (err) {
+    if (err instanceof RefreshRefused) {
+      return { ...atArgs, error: denials.notAvailableSince(`${first} ${command}`, `its ${err.type} credential needs connecting again at the box`), exit: 2, result: "denied", detail: `${REFRESH_REFUSED} ${err.type}` };
+    }
+    if (err instanceof RefreshFailed) {
+      return { ...atArgs, error: denials.shopFailed(manifest.name, command, ""), exit: 1, result: "shop-error", detail: `refresh ${err.type} failed: ${err.status || err.why}` };
+    }
+    throw err;
+  }
+  const noted = (detail: string | null) => [note, detail].filter((x) => x !== null).join("; ") || null;
   const runtime = deps.runtime ?? run;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const below = { manifest, parent: base.callId, depth: (caller?.depth ?? 0) + 1 };
@@ -321,9 +376,9 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     ...((manifest.depends ?? []).length ? { town: { answer: answerFor(deps, deeper) } } : {}),
     ...(signal ? { signal } : {}),
   });
-  const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr, credentials: r.credentials, wall: r.wall };
+  const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr, credentials: r.credentials, wall: r.wall, detail: noted(null) };
   if (r.aborted) {
-    return { ...ran, error: denials.townFailed(), exit: 1, result: "town-error", detail: "aborted" };
+    return { ...ran, error: denials.townFailed(), exit: 1, result: "town-error", detail: noted("aborted") };
   }
   if (r.timedOut) {
     return { ...ran, error: denials.shopTimedOut(manifest.name, command, Math.round(timeoutMs / 1000)), exit: 1, result: "timeout" };
@@ -332,7 +387,7 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
   // its own was denied, so the agent is told that line, and nothing the shop
   // printed. A shop that caught the denial and exited 0 is ok.
   if (r.exit !== 0 && r.denied !== null) {
-    return { ...ran, stdout: "", error: r.denied, exit: 2, result: "denied", detail: "inner" };
+    return { ...ran, stdout: "", error: r.denied, exit: 2, result: "denied", detail: noted("inner") };
   }
   if (r.exit !== 0) {
     const tail = r.stderr.trimEnd().split("\n").slice(-STDERR_TAIL_LINES).join("\n");
@@ -343,28 +398,70 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
 
 /**
  * For each need of the manifest, the grant's binding opened: the type's
- * origin and header and the credential's value, for the runtime alone. A
- * live grant has a binding for every need, so a missing one here, a
- * missing vault, or a credential that does not open is the town's
- * failure, thrown as a VaultError whose words name no credential, no
- * path, and no value.
+ * origin and header and the credential's secret (secretOf), for the
+ * runtime alone, and the types refreshed on the way. A live grant has a
+ * binding for every need, so a missing one here, a missing vault, or a
+ * credential that does not open is the town's failure, thrown as a
+ * VaultError whose words name no credential, no path, and no value.
  */
-function openBindings(store: Store, vault: Vault | undefined, grant: Grant, manifest: Manifest): RunCredential[] {
+async function openBindings(store: Store, vault: Vault | undefined, grant: Grant, manifest: Manifest, now: number): Promise<{ credentials: RunCredential[]; refreshed: string[] }> {
   const out: RunCredential[] = [];
+  const fresh: string[] = [];
   for (const { type } of manifest.credentials ?? []) {
     const id = grant.credentials[type];
     const t = store.getType(type);
     if (id === undefined || !t) throw new VaultError("a binding was not there to open");
     if (!vault) throw new VaultError(KEY_MISSING);
-    let token: string;
-    try {
-      token = vault.open(id);
-    } catch (err) {
-      throw new VaultError(err instanceof VaultError && err.message === KEY_MISSING ? KEY_MISSING : "a credential did not open under the vault key");
-    }
-    out.push({ type, origin: t.origin, header: t.header, token });
+    const secret = await secretOf(store, vault, t, id, now);
+    if (secret.refreshed) fresh.push(type);
+    out.push({ type, origin: t.origin, header: t.header, token: secret.token });
   }
-  return out;
+  return { credentials: out, refreshed: fresh };
+}
+
+/**
+ * A credential's secret for one use at `now`: a `token` credential's value;
+ * an `oauth` credential's access token when it has more than a minute
+ * left, and otherwise a new one, traded for the refresh token at the
+ * type's token endpoint with the registration, the row sealed again with
+ * it, and a rotated refresh token kept. `invalid_grant` revokes the
+ * credential, `refresh refused`, and throws RefreshRefused, unless the row
+ * was refreshed by another call meanwhile; any other failure throws
+ * RefreshFailed and leaves it. A vault that cannot open is a VaultError.
+ */
+export async function secretOf(store: Store, vault: Vault, t: CredentialType, id: string, now: number): Promise<{ token: string; refreshed: boolean }> {
+  const opened = openSealed(vault, id);
+  if (t.kind !== "oauth") return { token: opened, refreshed: false };
+  const value = parseValue(opened);
+  if (!value || !t.oauth) throw new VaultError("an oauth credential did not open as one");
+  if (!due(value.expires_at, now)) return { token: value.access_token, refreshed: false };
+  if (!vault.client || !vault.reseal) throw new VaultError("a registration was not there to refresh with");
+  let client: Client;
+  try {
+    client = vault.client(t.name);
+  } catch (err) {
+    throw new VaultError(err instanceof VaultError && err.message === KEY_MISSING ? KEY_MISSING : "a registration did not open under the vault key");
+  }
+  const answer = await refresh({ token: t.oauth.token, clientId: client.id, clientSecret: client.secret, refreshToken: value.refresh_token });
+  if (!answer.ok) {
+    if (answer.error !== "invalid_grant") throw new RefreshFailed(t.name, answer.status, answer.error);
+    // A call beside this one may have refreshed first and rotated the token this one sent.
+    const latest = parseValue(openSealed(vault, id));
+    if (latest && latest.refresh_token !== value.refresh_token && !due(latest.expires_at, now)) return { token: latest.access_token, refreshed: false };
+    store.revokeCredential(id, now, REFRESH_REFUSED);
+    throw new RefreshRefused(t.name);
+  }
+  const next = refreshed(value, answer, now);
+  vault.reseal(id, next);
+  return { token: next.access_token, refreshed: true };
+}
+
+function openSealed(vault: Vault, id: string): string {
+  try {
+    return vault.open(id);
+  } catch (err) {
+    throw new VaultError(err instanceof VaultError && err.message === KEY_MISSING ? KEY_MISSING : "a credential did not open under the vault key");
+  }
 }
 
 /** For each need of the manifest, the test's credential of its type; one missing is the town's failure. */

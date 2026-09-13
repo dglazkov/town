@@ -71,8 +71,10 @@ export interface Todo {
  * What a person types to get the permit to a grant, in the order `permit
  * approve` checks it: for each need of a type a shop proposed, the type
  * approved and a credential added; for a need of the operator's type, a
- * credential when the user holds none; then the approval, saying the
- * tests it runs first when the shop's tests have not run on its code.
+ * credential when the user holds none; an `oauth` type approved with its
+ * registration from $CLIENT_ID and $CLIENT_SECRET, and connected; then
+ * the approval, saying the tests it runs first when the shop's tests have
+ * not run on its code.
  * A permit with nothing left to do but approve is that one line.
  */
 export function todos(store: Store, permit: Permit): Todo[] {
@@ -82,10 +84,11 @@ export function todos(store: Store, permit: Permit): Todo[] {
     if (!t) {
       out.push({ done: false, line: `townd admin type add ${type} --origin <url> --header '<Name>: <value with {token}>'` });
     } else if (t.proposedBy !== null) {
-      out.push({ done: t.state === "held", line: `townd admin type approve ${type}` });
+      // An oauth type's registration is the operator's: its id and secret ride in the shell's names, as a token does.
+      out.push({ done: t.state === "held", line: t.kind === "oauth" ? `printf '%s\\n' "$CLIENT_SECRET" | townd admin type approve ${type} --client-id "$CLIENT_ID"` : `townd admin type approve ${type}` });
     }
     if (!t || t.proposedBy !== null || held.length === 0) {
-      out.push({ done: held.length > 0, line: `printf '%s\\n' "$TOKEN" | townd admin credential add --user ${permit.userName} --type ${type} --label ${type}` });
+      out.push({ done: held.length > 0, line: credentialLine(t, type, permit.userName) });
     }
   }
   const shop = store.getShop(permit.shop);
@@ -94,6 +97,12 @@ export function todos(store: Store, permit: Permit): Todo[] {
   const runs = tests ? `  # runs ${permit.shop}'s ${tests} test${tests === 1 ? "" : "s"} on ${states.length === 1 ? "it" : "them"} first` : "";
   out.push({ done: false, line: `townd admin permit approve ${permit.id}${runs}` });
   return out;
+}
+
+/** The line that gives the user a credential of the type: pasted for a `token` type, connected in a browser for an `oauth` one. */
+export function credentialLine(t: CredentialType | null, type: string, userName: string): string {
+  if (t?.kind === "oauth") return `townd admin credential connect --user ${userName} --type ${type} --label ${type}`;
+  return `printf '%s\\n' "$TOKEN" | townd admin credential add --user ${userName} --type ${type} --label ${type}`;
 }
 
 /** The `to do:` block: every line with its done mark, or, for a refused approval, the lines that remain. */
@@ -119,6 +128,7 @@ export function checklist(store: Store, permit: Permit): string {
       continue;
     }
     lines.push(`  ${type}: ${t.state}, ${t.kind}, sent to ${t.origin} in ${t.header}`);
+    if (t.oauth) lines.push(`    consent at ${t.oauth.authorize}, scopes ${t.oauth.scopes.join(", ")}`);
     const said = guidanceLine(t);
     if (said) lines.push(`    ${said}`);
     lines.push(`    ${held.length ? `${permit.userName}'s: ${held.map((c) => c.id).join(", ")}` : "none connected"}`);

@@ -1,13 +1,17 @@
 // Secrets at the box: the operator's verbs by which a secret enters the
 // town and is shown without its value. `type add`, `type approve`, `type
-// ls`, and `type rm` over the credential types; `credential add` with the
-// secret on stdin, `credential ls`, and `credential rm`. A value read here
-// is sealed by the store and never printed. The admin's `dispatch` hands
-// these verbs here with its parsed flags.
+// ls`, and `type rm` over the credential types, an `oauth` type's
+// registration given with `--client-id` and the client secret on stdin;
+// `credential add` with the secret on stdin, refused at an `oauth` type;
+// `credential connect`, the consent (src/consent.ts); `credential ls` with
+// scopes and why a credential was revoked; and `credential rm`. A value
+// read here is sealed by the store and never printed. The admin's
+// `dispatch` hands these verbs here with its parsed flags.
 
 import { guidanceLine } from "./checklist.js";
-import { proposedRefusal } from "./credentials.js";
 import { UsageError, noExtra, one, type Io, type Parsed } from "./admin.js";
+import { connect } from "./consent.js";
+import { oauthRefusal, proposedRefusal, type Client, type CredentialType } from "./credentials.js";
 import { table } from "./help.js";
 import { isoTime } from "./notices.js";
 import { StoreError, type Store } from "./store.js";
@@ -22,25 +26,42 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
     case "type add": {
       noExtra(args, 1, "type add");
       const guidance = one(p, "guidance");
-      const t = store.addType({ name: args[0]!, origin: one(p, "origin", true), header: one(p, "header", true), ...(guidance === undefined ? {} : { guidance }) }, now);
-      io.out(`added ${t.name}\n`);
+      const kind = one(p, "kind") ?? "token";
+      if (kind !== "token" && kind !== "oauth") throw new UsageError(`--kind ${kind} is not a kind; write token or oauth`);
+      const name = args[0]!;
+      const base = { name, origin: one(p, "origin", true), header: one(p, "header", true), ...(guidance === undefined ? {} : { guidance }) };
+      if (kind === "token") {
+        for (const flag of ["authorize", "token", "scopes", "client-id"]) if (p.opts.has(flag)) throw new UsageError(`--${flag} is an oauth type's; write --kind oauth with it, or leave it out`);
+        io.out(`added ${store.addType(base, now).name}\n`);
+        return 0;
+      }
+      const oauth = { authorize: one(p, "authorize", true), token: one(p, "token", true), scopes: one(p, "scopes", true).split(",").map((x) => x.trim()).filter(Boolean) };
+      const clientId = one(p, "client-id", true);
+      if (store.getType(name)) throw new StoreError(`type ${name} already exists; townd admin type ls lists them`);
+      const client = await readClient(io, clientId, "type add");
+      io.out(`added ${store.addType({ ...base, oauth, client }, now, ensureKey(store.dataDir)).name}\n`);
       return 0;
     }
     case "type approve": {
       noExtra(args, 1, "type approve");
-      const t = store.approveType(args[0]!);
-      io.out(`${t.name}: a ${t.kind} type, sent to ${t.origin} in ${t.header}\n`);
+      const clientId = one(p, "client-id");
+      const t = store.checkApprove(args[0]!, clientId !== undefined);
+      // What the operator approves, and the shop's words for what to make, before the secret is read.
+      io.out(`${t.name}: ${t.kind === "oauth" ? "an" : "a"} ${t.kind} type, sent to ${t.origin} in ${t.header}\n`);
+      if (t.oauth) io.out(`${t.name}: consent at ${t.oauth.authorize}, tokens from ${t.oauth.token}, scopes ${t.oauth.scopes.join(", ")}\n`);
       const said = guidanceLine(t);
       if (said) io.out(`${said}\n`);
-      io.out(`approved ${t.name}, proposed by ${t.proposedBy}; it is the town's\n`);
+      const registration = clientId === undefined ? undefined : { client: await readClient(io, clientId, "type approve"), key: ensureKey(store.dataDir) };
+      store.approveType(t.name, registration);
+      io.out(`approved ${t.name}, proposed by ${t.proposedBy}; it is the town's${registration ? `, with client ${clientId} and its secret sealed` : ""}\n`);
       return 0;
     }
     case "type ls":
       noExtra(args, 0, "type ls");
       io.out(
         table(
-          ["name", "kind", "state", "proposer", "origin", "header", "added"],
-          store.listTypes().map((t) => [t.name, t.kind, t.state, t.proposedBy ?? "-", t.origin, t.header, isoTime(t.addedAt)]),
+          ["name", "kind", "state", "proposer", "origin", "header", "added", "oauth"],
+          store.listTypes().map((t) => [t.name, t.kind, t.state, t.proposedBy ?? "-", t.origin, t.header, isoTime(t.addedAt), oauthText(t)]),
         ),
       );
       return 0;
@@ -62,6 +83,7 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
         throw new StoreError(`type ${type} is not a type this town holds; write one of (${store.listTypes().map((t) => t.name).join(", ")}), or add it with townd admin type add`);
       }
       if (t.state === "proposed") throw new StoreError(proposedRefusal(t));
+      if (t.kind === "oauth") throw new StoreError(oauthRefusal(t, userName));
       // What to paste, in the words of whoever wrote the type, before the prompt reads it.
       const said = guidanceLine(t);
       if (said) io.err(`${said}\n`);
@@ -70,20 +92,35 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       io.out(`${c.id}\n`);
       return 0;
     }
+    case "credential connect": {
+      noExtra(args, 0, "credential connect");
+      const port = one(p, "port");
+      const timeout = one(p, "timeout");
+      if (port !== undefined && !/^\d{1,5}$/.test(port)) throw new UsageError(`--port ${port} is not a port; write a number from 0 to 65535, or leave it out for a free one`);
+      const label = one(p, "label");
+      return connect(
+        store,
+        () => ensureKey(store.dataDir),
+        { userName: one(p, "user", true), type: one(p, "type", true), ...(label === undefined ? {} : { label }), ...(port === undefined ? {} : { port: Number(port) }), ...(timeout === undefined ? {} : { timeoutMs: waitOf(timeout) }) },
+        io,
+        io.now ?? Date.now,
+      );
+    }
     case "credential ls": {
       noExtra(args, 0, "credential ls");
       const userName = one(p, "user");
       if (userName !== undefined && !store.userByName(userName)) throw new StoreError(`user ${userName} does not exist; townd admin user ls lists them`);
       io.out(
         table(
-          ["id", "user", "type", "label", "created", "state", "grants"],
+          ["id", "user", "type", "label", "created", "state", "scopes", "grants"],
           store.listCredentials(userName).map((c) => [
             c.id,
             c.userName,
             c.type,
             c.label === "" ? "-" : c.label,
             isoTime(c.createdAt),
-            c.revokedAt === null ? "active" : "revoked",
+            c.revokedAt === null ? "active" : c.revokedWhy ? `revoked (${c.revokedWhy})` : "revoked",
+            c.scopes.length ? c.scopes.join(",") : "-",
             c.grants.length ? c.grants.join(",") : "-",
           ]),
         ),
@@ -106,25 +143,47 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
   throw new UsageError(`${key} is not a verb`);
 }
 
+/** An `oauth` type's endpoints and scopes as one cell; `-` for a `token` type. */
+function oauthText(t: CredentialType): string {
+  return t.oauth ? `${t.oauth.authorize} ${t.oauth.token} ${t.oauth.scopes.join(",")}` : "-";
+}
+
+/** `--timeout`: `<n>m` or `<n>s`, in milliseconds. */
+function waitOf(text: string): number {
+  const m = /^(\d+)([ms])$/.exec(text);
+  if (!m || Number(m[1]) === 0) throw new UsageError(`--timeout ${text} is not a wait; write one like 5m or 90s`);
+  return Number(m[1]) * (m[2] === "m" ? 60_000 : 1000);
+}
+
+/**
+ * A registration: `--client-id`, and the client secret on stdin, empty for
+ * a public client. `verb` names who reads it, in the refusals. Exported for
+ * `shop add`, which holds an `oauth` type the same way.
+ */
+export async function readClient(io: Io, id: string, verb: string): Promise<Client> {
+  if (id.trim() === "") throw new UsageError("--client-id is empty; write the client id the provider gave the registration");
+  return { id, secret: await readSecret(io, { verb, what: "the client secret", empty: true }) };
+}
+
 /**
  * The whole of stdin, less one trailing newline ("\n" or "\r\n"). Never
  * an argument and never the environment: a secret there would be in a
- * shell's history or a process list.
+ * shell's history or a process list. Empty is refused unless `empty`.
  */
-async function readSecret(io: Io): Promise<string> {
-  if (!io.stdin) throw new StoreError("credential add reads the secret on stdin, and there is none; pipe the secret in");
-  if (io.stdin.isTTY) io.err("townd admin: reading the secret from stdin until end of input (Ctrl-D)\n");
+async function readSecret(io: Io, as: { verb: string; what: string; empty: boolean } = { verb: "credential add", what: "the secret", empty: false }): Promise<string> {
+  if (!io.stdin) throw new StoreError(`${as.verb} reads ${as.what} on stdin, and there is none; pipe ${as.what} in`);
+  if (io.stdin.isTTY) io.err(`townd admin: reading ${as.what} from stdin until end of input (Ctrl-D)\n`);
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of io.stdin) {
     const b = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
     size += b.length;
-    if (size > SECRET_LIMIT_BYTES) throw new StoreError(`credential add read more than ${SECRET_LIMIT_BYTES} bytes on stdin, more than a credential; pipe the secret alone`);
+    if (size > SECRET_LIMIT_BYTES) throw new StoreError(`${as.verb} read more than ${SECRET_LIMIT_BYTES} bytes on stdin, more than a credential; pipe ${as.what} alone`);
     chunks.push(b);
   }
   let value = Buffer.concat(chunks).toString("utf8");
   if (value.endsWith("\r\n")) value = value.slice(0, -2);
   else if (value.endsWith("\n")) value = value.slice(0, -1);
-  if (value === "") throw new StoreError("credential add read nothing on stdin; pipe the secret in, since it is never an argument");
+  if (value === "" && !as.empty) throw new StoreError(`${as.verb} read nothing on stdin; pipe ${as.what} in, since it is never an argument`);
   return value;
 }

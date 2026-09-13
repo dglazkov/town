@@ -18,10 +18,11 @@ import * as audit from "./audit.js";
 import type { CallRecord, CallRow, TreeRow } from "./audit.js";
 import type { Constraints } from "./constraints.js";
 import * as credentials from "./credentials.js";
-import type { Credential, CredentialType } from "./credentials.js";
+import type { Client, Credential, CredentialType, TypeDefinition } from "./credentials.js";
 import { HALL } from "./hall.js";
 import { GRANTS_WITH_STATE, withLiveness, type GrantState } from "./liveness.js";
 import type { Manifest } from "./manifest.js";
+import type { OAuthValue } from "./oauth.js";
 import { isoTime } from "./notices.js";
 import { getMeta, openDatabase, setMeta } from "./schema.js";
 
@@ -396,16 +397,20 @@ export class Store {
     return credentials.getType(this, name);
   }
 
-  addType(t: { name: string; origin: string; header: string; guidance?: string }, now = Date.now()): CredentialType {
-    return credentials.addType(this, t, now);
+  addType(t: TypeDefinition & { client?: Client }, now = Date.now(), key?: Buffer): CredentialType {
+    return credentials.addType(this, t, now, key);
   }
 
-  proposeType(t: { name: string; origin: string; header: string; guidance?: string }, proposedBy: string, held: boolean, now = Date.now()): CredentialType | null {
-    return credentials.proposeType(this, t, proposedBy, held, now);
+  proposeType(t: TypeDefinition, proposedBy: string, held: boolean, now = Date.now(), registration?: { client: Client; key: Buffer }): CredentialType | null {
+    return credentials.proposeType(this, t, proposedBy, held, now, registration);
   }
 
-  approveType(name: string): CredentialType {
-    return credentials.approveType(this, name);
+  checkApprove(name: string, withClient: boolean): CredentialType {
+    return credentials.checkApprove(this, name, withClient);
+  }
+
+  approveType(name: string, registration?: { client: Client; key: Buffer }): CredentialType {
+    return credentials.approveType(this, name, registration);
   }
 
   removeType(name: string): void {
@@ -432,8 +437,20 @@ export class Store {
     return credentials.openCredential(this, id, key);
   }
 
-  revokeCredential(id: string, now = Date.now()): Credential {
-    return credentials.revokeCredential(this, id, now);
+  openClient(type: string, key: Buffer): Client {
+    return credentials.openClient(this, type, key);
+  }
+
+  connectCredential(c: { userName: string; type: string; label: string; value: OAuthValue }, key: Buffer, now = Date.now()): Credential {
+    return credentials.connectCredential(this, c, key, now);
+  }
+
+  refreshCredential(id: string, value: OAuthValue, key: Buffer): void {
+    credentials.refreshCredential(this, id, value, key);
+  }
+
+  revokeCredential(id: string, now = Date.now(), why: string | null = null): Credential {
+    return credentials.revokeCredential(this, id, now, why);
   }
 
   sealedRows(): number {

@@ -271,7 +271,7 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
   expect(vaultTown.admin("user", "ls").stdout).toMatch(/^user_77d9a83d236eb0ef\s+dimitri\s/m);
   expect(vaultTown.admin("pass", "ls").stdout).toMatch(/^pass_a648d98fa018fc7c\s+dimitri\s+research assistant\s/m);
   expect(rowOf(vaultTown.admin("grant", "ls").stdout, "grant_030cbc25002da6c4")).toMatch(/town\/memory\s+remember,recall\s+-\s+remember\.key prefix notes\/\s+-\s+-\s+live\s+\S+$/);
-  expect(rowOf(vaultTown.admin("credential", "ls").stdout, "credential_8022cf4f70caccdb")).toMatch(/dimitri\s+github-token\s+dimitri's PAT\s+\S+\s+active\s+-$/);
+  expect(rowOf(vaultTown.admin("credential", "ls").stdout, "credential_8022cf4f70caccdb")).toMatch(/dimitri\s+github-token\s+dimitri's PAT\s+\S+\s+active\s+-\s+-$/);
   const oldRows = auditRows(vaultTown.admin("audit").stdout);
   expect(oldRows.map((r) => [r.command, r.result, r.parent, r.detail])).toEqual([
     ["remember", "ok", "-", "-"],

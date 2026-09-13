@@ -309,22 +309,31 @@ describe("needs that define a type", () => {
     ]);
     expect(guided("It is sent to api.figma.com alone; make it at Figma > Settings > Security.")).toEqual([]);
     expect(guided("Make a token at Figma > Settings > Security; main.mjs reads it through the town, as Node.js does, never client_secret.json, e.g. not v1.2.3.")).toEqual([]);
-    // The oauth endpoints' hosts count as the type's, bare too: the shape passes to the oauth refusal, not the host rule.
+    // The oauth endpoints' hosts count as the type's, bare too.
     const oauth = { type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: OAUTH };
-    expect(guided("Consent happens at accounts.google.com, for docs.googleapis.com.", oauth).map((r) => r.split(": ")[0])).toEqual(["credentials[0].oauth"]);
+    expect(guided("Consent happens at accounts.google.com, for docs.googleapis.com.", oauth)).toEqual([]);
     expect(guided("Make the client at console.cloud.google.com.", oauth).map((r) => r.split(": ")[0])).toEqual(["credentials[0].guidance"]);
   });
 
-  it("shape-checks an oauth definition whole, then refuses it until consent phase 1, so nothing is proposed", () => {
-    const refusals = validateManifest(withNeeds([{ type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: OAUTH, guidance: "In the Google Cloud console, enable the Docs API and make a Desktop client; consent is at https://accounts.google.com." }]), [GITHUB]);
-    expect(refusals).toEqual(["credentials[0].oauth: oauth types come in consent phase 1; write a token type, an origin and a header alone, instead (spec §8)"]);
+  it("takes an oauth definition since consent phase 1, its endpoints https: or http: on loopback, and matches a held oauth type field for field", () => {
+    const GDOCS = { type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: OAUTH, guidance: "In the Google Cloud console, enable the Docs API and make a Desktop client; consent is at https://accounts.google.com." };
+    expect(validateManifest(withNeeds([GDOCS]), [GITHUB])).toEqual([]);
+    const loopback = { ...GDOCS, origin: "http://127.0.0.1:9", oauth: { authorize: "http://127.0.0.1:8/authorize", token: "http://localhost:8/token", scopes: ["s"] }, guidance: "Consent at the fake." };
+    expect(validateManifest(withNeeds([loopback]), [GITHUB])).toEqual([]);
+    expect(validateManifest(withNeeds([{ ...loopback, oauth: { ...loopback.oauth, token: "http://fake.example.test/token" } }]), [GITHUB]).map((r) => r.split(": ")[0])).toEqual(["credentials[0].oauth.token"]);
+    // Held: the same endpoints in another key order meet it; other scopes are a differing definition.
+    const HELD: TownType = { name: "google-oauth", kind: "oauth", state: "held", origin: GDOCS.origin, header: GDOCS.header, oauth: OAUTH };
+    expect(validateManifest(withNeeds([{ ...GDOCS, oauth: { scopes: OAUTH.scopes, token: OAUTH.token, authorize: OAUTH.authorize } }]), [GITHUB, HELD])).toEqual([]);
+    expect(validateManifest(withNeeds([{ ...GDOCS, oauth: { ...OAUTH, scopes: ["https://www.googleapis.com/auth/documents"] } }]), [GITHUB, HELD])).toEqual([
+      "credentials[0]: google-oauth is a type this town holds, at https://docs.googleapis.com in Authorization; leave the definition out, or write that (spec §8)",
+    ]);
     // A shape refusal comes first, alone.
     expect(validateManifest(withNeeds([{ type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: { ...OAUTH, scopes: "documents" } }]), [GITHUB]).map((r) => r.split(": ")[0])).toEqual(["credentials[0].oauth.scopes"]);
   });
 
   it("says the need's definition in §8 of the spec, and names no host in its example that the type does not send to", () => {
     const section = SPEC.split("## 8. ")[1]!.split("## 9. ")[0]!;
-    for (const word of ["origin", "header", "guidance", "oauth", "authorize", "scopes", "a proposal", "a registration is the operator's", "600", "names no host, bare or in a URL, the type does not send to"]) expect(section, word).toContain(word);
+    for (const word of ["origin", "header", "guidance", "oauth", "authorize", "scopes", "a proposal", "a registration is the operator's", "600", "names no host, bare or in a URL, the type does not send to", "refreshes an OAuth type's token first"]) expect(section, word).toContain(word);
     expect(SPEC.split("\n").length).toBeLessThan(300);
   });
 });

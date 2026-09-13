@@ -11,7 +11,10 @@
 // proposal with the shop, and the operator's holds it in one step before
 // it meets the shop's needs; since a credential needs its type held first,
 // a first add with no credential is refused saying the type stays held and
-// what to add, and the same add after it adds the shop. A sent shop with needs runs no test, since no
+// what to add, and the same add after it adds the shop; an `oauth` type is
+// held with the registration `--client-id` and stdin give, and connected.
+// An `oauth` credential's access token is refreshed for a test run as the
+// gate refreshes it for a call. A sent shop with needs runs no test, since no
 // person has bound a credential to it: its tests wait for the permit's
 // approval, where `testAtApproval` runs them on the credentials a person
 // chose, recorded under the approval's row.
@@ -20,16 +23,17 @@ import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promis
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Io } from "./admin.js";
+import type { Client } from "./credentials.js";
 import type { BundleFile } from "./bundle.js";
-import { argvHash, newCallId, shopDir, type GateDeps } from "./gate.js";
+import { RefreshFailed, RefreshRefused, argvHash, newCallId, secretOf, shopDir, storeVault, type GateDeps } from "./gate.js";
 import { guidanceLine } from "./checklist.js";
 import { bindNeeds, grantStateText } from "./grants.js";
-import { HALL_NAME, type Manifest } from "./manifest.js";
+import { HALL_NAME, type Manifest, type Need } from "./manifest.js";
 import { definesType } from "./needs.js";
 import type { RunCredential } from "./runtime.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
 import { StoreError, type Pass, type Store } from "./store.js";
-import { VaultError } from "./vault.js";
+import { VaultError, ensureKey, readKey } from "./vault.js";
 import type { Wall } from "./wall.js";
 
 /** `shop add`'s words for a manifest named as the town's own shop; `runtime: town` is the validator's refusal. */
@@ -39,6 +43,13 @@ const HALL_REFUSAL = `${HALL_NAME} is the town's own shop, in every town from it
 export interface Picked {
   user: () => string | undefined;
   credentials: readonly string[];
+  /** `--client-id`, and the secret read from stdin when an `oauth` type is held with it; absent where no verb takes one. */
+  client?: { id: string | undefined; read: (id: string) => Promise<Client> };
+}
+
+/** A need's definition as the store writes a type. */
+function definition(n: Need): { name: string; origin: string; header: string; guidance?: string; oauth?: NonNullable<Need["oauth"]> } {
+  return { name: n.type, origin: n.origin!, header: n.header!, ...(n.guidance === undefined ? {} : { guidance: n.guidance }), ...(n.oauth === undefined ? {} : { oauth: n.oauth }) };
 }
 
 /** The shops in the town, other than `name`, that declare a dependency on it. */
@@ -101,7 +112,7 @@ export async function shopTest(town: { store: Store; key: Buffer | null } | null
     const types = store.listTypes();
     const shops = townShops(store);
     const manifest = await loadShop(dir, types, shops);
-    const met = meetNeeds(store, key, manifest.name, treeOf(manifest, store).needs, picked.user(), picked.credentials);
+    const met = await meetNeeds(store, key, manifest.name, treeOf(manifest, store).needs, picked.user(), picked.credentials);
     if (typeof met === "string") return refuse(met);
     return report(await testShop(dir, { types, shops, store, credentials: met, wall }), io);
   } catch (err) {
@@ -118,8 +129,8 @@ function report(results: Array<{ name: string; ok: boolean; why?: string }>, io:
   return results.every((r) => r.ok) ? 0 : 1;
 }
 
-/** The credentials that meet `needs` on `userName`'s behalf (bindNeeds), opened; or the line refusing. */
-function meetNeeds(store: Store, key: Buffer | null, shop: string, needs: string[], userName: string | undefined, picked: readonly string[]): RunCredential[] | string {
+/** The credentials that meet `needs` on `userName`'s behalf (bindNeeds), opened, an `oauth` one's access token refreshed when due; or the line refusing. */
+async function meetNeeds(store: Store, key: Buffer | null, shop: string, needs: string[], userName: string | undefined, picked: readonly string[], now = Date.now()): Promise<RunCredential[] | string> {
   if (needs.length === 0) {
     if (userName !== undefined) return `${shop} has no credentials to meet; leave out --user`;
     return picked.length ? `${shop} has no credentials to meet, so --credential binds nothing; leave it out` : [];
@@ -137,10 +148,17 @@ function meetNeeds(store: Store, key: Buffer | null, shop: string, needs: string
   const bound = bindNeeds(store, user, shop, needs, picked);
   if (typeof bound === "string") return bound;
   const out: RunCredential[] = [];
+  const vault = storeVault(store, () => key);
   for (const type of needs) {
     const t = store.getType(type)!;
     if (!key) throw new VaultError(`the vault's key is missing and credential ${bound[type]!} is sealed by it`);
-    out.push({ type, origin: t.origin, header: t.header, token: store.openCredential(bound[type]!, key) });
+    try {
+      out.push({ type, origin: t.origin, header: t.header, token: (await secretOf(store, vault, t, bound[type]!, now)).token });
+    } catch (err) {
+      if (err instanceof RefreshRefused) return `${type} refused to refresh credential ${bound[type]!}, so it is revoked; connect one again with townd admin credential connect --user ${user.name} --type ${type}`;
+      if (err instanceof RefreshFailed) return `${type}'s token endpoint answered ${err.status || err.why} when credential ${bound[type]!} was refreshed; nothing changed, so try again`;
+      throw err;
+    }
   }
   return out;
 }
@@ -196,10 +214,18 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     const broken = breaksDependents(store, manifest);
     if (broken) return refuse(broken);
     // The operator is the trust root: a type the manifest defines and the town lacks is held now, as defined, and says so.
-    for (const n of (manifest.credentials ?? []).filter(definesType)) {
-      const held = store.proposeType({ name: n.type, origin: n.origin!, header: n.header!, ...(n.guidance === undefined ? {} : { guidance: n.guidance }) }, manifest.name, true, now);
+    const lacking = (manifest.credentials ?? []).filter((n) => definesType(n) && !store.getType(n.type));
+    const oauth = lacking.find((n) => n.oauth !== undefined);
+    if (oauth && picked.client?.id === undefined) {
+      return refuse(`${manifest.name} defines ${oauth.type}, an oauth type this town lacks, and holding it takes its registration; write --client-id <id>, with the client secret on stdin`);
+    }
+    if (!oauth && picked.client?.id !== undefined) return refuse(`${manifest.name} defines no oauth type this town lacks, so --client-id registers nothing; leave it out`);
+    const registration = oauth ? { client: await picked.client!.read(picked.client!.id!), key: ensureKey(store.dataDir) } : undefined;
+    for (const n of lacking) {
+      const held = store.proposeType(definition(n), manifest.name, true, now, n.oauth ? registration : undefined);
       if (!held) continue;
-      io.out(`held ${held.name}, as ${manifest.name} defines it: a ${held.kind} type sent to ${held.origin} in ${held.header}\n`);
+      io.out(`held ${held.name}, as ${manifest.name} defines it: ${held.kind === "oauth" ? "an" : "a"} ${held.kind} type sent to ${held.origin} in ${held.header}\n`);
+      if (held.oauth) io.out(`${held.name}: consent at ${held.oauth.authorize}, tokens from ${held.oauth.token}, scopes ${held.oauth.scopes.join(", ")}, with client ${registration!.client.id} and its secret sealed\n`);
       const said = guidanceLine(held);
       if (said) io.out(`${said}\n`);
     }
@@ -209,10 +235,11 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     const owner = user === undefined ? null : store.userByName(user);
     const unmet = owner ? (manifest.credentials ?? []).filter(definesType).find((n) => store.getType(n.type)?.state === "held" && store.liveCredentials(owner.id, n.type).length === 0) : undefined;
     if (owner && unmet) {
-      return refuse(`user ${owner.name} holds no ${unmet.type} credential; ${unmet.type} stays held, as ${manifest.name} defines it, so add one with townd admin credential add --user ${owner.name} --type ${unmet.type}, then shop add again`);
+      const verb = unmet.oauth ? `connect one with townd admin credential connect --user ${owner.name} --type ${unmet.type}` : `add one with townd admin credential add --user ${owner.name} --type ${unmet.type}`;
+      return refuse(`user ${owner.name} holds no ${unmet.type} credential; ${unmet.type} stays held, as ${manifest.name} defines it, so ${verb}, then shop add again`);
     }
     needs = treeOf(manifest, store).needs;
-    const met = meetNeeds(store, key, manifest.name, needs, picked.user(), picked.credentials);
+    const met = await meetNeeds(store, key ?? readKey(store.dataDir), manifest.name, needs, picked.user(), picked.credentials, now);
     if (typeof met === "string") return refuse(met);
     credentials = met;
   } catch (err) {
@@ -292,7 +319,8 @@ async function putInPlace(store: Store, staging: string, manifest: Manifest, row
   await rename(staging, final);
   store.inTransaction(() => {
     for (const n of (manifest.credentials ?? []).filter(definesType)) {
-      store.proposeType({ name: n.type, origin: n.origin!, header: n.header!, ...(n.guidance === undefined ? {} : { guidance: n.guidance }) }, manifest.name, row.held, now);
+      // A type held above is already the town's, and a sent shop's proposal holds no registration.
+      if (!store.getType(n.type)) store.proposeType(definition(n), manifest.name, row.held, now);
     }
     store.upsertShop(manifest, now, row.owner, row.testedAt);
   });
@@ -381,7 +409,7 @@ export async function testAtApproval(
   const manifest = store.getShop(req.shop)!.manifest;
   const needs = treeOf(manifest, store).needs;
   const picked = [...new Set([...Object.values(req.bound), ...req.picked])];
-  const met = meetNeeds(store, key, req.shop, needs, req.userName, picked);
+  const met = await meetNeeds(store, key, req.shop, needs, req.userName, picked, now);
   if (typeof met === "string") throw new StoreError(met);
   const parent = newCallId();
   const started = performance.now();

@@ -14,7 +14,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { BODY_LIMIT_BYTES, parseCall, respond, type WireResponse } from "./clerk.js";
 import { denials } from "./denials.js";
-import { KEY_MISSING, argvHash, gate, newCallId, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
+import { argvHash, gate, newCallId, storeVault, type CallRequest, type GateDeps, type Outcome } from "./gate.js";
 import { hashToken, openStore, type Store } from "./store.js";
 import { VaultError, readKey, requireKey } from "./vault.js";
 import { openWall, type Wall, type WallKind } from "./wall.js";
@@ -99,6 +99,8 @@ export interface ServerOptions {
   port?: number;
   runtime?: GateDeps["runtime"];
   timeoutMs?: number;
+  /** The town's clock; the box's when omitted. townd moves it only for a test (TEST_CLOCK_ENV). */
+  now?: () => number;
 }
 
 export interface TownServer {
@@ -123,13 +125,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
     store.close();
     throw err;
   }
-  const vault: Vault = {
-    open(credentialId) {
-      key ??= readKey(store.dataDir);
-      if (!key) throw new VaultError(KEY_MISSING);
-      return store.openCredential(credentialId, key);
-    },
-  };
+  const vault = storeVault(store, () => (key ??= readKey(store.dataDir)));
   let wall: Wall;
   try {
     wall = openWall(opts.wall, { data: store.dataDir });
@@ -137,7 +133,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
     store.close();
     throw err;
   }
-  const deps: GateDeps = { store, vault, wall, decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
+  const deps: GateDeps = { store, vault, wall, decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}), ...(opts.now ? { now: opts.now } : {}) };
 
   const server = http.createServer((req, res) => {
     const send = (status: number, type: string, body: string) => {

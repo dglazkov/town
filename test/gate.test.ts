@@ -10,7 +10,14 @@
 // fake runtime, and through the real one a recipe and a deep shop over
 // fixtures, each call cut from the agent's own grants by its calling
 // shop's manifest. The inner-denial rule in its three cases, the depth
-// bound, and every call in a tree recorded with its parent.
+// bound, and every call in a tree recorded with its parent. Step 6 with an
+// `oauth` binding, against the fake authorization server in this process
+// and a clock the test moves: no refresh with more than a minute left; a
+// refresh at the minute's boundary, the row sealed again so the next call
+// refreshes nothing; a rotated refresh token kept; `invalid_grant` denied
+// in the design's words with the credential revoked; a 500 the call's
+// shop-error with the credential standing; and gate's counting test again,
+// nothing refreshed on a denied or malformed call.
 
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
@@ -19,13 +26,16 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArgValues } from "../src/args.js";
 import { denials } from "../src/denials.js";
-import { MAX_DEPTH, effective, gate, shopDir, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
+import { MAX_DEPTH, effective, gate, shopDir, storeVault, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
 import { parseManifest, type Manifest } from "../src/manifest.js";
 import { stateDir, type RunCredential, type RunOptions, type RunResult } from "../src/runtime.js";
 import { handleCall, respond } from "../src/server.js";
 import { loadShop } from "../src/shoptest.js";
 import { hashToken, openStore, type Grant, type Pass, type Store } from "../src/store.js";
+import { parseValue, type OAuthValue } from "../src/oauth.js";
+import { ensureKey } from "../src/vault.js";
 import { openWall } from "../src/wall.js";
+import { fakeAuthServer, tokensFrom, type FakeAuth } from "./helpers/authserver.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
@@ -304,6 +314,7 @@ describe("notices and the envelope", () => {
 describe("denials.ts", () => {
   const samples: Record<keyof typeof denials, () => string> = {
     notAvailable: () => denials.notAvailable("forget"),
+    notAvailableSince: () => denials.notAvailableSince("gdocs read", "its google-oauth credential needs connecting again at the box"),
     constraint: () => denials.constraint("key", "prefix", "notes/"),
     usage: () => denials.usage(["--key is required"], "town memory recall --key <string>"),
     noSuchCommand: () => denials.noSuchCommand("serve"),
@@ -838,4 +849,209 @@ describe("a caller, through the real runtime", () => {
   function stateDirOf(shop: string, user: string): string {
     return stateDir(store.stateRoot, shop, user);
   }
+});
+
+describe("step 6: an oauth binding, refreshed at the boundary", () => {
+  const TELLER_DIR = path.resolve(import.meta.dirname, "fixtures/teller-shop");
+  const CLIENT = { clientId: "gate-client.apps", clientSecret: "gate-client-secret-93ab" };
+  const T0 = Date.UTC(2026, 8, 13, 9, 0, 0);
+  let auth: FakeAuth;
+  let origin: FakeOrigin;
+  let key: Buffer;
+  let clock: number;
+  let opened: string[];
+  let resealed: string[];
+  let vault: Vault;
+  let listens: http.Server[];
+
+  beforeAll(async () => {
+    auth = await fakeAuthServer(CLIENT);
+    origin = await fakeOrigin();
+  });
+  afterAll(async () => {
+    await auth.close();
+    await origin.close();
+  });
+
+  beforeEach(async () => {
+    Object.assign(auth, { mode: "ok", rotate: false, withRefreshToken: true, authorizeError: null, expiresIn: 3600, tokenDelayMs: 0 });
+    auth.events.length = 0;
+    key = ensureKey(dir);
+    store.addType({ name: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", oauth: { authorize: auth.authorize, token: auth.token, scopes: auth.scopes }, client: { id: CLIENT.clientId, secret: CLIENT.clientSecret } }, NOW, key);
+    store.upsertShop(await loadShop(TELLER_DIR, store.listTypes()), NOW);
+    cpSync(TELLER_DIR, shopDir(store, "test/teller"), { recursive: true });
+    clock = T0;
+    deps = { ...deps, now: () => clock };
+    opened = [];
+    resealed = [];
+    const real = storeVault(store, () => key);
+    vault = { open: (id) => (opened.push(id), real.open(id)), client: (t) => real.client!(t), reseal: (id, v) => (resealed.push(id), real.reseal!(id, v)) };
+    listens = [];
+    const listen = http.Server.prototype.listen;
+    vi.spyOn(http.Server.prototype, "listen").mockImplementation(function (this: http.Server, ...args: unknown[]) {
+      listens.push(this);
+      return (listen as (...a: unknown[]) => http.Server).apply(this, args);
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A pass whose user holds one oauth credential the fake issued, its access token ending an hour after T0, bound at test/teller. */
+  async function connected(opts: { commands?: string[]; constraints?: Record<string, Record<string, unknown>> } = {}) {
+    const name = `u${Math.random().toString(16).slice(2, 8)}`;
+    store.addUser(name, NOW);
+    const made = store.newPass(name, "a label", null, NOW);
+    const t = await tokensFrom(auth, CLIENT);
+    const value: OAuthValue = { refresh_token: t.refresh_token, access_token: t.access_token, expires_at: T0 + 3_600_000, scope: t.scope };
+    const c = store.connectCredential({ userName: name, type: "test-origin", label: "", value }, key, NOW);
+    const g = store.newGrant({ passId: made.pass.id, shop: "test/teller", commands: opts.commands ?? ["get", "post"], constraints: (opts.constraints ?? {}) as never, expiresAt: null, credentials: { "test-origin": c.id } }, NOW);
+    auth.events.length = 0;
+    return { ...made, credential: c, grant: g, value };
+  }
+
+  const refreshes = () => auth.events.filter((e) => e.kind === "refresh");
+  const row = (id: string) => parseValue(store.openCredential(id, key))!;
+  const tokenRun = (i: number) => runs[i]!.credentials![0]!.token;
+
+  it("opens a teller on the access token and refreshes nothing with more than a minute left", async () => {
+    const { token, credential, value } = await connected();
+    clock = value.expires_at - 61_000;
+    const o = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect(o.exit, o.error).toBe(0);
+    expect(tokenRun(0)).toBe(value.access_token);
+    expect(refreshes()).toEqual([]);
+    expect(resealed).toEqual([]);
+    expect(o.detail).toBeNull();
+    expect(row(credential.id)).toEqual(value);
+  });
+
+  it("refreshes at the boundary, a minute left, seals the row again, and the next call refreshes nothing: one refresh for two calls", async () => {
+    const { token, credential, value } = await connected();
+    clock = value.expires_at - 60_000;
+    const first = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect(first.exit, first.error).toBe(0);
+    expect(first.detail).toBe("refreshed test-origin");
+    const fresh = auth.issued.access.at(-1)!;
+    expect(fresh).not.toBe(value.access_token);
+    expect(tokenRun(0)).toBe(fresh);
+
+    // The count: two calls, one refresh, since the first sealed what it got.
+    const second = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/y"]));
+    expect(second.exit, second.error).toBe(0);
+    expect(refreshes().map((e) => e.ok)).toEqual([true]);
+    expect(tokenRun(1)).toBe(fresh);
+    expect(second.detail).toBeNull();
+    expect(row(credential.id)).toEqual({ refresh_token: value.refresh_token, access_token: fresh, expires_at: clock + 3_600_000, scope: value.scope });
+    expect(resealed).toEqual([credential.id]);
+
+    // Past expiry is due as well.
+    clock = clock + 3_600_001;
+    expect((await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/z"]))).detail).toBe("refreshed test-origin");
+    expect(refreshes().map((e) => e.ok)).toEqual([true, true]);
+    for (const o of [first, second]) expect(JSON.stringify(o)).not.toMatch(/fake-(access|refresh)-/);
+  });
+
+  it("keeps a rotated refresh token, so the refresh after it is traded with the new one", async () => {
+    const { token, credential, value } = await connected();
+    auth.rotate = true;
+    clock = value.expires_at + 1;
+    expect((await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]))).detail).toBe("refreshed test-origin");
+    const rotated = auth.issued.refresh.at(-1)!;
+    expect(rotated).not.toBe(value.refresh_token);
+    expect(row(credential.id).refresh_token).toBe(rotated);
+    clock = row(credential.id).expires_at;
+    const again = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/y"]));
+    expect([again.exit, again.detail]).toEqual([0, "refreshed test-origin"]);
+    expect(refreshes().map((e) => e.ok)).toEqual([true, true]);
+  });
+
+  it("denies the call on invalid_grant in the design's words, revokes the credential with why, and the shop leaves help", async () => {
+    const { token, pass, credential, value } = await connected();
+    auth.mode = "invalid_grant";
+    clock = value.expires_at - 1_000;
+    const o = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect([o.exit, o.result, o.error, o.detail]).toEqual([2, "denied", denials.notAvailableSince("teller get", "its test-origin credential needs connecting again at the box"), "refresh refused test-origin"]);
+    expect(o.error).toBe("error: command 'teller get' is not available to this grant: its test-origin credential needs connecting again at the box");
+    expect(runs).toEqual([]);
+    expect(store.credentialById(credential.id)).toMatchObject({ revokedAt: clock, revokedWhy: "refresh refused" });
+    expect(resealed).toEqual([]);
+    // Nothing is retried: the next call is denied at step 2, and help does not list the shop.
+    const next = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect([next.exit, next.error]).toEqual([2, denials.notAvailable("teller get")]);
+    expect((await gate({ ...deps, vault }, call(token, ["--help"]))).stdout).toBe("This pass holds no grants.\n");
+    expect(store.listGrants(pass.id)[0]!.revokedAt).toBeNull();
+    expect(refreshes()).toHaveLength(1);
+  });
+
+  it("does not revoke on invalid_grant when a call beside it refreshed first and rotated the token it sent: it takes the row's new access token", async () => {
+    const { token, credential, value } = await connected();
+    auth.rotate = true;
+    // The call beside this one: it traded the refresh token, the provider rotated it, and it sealed the row.
+    const beside = await fetch(auth.token, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: value.refresh_token, client_id: CLIENT.clientId, client_secret: CLIENT.clientSecret }) });
+    const t = (await beside.json()) as { access_token: string; refresh_token: string; expires_in: number };
+    clock = value.expires_at;
+    store.refreshCredential(credential.id, { ...value, access_token: t.access_token, refresh_token: t.refresh_token, expires_at: clock + 3_600_000 }, key);
+    // This call opened the row before that write, and so sends the old refresh token.
+    const real = storeVault(store, () => key);
+    let first = true;
+    const stale: Vault = { open: (id) => (first ? ((first = false), JSON.stringify(value)) : real.open(id)), client: (x) => real.client!(x), reseal: (id, v) => real.reseal!(id, v) };
+    const o = await gate({ ...deps, vault: stale }, call(token, ["teller", "get", "--path", "/x"]));
+    expect([o.exit, o.error, o.detail]).toEqual([0, "", null]);
+    expect(tokenRun(0)).toBe(t.access_token);
+    expect(store.credentialById(credential.id)!.revokedAt).toBeNull();
+    expect(refreshes().map((e) => e.ok)).toEqual([true, false]);
+  });
+
+  it("makes a 500 the call's shop-error with the status in detail, the credential standing, and the next call tries again", async () => {
+    const { token, credential, value } = await connected();
+    auth.mode = "500";
+    clock = value.expires_at;
+    const o = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect([o.exit, o.result, o.error, o.detail]).toEqual([1, "shop-error", denials.shopFailed("test/teller", "get", ""), "refresh test-origin failed: 500"]);
+    expect(runs).toEqual([]);
+    expect(store.credentialById(credential.id)!.revokedAt).toBeNull();
+    expect(row(credential.id)).toEqual(value);
+    auth.mode = "ok";
+    const again = await gate({ ...deps, vault }, call(token, ["teller", "get", "--path", "/x"]));
+    expect([again.exit, again.detail]).toEqual([0, "refreshed test-origin"]);
+    expect(refreshes().map((e) => [e.ok, e.status ?? 200])).toEqual([[false, 500], [true, 200]]);
+    expect(JSON.stringify(o)).not.toContain(value.refresh_token);
+  });
+
+  it("refreshes nothing, opens nothing, and listens nowhere on a denied, a malformed, or a dead-pass call, and a live one refreshes once before its one teller, through the real runtime", async () => {
+    const { token, pass, credential, value } = await connected({ commands: ["get"], constraints: { "get.path": { prefix: "/ok/" } } });
+    clock = value.expires_at + 5_000;
+    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => clock };
+    const cases: Array<[string, CallRequest, number, string]> = [
+      ["a command not granted", call(token, ["teller", "post", "--path", "/ok/a", "--body", "b"]), 2, denials.notAvailable("post")],
+      ["a constraint missed", call(token, ["teller", "get", "--path", "/elsewhere"]), 2, denials.constraint("path", "prefix", "/ok/")],
+      ["malformed: a missing argument", call(token, ["teller", "get"]), 1, denials.usage(["--path is required"], "town teller get --path <string>")],
+      ["malformed: an unknown argument", call(token, ["teller", "get", "--path", "/ok/a", "--colour", "red"]), 1, denials.usage(["--colour is not an argument of get"], "town teller get --path <string>")],
+    ];
+    for (const [label, req, exit, error] of cases) {
+      const o = await handleCall(real, req);
+      expect([label, o.exit, o.stderr]).toEqual([label, exit, `${error}\n`]);
+    }
+    expect(opened).toEqual([]);
+    expect(refreshes()).toEqual([]);
+    expect(listens).toEqual([]);
+
+    const before = origin.seen.length;
+    const wire = await handleCall(real, call(token, ["teller", "get", "--path", "/ok/signed"]));
+    expect(wire).toEqual({ stdout: "200\nhello from the origin", stderr: "", exit: 0 });
+    expect(refreshes().map((e) => e.ok)).toEqual([true]);
+    expect(listens).toHaveLength(1);
+    expect(origin.seen.slice(before).map((x) => [x.url, x.headers.authorization])).toEqual([["/ok/signed", `Bearer ${auth.issued.access.at(-1)}`]]);
+    expect(store.calls().at(-1)).toMatchObject({ result: "ok", detail: "refreshed test-origin", credentials: [{ type: "test-origin", requests: 1 }] });
+    const audit = JSON.stringify(store.calls());
+    for (const secret of [...auth.issued.access, ...auth.issued.refresh, CLIENT.clientSecret]) expect(audit).not.toContain(secret);
+
+    store.revokePass(pass.id, clock);
+    const dead = await handleCall(real, call(token, ["teller", "get", "--path", "/ok/a"]));
+    expect(dead.exit).toBe(3);
+    expect(refreshes()).toHaveLength(1);
+    expect(listens).toHaveLength(1);
+    void credential;
+  });
 });

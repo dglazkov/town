@@ -29,7 +29,7 @@ import { table } from "./help.js";
 import { HALL_NAME, type Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
 import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked } from "./publish.js";
-import { secretVerb } from "./secrets.js";
+import { readClient, secretVerb } from "./secrets.js";
 import { decideAndRecord } from "./server.js";
 import { StoreError, openStore, type Store } from "./store.js";
 import { VaultError, requireKey } from "./vault.js";
@@ -57,11 +57,11 @@ const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb>
   grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>] [--credential <id>]...
   grant ls [--pass <id>] | grant revoke <id>
   permit ls [--pass <id>] | permit show <id> | permit approve <id> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--credential <id>]... [--expires <duration>] | permit deny <id>
-  shop add <dir> [--user <name> [--credential <id>]...] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
-  type add <name> --origin <url> --header '<Name>: <value with {token}>' [--guidance <text>] | type approve <name> | type ls | type rm <name>
-  credential add --user <name> --type <type> [--label <text>] (the secret on stdin) | credential ls [--user <name>] | credential rm <id>
+  shop add <dir> [--user <name> [--credential <id>]... [--client-id <id>]] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
+  type add <name> --origin <url> --header '<Name>: <value with {token}>' [--guidance <text>] [--kind oauth --authorize <url> --token <url> --scopes a,b --client-id <id>] | type approve <name> [--client-id <id>] | type ls | type rm <name>
+  credential add --user <name> --type <type> [--label <text>] | credential connect --user <name> --type <type> [--label <text>] [--port <n>] [--timeout <wait>] | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
-durations: <n>d, <n>h, <n>m. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
+a secret, and an oauth client's secret, is read on stdin. durations: <n>d, <n>h, <n>m; a wait, <n>m or <n>s. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
 
 export class UsageError extends Error {}
 
@@ -70,7 +70,7 @@ export interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance"];
+const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance", "kind", "authorize", "token", "scopes", "client-id", "port", "timeout"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];
@@ -103,9 +103,9 @@ export function one(p: Parsed, name: string, required = false): string | undefin
   return vs[0];
 }
 
-/** `--user`, read when a shop's tests need it, and the `--credential` ids. */
-function picked(p: Parsed): Picked {
-  return { user: () => one(p, "user"), credentials: p.opts.get("credential") ?? [] };
+/** `--user`, read when a shop's tests need it, the `--credential` ids, and `--client-id` with the secret on stdin for a type `shop add` holds. */
+function picked(p: Parsed, io: Io): Picked {
+  return { user: () => one(p, "user"), credentials: p.opts.get("credential") ?? [], client: { id: one(p, "client-id"), read: (id) => readClient(io, id, "shop add") } };
 }
 
 /** `<n>d`, `<n>h`, or `<n>m` in milliseconds. */
@@ -148,7 +148,7 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
     if (args.length !== 1) return usage(io, "shop test takes one directory");
     if (data === undefined) {
       if (p.opts.has("user")) return usage(io, "shop test --user needs --data <dir>, or $TOWN_DATA, where the user's credentials are");
-      return shopTest(null, args[0]!, picked(p), io, open({}));
+      return shopTest(null, args[0]!, picked(p, io), io, open({}));
     }
   }
   if (!data) return usage(io, "needs --data <dir>, or $TOWN_DATA");
@@ -164,7 +164,7 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
       return 1;
     }
     const key = requireKey(store.dataDir, store.sealedRows());
-    if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p), io, wall);
+    if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p, io), io, wall);
     return await dispatch(store, key, noun, verb, args, p, io, now(), wall);
   } catch (err) {
     if (err instanceof UsageError) return usage(io, err.message);
@@ -268,7 +268,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
 
     case "shop add":
       noExtra(args, 1, "shop add");
-      return shopAdd(store, vaultKey, args[0]!, picked(p), io, now, wall);
+      return shopAdd(store, vaultKey, args[0]!, picked(p, io), io, now, wall);
     case "shop ls":
       noExtra(args, 0, "shop ls");
       io.out(
@@ -345,6 +345,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
     case "type ls":
     case "type rm":
     case "credential add":
+    case "credential connect":
     case "credential ls":
     case "credential rm":
       return secretVerb(store, key, args, p, io, now);

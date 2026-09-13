@@ -651,7 +651,8 @@ describe("consent: a shop that proposes a type, through the hall", () => {
     const registration = FIGMA_MANIFEST.replace("    guidance:", "    oauth: { authorize: https://www.figma.com/oauth, token: https://api.figma.com/v1/oauth/token, scopes: [file_read], client_id: abc }\n    guidance:");
     expect((await send(token, "validate", figma(registration))).stdout).toMatch(/^credentials\[0\]\.oauth\.client_id: is a registration, which is the operator's and never a manifest's; /);
     const oauth = registration.replace(", client_id: abc", "");
-    expect((await send(token, "validate", figma(oauth))).stdout).toBe("credentials[0].oauth: oauth types come in consent phase 1; write a token type, an origin and a header alone, instead (spec §8)\n");
+    // An oauth definition validates since consent phase 1, and validate proposes nothing.
+    expect((await send(token, "validate", figma(oauth))).stdout).toBe("ok dimitri/figma 0.1.0: file, comments\n");
     expect(store.listTypes().map((t) => t.name)).toEqual(["github-token"]);
     expectNoGrantAtNeedsNoPersonMade("validate");
 

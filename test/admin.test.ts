@@ -20,19 +20,30 @@
 // recorded under the approval, a failure leaving it pending, the grant
 // made with its source and binding; `type rm` of a proposed type; `shop
 // add` holding a type in one step; and the checklist typed as printed.
+// Consent phase 1, the oauth kind, against the fake authorization server
+// and fake docs origin in this process: `type add --kind oauth` and `type
+// approve --client-id` with the secret on stdin, refused by kind and state;
+// `credential add` refused at an oauth type naming `connect`, and `connect`
+// at a token type naming `add`; `permit show`'s oauth lines and `permit
+// approve` naming `connect`; `credential connect` printing the guidance
+// before the URL, and `credential ls` with scopes, no value, and `revoked
+// (refresh refused)`; and `shop add --user --client-id` holding an oauth
+// type in one step, refused naming `connect`, then adding the shop.
 
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main, type Io } from "../src/admin.js";
 import { splitWords } from "../src/args.js";
-import { gate } from "../src/gate.js";
+import { gate, storeVault } from "../src/gate.js";
+import { parseValue } from "../src/oauth.js";
 import { openStore, type Store } from "../src/store.js";
 import { readKey } from "../src/vault.js";
 import { openWall } from "../src/wall.js";
+import { browse, fakeAuthServer, fakeDocs, type FakeAuth, type FakeDocs } from "./helpers/authserver.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const MEMORY = path.resolve(import.meta.dirname, "../shops/memory");
@@ -88,8 +99,8 @@ describe("type", () => {
     const r = await admin(["type", "ls"]);
     expect(r.exit, r.stderr).toBe(0);
     const [header, row, ...rest] = r.stdout.trimEnd().split("\n");
-    expect(header).toMatch(/^name\s+kind\s+state\s+proposer\s+origin\s+header\s+added$/);
-    expect(row).toMatch(/^github-token\s+token\s+held\s+-\s+https:\/\/api\.github\.com\s+Authorization: Bearer \{token\}\s+\d{4}-/);
+    expect(header).toMatch(/^name\s+kind\s+state\s+proposer\s+origin\s+header\s+added\s+oauth$/);
+    expect(row).toMatch(/^github-token\s+token\s+held\s+-\s+https:\/\/api\.github\.com\s+Authorization: Bearer \{token\}\s+\d{4}-\S+\s+-$/);
     expect(rest).toEqual([]);
   });
 
@@ -180,15 +191,15 @@ describe("credential", () => {
     const ls = await admin(["credential", "ls"]);
     expect(ls.exit, ls.stderr).toBe(0);
     const lines = ls.stdout.trimEnd().split("\n");
-    expect(lines[0]).toMatch(/^id\s+user\s+type\s+label\s+created\s+state\s+grants$/);
-    expect(lines[1]).toMatch(new RegExp(`^${a}\\s+dimitri\\s+github-token\\s+dimitri's PAT\\s+\\d{4}-\\S+\\s+active\\s+-$`));
-    expect(lines[2]).toMatch(new RegExp(`^${b}\\s+ada\\s+github-token\\s+-\\s+\\d{4}-\\S+\\s+active\\s+-$`));
+    expect(lines[0]).toMatch(/^id\s+user\s+type\s+label\s+created\s+state\s+scopes\s+grants$/);
+    expect(lines[1]).toMatch(new RegExp(`^${a}\\s+dimitri\\s+github-token\\s+dimitri's PAT\\s+\\d{4}-\\S+\\s+active\\s+-\\s+-$`));
+    expect(lines[2]).toMatch(new RegExp(`^${b}\\s+ada\\s+github-token\\s+-\\s+\\d{4}-\\S+\\s+active\\s+-\\s+-$`));
     expect(ls.stdout).not.toContain(SECRET);
     expect(ls.stdout).not.toContain("ada_secret_value");
     expect((await admin(["credential", "ls", "--user", "ada"])).stdout.trimEnd().split("\n").slice(1).map((l) => l.split(/\s+/)[0])).toEqual([b]);
 
     expect(await admin(["credential", "rm", a])).toEqual({ exit: 0, stdout: `revoked ${a}\n`, stderr: "" });
-    expect((await admin(["credential", "ls"])).stdout).toMatch(new RegExp(`^${a}\\s.*\\srevoked\\s+-$`, "m"));
+    expect((await admin(["credential", "ls"])).stdout).toMatch(new RegExp(`^${a}\\s.*\\srevoked\\s+-\\s+-$`, "m"));
   });
 
   it("a data directory with credentials and no vault.key is refused by every verb, in one line", async () => {
@@ -525,7 +536,7 @@ describe("consent: a type proposed with the shop", () => {
   it("shows the proposed type in type ls, refuses a credential at it, and type approve prints what it approves, the shop's guidance under its name", async () => {
     await published();
     const ls = (await admin(["type", "ls"])).stdout.split("\n");
-    expect(ls[0]).toMatch(/^name\s+kind\s+state\s+proposer\s+origin\s+header\s+added$/);
+    expect(ls[0]).toMatch(/^name\s+kind\s+state\s+proposer\s+origin\s+header\s+added\s+oauth$/);
     expect(ls[1]).toMatch(new RegExp(`^figma\\s+token\\s+proposed\\s+dimitri/figma\\s+${origin.url.replace(/[.]/g, "\\.")}\\s+X-Figma-Token: \\{token\\}\\s+\\d{4}-`));
     expect(ls[2]).toMatch(/^github-token\s+token\s+held\s+-\s+https:\/\/api\.github\.com\s/);
 
@@ -737,5 +748,238 @@ describe("consent: a type proposed with the shop", () => {
     }
     const grants = withStore((s) => s.grantsForPass(pass).filter((g) => g.shop === "dimitri/figma"));
     expect(grants.map((g) => [g.source, Object.keys(g.credentials)]), typed.join("\n")).toEqual([[`permit ${permit}`, ["figma"]]]);
+  });
+});
+
+describe("consent phase 1: the oauth kind at the box", () => {
+  const GDOCS_DIR = path.resolve(import.meta.dirname, "../shops/gdocs");
+  const CLIENT = { clientId: "admin-client.apps", clientSecret: "admin-client-secret-77c1" };
+  const GUIDANCE = "In the Google Cloud console, enable the Google Docs API and make an OAuth client of the Desktop type; give the town its client id and secret, then connect, which opens Google's consent page.";
+  let auth: FakeAuth;
+  let docs: FakeDocs;
+
+  beforeEach(async () => {
+    auth = await fakeAuthServer(CLIENT);
+    docs = await fakeDocs(auth);
+  });
+  afterEach(async () => {
+    await docs.close();
+    await auth.close();
+  });
+
+  function withStore<T>(fn: (store: Store) => T): T {
+    const store = openStore(data);
+    try {
+      return fn(store);
+    } finally {
+      store.close();
+    }
+  }
+
+  /** shops/gdocs's manifest with its addresses written over by the fakes', named `name`. */
+  const gdocsManifest = (name = "town/gdocs") =>
+    readFileSync(path.join(GDOCS_DIR, "manifest.yaml"), "utf8")
+      .replace("name: town/gdocs", `name: ${name}`)
+      .replace("https://docs.googleapis.com", docs.url)
+      .replace("https://accounts.google.com/o/oauth2/v2/auth", auth.authorize)
+      .replace("https://oauth2.googleapis.com/token", auth.token);
+
+  /** The copy of shops/gdocs over the fakes, in a directory of its own. */
+  function gdocsCopy(name = "town/gdocs"): string {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "town-admin-gdocs-"));
+    writeFileSync(path.join(dir, "manifest.yaml"), gdocsManifest(name));
+    cpSync(path.join(GDOCS_DIR, "main.mjs"), path.join(dir, "main.mjs"));
+    return dir;
+  }
+
+  /** dimitri/gdocs published through the hall by dimitri's agent: the pass and the permit it asked for. */
+  async function published(): Promise<{ pass: string; permit: string; token: string }> {
+    const root = gdocsCopy("dimitri/gdocs");
+    try {
+      const tar = spawnSync("tar", ["--format", "ustar", "-cf", "-", "-C", root, "."], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
+      return await withStoreAsync(async (store) => {
+        if (!store.userByName("dimitri")) store.addUser("dimitri");
+        const { pass, token } = store.newPass("dimitri", "the agent", null);
+        store.newGrant({ passId: pass.id, shop: "town/hall", commands: ["publish"], constraints: {}, expiresAt: null });
+        const o = await gate({ store, wall: openWall("none") }, { token, argv: ["hall", "publish"], stdin: tar.stdout.toString("utf8"), json: false });
+        const permit = /requested (prm_[0-9a-f]{16}),/.exec(o.stdout)?.[1];
+        expect(permit, o.stdout).toBeDefined();
+        return { pass: pass.id, permit: permit!, token };
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  async function withStoreAsync<T>(fn: (store: Store) => Promise<T>): Promise<T> {
+    const store = openStore(data);
+    try {
+      return await fn(store);
+    } finally {
+      store.close();
+    }
+  }
+
+  /** `credential connect` through the admin, the test the browser: once the URL is printed, the fake's redirect is delivered to the listener. */
+  async function connectAtBox(args: string[] = []): Promise<Ran & { browser: string }> {
+    let stdout = "";
+    let stderr = "";
+    let browsing: Promise<string> = Promise.resolve("");
+    const io: Io = {
+      out: (x) => void (stdout += x),
+      err: (x) => {
+        stderr += x;
+        if (/^https?:\/\//.test(x)) browsing = browse(x.trim()).then((location) => fetch(location)).then((res) => res.text());
+      },
+      env: {},
+    };
+    const exit = await main(["--data", data, "credential", "connect", "--user", "dimitri", "--type", "google-oauth", ...args], io, () => ({ open: (opts) => openWall("none", opts) }));
+    return { exit, stdout, stderr, browser: await browsing };
+  }
+
+  const TYPE_APPROVE = `        printf '%s\\n' "$CLIENT_SECRET" | townd admin type approve google-oauth --client-id "$CLIENT_ID"`;
+  const CONNECT = "        townd admin credential connect --user dimitri --type google-oauth --label google-oauth";
+
+  it("type add --kind oauth takes the endpoints, the scopes, and the registration, the secret on stdin and sealed; the refusals by kind", async () => {
+    const base = ["type", "add", "google-oauth", "--origin", docs.url, "--header", "Authorization: Bearer {token}"];
+    const oauth = ["--kind", "oauth", "--authorize", auth.authorize, "--token", auth.token, "--scopes", auth.scopes.join(",")];
+    expect((await admin([...base, ...oauth], pipeOf(`${CLIENT.clientSecret}\n`))).stderr).toMatch(/^townd admin: --client-id is required\n/);
+    expect((await admin([...base, "--authorize", auth.authorize])).stderr).toMatch(/^townd admin: --authorize is an oauth type's; write --kind oauth with it, or leave it out\n/);
+    expect((await admin([...base, "--kind", "sso"])).stderr).toMatch(/^townd admin: --kind sso is not a kind; write token or oauth\n/);
+    const http = [...base, "--kind", "oauth", "--authorize", "http://accounts.example.test/auth", "--token", auth.token, "--scopes", "s", "--client-id", CLIENT.clientId];
+    expect((await admin(http, pipeOf(CLIENT.clientSecret))).stderr).toBe('townd admin: --authorize "http://accounts.example.test/auth" is not an endpoint; write the provider\'s https: URL, like https://accounts.google.com/o/oauth2/v2/auth\n');
+
+    const added = await admin([...base, ...oauth, "--client-id", CLIENT.clientId, "--guidance", "Register a Desktop client in the Google Cloud console."], pipeOf(`${CLIENT.clientSecret}\n`));
+    expect(added).toEqual({ exit: 0, stdout: "added google-oauth\n", stderr: "" });
+    const ls = (await admin(["type", "ls"])).stdout;
+    expect(ls).toMatch(new RegExp(`^google-oauth\\s+oauth\\s+held\\s+-\\s+${docs.url.replace(/[.]/g, "\\.")}\\s+Authorization: Bearer \\{token\\}\\s+\\d{4}-\\S+\\s+${auth.authorize.replace(/[.]/g, "\\.")} ${auth.token.replace(/[.]/g, "\\.")} ${auth.scopes[0]!.replace(/[./]/g, "\\$&")}$`, "m"));
+    expect(ls).not.toContain(CLIENT.clientSecret);
+    expect(withStore((s) => s.openClient("google-oauth", readKey(data)!))).toEqual({ id: CLIENT.clientId, secret: CLIENT.clientSecret });
+    for (const f of ["town.db", "town.db-wal"].filter((x) => existsSync(path.join(data, x)))) expect(readFileSync(path.join(data, f)).includes(Buffer.from(CLIENT.clientSecret)), f).toBe(false);
+    // A public client's secret is empty.
+    expect((await admin(["type", "add", "public-oauth", "--origin", docs.url, "--header", "Authorization: Bearer {token}", ...oauth, "--client-id", "public.apps"], pipeOf(""))).exit).toBe(0);
+    expect(withStore((s) => s.openClient("public-oauth", readKey(data)!))).toEqual({ id: "public.apps", secret: "" });
+
+    // credential add at it names connect; connect at a token type names add.
+    await addUser("dimitri");
+    expect(await admin(["credential", "add", "--user", "dimitri", "--type", "google-oauth"], pipeOf("pasted"))).toEqual({
+      exit: 1,
+      stdout: "",
+      stderr: "townd admin: type google-oauth is an oauth type, connected in a browser and never pasted; townd admin credential connect --user dimitri --type google-oauth connects one\n",
+    });
+    expect((await admin(["credential", "connect", "--user", "dimitri", "--type", "github-token"])).stderr).toBe(
+      "townd admin: type github-token is a token type, pasted and never connected; townd admin credential add --user dimitri --type github-token adds one, the secret on stdin\n",
+    );
+  });
+
+  it("type approve of a proposed oauth type is refused without --client-id, then prints what it approves and seals the registration; a token type takes none", async () => {
+    await published();
+    const ls = (await admin(["type", "ls"])).stdout;
+    expect(ls).toMatch(new RegExp(`^google-oauth\\s+oauth\\s+proposed\\s+dimitri/gdocs\\s+${docs.url.replace(/[.]/g, "\\.")}\\s`, "m"));
+    expect(withStore((s) => s.getType("google-oauth"))).toMatchObject({ kind: "oauth", state: "proposed", hasClient: false, oauth: { authorize: auth.authorize, token: auth.token, scopes: auth.scopes } });
+    expect((await admin(["credential", "connect", "--user", "dimitri", "--type", "google-oauth"])).stderr).toBe("townd admin: type google-oauth is proposed by dimitri/gdocs and not yet the town's; townd admin type approve google-oauth makes it so\n");
+
+    expect(await admin(["type", "approve", "google-oauth"])).toEqual({ exit: 1, stdout: "", stderr: "townd admin: type google-oauth is an oauth type and needs its registration; write --client-id <id>, with the client secret on stdin\n" });
+    expect(withStore((s) => s.getType("google-oauth")!.state)).toBe("proposed");
+    const approved = await admin(["type", "approve", "google-oauth", "--client-id", CLIENT.clientId], pipeOf(`${CLIENT.clientSecret}\n`));
+    expect(approved).toEqual({
+      exit: 0,
+      stdout: [
+        `google-oauth: an oauth type, sent to ${docs.url} in Authorization: Bearer {token}`,
+        `google-oauth: consent at ${auth.authorize}, tokens from ${auth.token}, scopes ${auth.scopes.join(", ")}`,
+        `dimitri/gdocs says: ${GUIDANCE}`,
+        `approved google-oauth, proposed by dimitri/gdocs; it is the town's, with client ${CLIENT.clientId} and its secret sealed`,
+        "",
+      ].join("\n"),
+      stderr: "",
+    });
+    expect(withStore((s) => s.getType("google-oauth"))).toMatchObject({ state: "held", hasClient: true });
+    expect(withStore((s) => s.openClient("google-oauth", readKey(data)!))).toEqual({ id: CLIENT.clientId, secret: CLIENT.clientSecret });
+    expect(approved.stdout).not.toContain(CLIENT.clientSecret);
+
+    expect((await admin(["type", "add", "internal", "--origin", "https://api.example.internal", "--header", "X-Key: {token}"])).exit).toBe(0);
+    withStore((s) => s.proposeType({ name: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}" }, "dimitri/figma", false));
+    expect((await admin(["type", "approve", "figma", "--client-id", "x"], pipeOf("y"))).stderr).toBe("townd admin: type figma is a token type and takes no registration; leave out --client-id\n");
+  });
+
+  it("permit show's checklist for an oauth need approves with the registration from the shell's names and connects; permit approve without a credential names connect", async () => {
+    const { permit } = await published();
+    const APPROVE = `        townd admin permit approve ${permit}  # runs dimitri/gdocs's 1 test on it first`;
+    const shown = (await admin(["permit", "show", permit])).stdout;
+    expect(shown).toContain(`needs:\n  google-oauth: proposed, oauth, sent to ${docs.url} in Authorization: Bearer {token}\n    consent at ${auth.authorize}, scopes ${auth.scopes[0]}\n    dimitri/gdocs says: ${GUIDANCE}\n    none connected\n`);
+    expect(shown.slice(shown.indexOf("to do:"))).toBe(`to do:\n${TYPE_APPROVE}\n${CONNECT}\n${APPROVE}\n`);
+    expect((await admin(["type", "approve", "google-oauth", "--client-id", CLIENT.clientId], pipeOf(CLIENT.clientSecret))).exit).toBe(0);
+    const refused = await admin(["permit", "approve", permit]);
+    expect(refused).toEqual({
+      exit: 1,
+      stdout: "",
+      stderr: `townd admin: permit approve refused: user dimitri holds no google-oauth credential; connect one with townd admin credential connect --user dimitri --type google-oauth\ntownd admin: ${permit} is still pending\nto do:\n${CONNECT}\n${APPROVE}\n`,
+    });
+  });
+
+  it("credential connect prints the shop's guidance before the URL and the id on stdout; credential ls shows its scopes and no value, and says why when a refresh was refused", async () => {
+    const { permit, token } = await published();
+    expect((await admin(["type", "approve", "google-oauth", "--client-id", CLIENT.clientId], pipeOf(CLIENT.clientSecret))).exit).toBe(0);
+    const c = await connectAtBox();
+    expect(c.exit, c.stderr).toBe(0);
+    expect(c.browser).toBe("connected; you can close this tab\n");
+    const lines = c.stderr.trimEnd().split("\n");
+    expect(lines[0]).toBe(`dimitri/gdocs says: ${GUIDANCE}`);
+    expect(lines[1]).toMatch(/^open this URL in a browser to connect google-oauth for dimitri; the redirect comes back to http:\/\/127\.0\.0\.1:\d+\/ within 5m:$/);
+    expect(lines[2]!.startsWith(`${auth.authorize}?`)).toBe(true);
+    expect(c.stdout).toMatch(/^credential_[0-9a-f]{16}\n$/);
+    const id = c.stdout.trim();
+    const ls = (await admin(["credential", "ls"])).stdout;
+    expect(ls).toMatch(new RegExp(`^${id}\\s+dimitri\\s+google-oauth\\s+google-oauth\\s+\\d{4}-\\S+\\s+active\\s+${auth.scopes[0]!.replace(/[./]/g, "\\$&")}\\s+-$`, "m"));
+    for (const secret of [...auth.issued.access, ...auth.issued.refresh, CLIENT.clientSecret]) expect(ls + c.stdout + c.stderr).not.toContain(secret);
+    expect((await admin(["audit"])).stdout).toMatch(/^\S+\s+-\s+-\s+-\s+[0-9a-f]{64}\s+ok\s+0\s+-\s+\d+\s+-\s+-\s+call_[0-9a-f]{16}\s+-\s+-\s+connected google-oauth for dimitri in \d+s$/m);
+
+    // The permit's test runs through the teller on the access token; the grant is made.
+    const approved = await admin(["permit", "approve", permit]);
+    expect(approved.exit, approved.stderr).toBe(0);
+    expect(approved.stdout).toMatch(/^ok a missing document fails\ngrant_[0-9a-f]{16}\n$/);
+    expect(auth.events.filter((e) => e.kind === "docs").map((e) => [e.url, e.status, e.authorization])).toEqual([["/v1/documents/no-such-document", 404, true]]);
+
+    // A refresh the provider refuses, at the gate an hour on: revoked, and ls says why.
+    auth.mode = "invalid_grant";
+    const expires = withStore((s) => parseValue(s.openCredential(id, readKey(data)!))!.expires_at);
+    const denied = await withStoreAsync((store) => gate({ store, wall: openWall("none"), vault: storeVault(store, () => readKey(data)), now: () => expires }, { token, argv: ["dimitri/gdocs", "read", "--doc-id", "fixture-doc"], stdin: null, json: false }));
+    expect([denied.exit, denied.error]).toEqual([2, "error: command 'dimitri/gdocs read' is not available to this grant: its google-oauth credential needs connecting again at the box"]);
+    expect((await admin(["credential", "ls"])).stdout).toMatch(new RegExp(`^${id}\\s.*\\srevoked \\(refresh refused\\)\\s+\\S+\\s+grant_[0-9a-f]{16}$`, "m"));
+  });
+
+  it("shop add --user --client-id holds an oauth type in one step, is refused naming credential connect with the type held, and after a consent adds the shop on its test", async () => {
+    await addUser("dimitri");
+    const dir = gdocsCopy();
+    try {
+      const shops = (await admin(["shop", "ls"])).stdout;
+      expect((await admin(["shop", "add", dir, "--user", "dimitri"])).stderr).toBe(
+        "townd admin: shop add refused: town/gdocs defines google-oauth, an oauth type this town lacks, and holding it takes its registration; write --client-id <id>, with the client secret on stdin\n",
+      );
+      expect(withStore((s) => s.getType("google-oauth"))).toBeNull();
+      const first = await admin(["shop", "add", dir, "--user", "dimitri", "--client-id", CLIENT.clientId], pipeOf(`${CLIENT.clientSecret}\n`));
+      expect(first).toEqual({
+        exit: 1,
+        stdout: [
+          `held google-oauth, as town/gdocs defines it: an oauth type sent to ${docs.url} in Authorization: Bearer {token}`,
+          `google-oauth: consent at ${auth.authorize}, tokens from ${auth.token}, scopes ${auth.scopes[0]}, with client ${CLIENT.clientId} and its secret sealed`,
+          `town/gdocs says: ${GUIDANCE}`,
+          "",
+        ].join("\n"),
+        stderr: "townd admin: shop add refused: user dimitri holds no google-oauth credential; google-oauth stays held, as town/gdocs defines it, so connect one with townd admin credential connect --user dimitri --type google-oauth, then shop add again\n",
+      });
+      expect(withStore((s) => s.getType("google-oauth"))).toMatchObject({ kind: "oauth", state: "held", proposedBy: "town/gdocs", hasClient: true });
+      expect((await admin(["shop", "ls"])).stdout).toBe(shops);
+      // Held now, the same add with --client-id registers nothing; without it, it is refused for the credential again.
+      expect((await admin(["shop", "add", dir, "--user", "dimitri", "--client-id", "again"], pipeOf("x"))).stderr).toBe("townd admin: shop add refused: town/gdocs defines no oauth type this town lacks, so --client-id registers nothing; leave it out\n");
+
+      const c = await connectAtBox();
+      expect(c.exit, c.stderr).toBe(0);
+      const added = await admin(["shop", "add", dir, "--user", "dimitri"]);
+      expect(added).toEqual({ exit: 0, stdout: "ok a missing document fails\nadded town/gdocs 0.1.0\n", stderr: "" });
+      expect(auth.events.filter((e) => e.kind === "docs").map((e) => [e.url, e.status, e.authorization])).toEqual([["/v1/documents/no-such-document", 404, true]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

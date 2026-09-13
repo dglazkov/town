@@ -222,22 +222,22 @@ town. It names the credential types it needs and the shops it calls:
       guidance   with a definition, one paragraph of at most 600 characters
                  for whoever makes the secret: where, and what to allow. It
                  names no host, bare or in a URL, the type does not send to.
-      oauth      with a definition, for an OAuth type: { authorize,
-                 token, scopes }, two https: URLs and a list. Refused
-                 until consent phase 1. A manifest never names a client
-                 id, secret, or redirect: a registration is the operator's.
+      oauth      with a definition, for an OAuth type: { authorize, token,
+                 scopes }, two https: URLs and a list; never a client id,
+                 secret, or redirect: a registration is the operator's.
     depends      optional list of dependencies, each { shop, commands }
                  and no other key, one per shop, never this shop nor
                  town/hall: a shop the town holds, and a non-empty list
                  of commands that shop has. Refusals name what it holds.
 
 A need: send $TOWN_CREDENTIAL_<TYPE> (§7) the request you would send the
-type's origin, path and all, with no credential; the town signs it. A GET
-of $TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World reaches
-https://api.github.com/repos/octocat/Hello-World signed.
-Method, query, headers, body, and status pass both ways as they are,
-streamed; an Authorization you set is replaced. Keep the URL out of
-stderr, which the audit keeps: dead by then, it is a secret's shape.
+type's origin, path and all, with no credential; the town signs it, and
+refreshes an OAuth type's token first. A GET of
+$TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World reaches
+https://api.github.com/repos/octocat/Hello-World signed. Method, query,
+headers, body, and status pass both ways as they are, streamed; an
+Authorization you set is replaced. Keep the URL out of stderr, which the
+audit keeps: dead by then, it is a secret's shape.
 
 A shop published with needs waits for a person: its tests run, and a
 grant at it is made, when a person approves the permit its publish asks.

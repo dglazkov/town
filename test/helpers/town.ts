@@ -208,6 +208,69 @@ export async function originProcess(): Promise<OriginProcess> {
   };
 }
 
+/** What the fake authorization server recorded: as test/helpers/authserver.ts prints an event. */
+export interface AuthEventLine {
+  kind: string;
+  ok: boolean;
+  why?: string;
+  status?: number;
+  tokens?: string[];
+  url?: string;
+  authorization?: boolean;
+}
+
+export interface AuthProcess {
+  /** The authorization server, `http://127.0.0.1:<port>`: `/authorize` and `/token` under it. */
+  auth: string;
+  /** The fake docs origin, answering only for a live access token the server issued. */
+  docs: string;
+  events(): AuthEventLine[];
+  /** Every token the server issued or was sent, and every code, for a search. */
+  secrets(): string[];
+  /** Changes what the server answers next: mode, rotate, withRefreshToken, authorizeError, expiresIn, tokenDelayMs. */
+  control(opts: Record<string, unknown>): Promise<void>;
+  stop(): Promise<void>;
+}
+
+/**
+ * The fake authorization server and fake docs origin,
+ * `node test/helpers/authserver.ts <client id> <client secret>`, as a
+ * process of their own, for the same reason as the fake origin: `town`
+ * and `townd` run synchronously. Its events are one JSON line each in a
+ * file, read after the call that caused them returns.
+ */
+export async function authProcess(clientId: string, clientSecret: string): Promise<AuthProcess> {
+  const dir = tmp("authserver");
+  const log = path.join(dir, "events.jsonl");
+  const fd = openSync(log, "w");
+  const child = spawn(process.execPath, ["--no-warnings", path.join(ROOT, "test/helpers/authserver.ts"), clientId, clientSecret], { stdio: ["ignore", fd, "pipe"] });
+  closeSync(fd);
+  const lines = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  for (let i = 0; lines().length === 0; i++) {
+    if (i > 200 || child.exitCode !== null) throw new Error("the fake authorization server did not start");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  const { auth, docs } = JSON.parse(lines()[0]!) as { auth: string; docs: string };
+  const events = () => lines().slice(1).map((l) => JSON.parse(l) as AuthEventLine);
+  return {
+    auth,
+    docs,
+    events,
+    secrets: () => [...new Set(events().flatMap((e) => e.tokens ?? []))],
+    control: async (opts) => {
+      const res = await fetch(`${auth}/control`, { method: "POST", body: JSON.stringify(opts) });
+      if (res.status !== 200) throw new Error(`the fake refused control: ${res.status}`);
+    },
+    stop: () =>
+      new Promise<void>((resolve) => {
+        const done = () => (rmSync(dir, { recursive: true, force: true }), resolve());
+        if (child.exitCode !== null) return done();
+        child.once("exit", done);
+        child.kill("SIGTERM");
+      }),
+  };
+}
+
 /** Removes every path given, ignoring what is already gone. */
 export function cleanup(...paths: string[]): void {
   for (const p of paths) rmSync(p, { recursive: true, force: true });

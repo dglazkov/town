@@ -34,7 +34,13 @@ node bin/townd.js admin permit show <id>        # the checklist: the shop, each 
 node bin/townd.js admin type approve figma      # prints the proposed type's kind, origin, header, and guidance, then it is the town's; a credential add at a proposed type is refused
 printf '%s\n' "$TOKEN" | node bin/townd.js admin credential add --user dimitri --type figma --label figma   # the type's guidance on stderr first, under the shop's name
 node bin/townd.js admin permit approve <id>     # at a shop with needs: refused while a type is proposed or a credential missing, printing what remains; then the shop's tests run on the credential through the town, under the approval's audit row, and only on a pass the grant
-node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices
+# an oauth type's registration is the operator's: make a Desktop OAuth client at the provider (for Google, in the Google Cloud console, with the Docs API enabled), then give the town its id, and its secret on stdin
+printf '%s\n' "$CLIENT_SECRET" | node bin/townd.js admin shop add shops/gdocs --user dimitri --client-id "$CLIENT_ID"   # town/gdocs: holds google-oauth as its manifest defines it, sealing the registration; refused until dimitri has a google-oauth credential, the type staying held
+printf '%s\n' "$CLIENT_SECRET" | node bin/townd.js admin type approve google-oauth --client-id "$CLIENT_ID"   # the same for an oauth type an agent's shop proposed; type add <name> --kind oauth --authorize <url> --token <url> --scopes a,b --client-id <id> for one of the operator's own
+node bin/townd.js admin credential connect --user dimitri --type google-oauth   # the type's guidance, then a URL to open in a browser; the redirect comes back to 127.0.0.1, and the id is printed. credential add is refused at an oauth type
+node bin/townd.js admin shop add shops/gdocs --user dimitri   # again, once connected: its test runs on dimitri's credential, then town gdocs read --doc-id <id> prints a document's text under a grant
+# the town refreshes an access token within a minute of expiry at the call, sealing the new one; a refresh the provider refuses revokes the credential, credential ls says revoked (refresh refused), and connect makes a new one
+node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices; a consent is a row of its own, and a refresh says refreshed <type>
 node bin/townd.js admin grant revoke <id>       # seen by the next call; pass revoke makes the grant file paper
 # The data directory must never sit in or under a directory an agent works in (one with .town/grant in it or above):
 # an agent that can reach it can read the database or widen its own grant, so townd serve refuses one there.

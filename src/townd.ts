@@ -5,6 +5,8 @@
 // with no flag the wall this box has. A box with none is refused, as is a
 // kind the box cannot give, before any listen and before any verb, so no
 // shop's code runs unwalled without `--wall none` on the command line.
+// `serve` reads one more name, for a test alone: TEST_CLOCK_ENV moves the
+// town's clock, so a ring can age an access token an hour without waiting.
 
 import os from "node:os";
 import { main as admin, type WallChooser } from "./admin.js";
@@ -12,6 +14,15 @@ import { agentGrantAbove, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
 import { VaultError } from "./vault.js";
 import { openWall, wallOnThisBox, type WallKind } from "./wall.js";
+
+/**
+ * The environment name by which a test moves a served town's clock, in
+ * milliseconds, so the gate sees an access token an hour older. Read here
+ * alone, from `townd serve`'s own environment, which is the operator's: an
+ * agent posts argv and a shop is handed three names and its tellers, so
+ * neither can set it, and whoever can already owns the data directory.
+ */
+export const TEST_CLOCK_ENV = "TOWN_TEST_CLOCK_OFFSET_MS";
 
 const USAGE = "usage: townd serve [--data <dir>] [--port <n>] [--wall <kind>] | townd admin [--data <dir>] [--wall <kind>] <verb> | townd spec";
 
@@ -73,6 +84,8 @@ async function serve(argv: readonly string[]): Promise<number> {
   const wall = chooseWall(wallFlag);
   if ("refused" in wall) return fail(wall.refused);
   if (!data) return fail("needs --data <dir>, or $TOWN_DATA");
+  const offset = process.env[TEST_CLOCK_ENV];
+  if (offset !== undefined && !/^-?\d+$/.test(offset)) return fail(`$${TEST_CLOCK_ENV} is ${JSON.stringify(offset)}, not a number of milliseconds`);
 
   const grant = agentGrantAbove(data);
   if (grant) {
@@ -83,12 +96,13 @@ async function serve(argv: readonly string[]): Promise<number> {
 
   let town;
   try {
-    town = await startServer({ dataDir: data, port, wall: wall.kind });
+    town = await startServer({ dataDir: data, port, wall: wall.kind, ...(offset ? { now: () => Date.now() + Number(offset) } : {}) });
   } catch (err) {
     if (err instanceof VaultError) return fail(err.message);
     return fail(`could not listen on 127.0.0.1:${port}: ${(err as Error).message}`);
   }
   process.stdout.write(`town listening on ${town.url}, shops walled by ${town.wall}\n`);
+  if (offset) process.stderr.write(`townd serve: the town's clock is moved ${offset} ms by $${TEST_CLOCK_ENV}, a test's name\n`);
   await new Promise<void>((resolve) => {
     const stop = () => resolve();
     process.once("SIGINT", stop);

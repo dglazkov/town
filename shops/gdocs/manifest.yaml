@@ -1,0 +1,32 @@
+name: town/gdocs
+version: 0.1.0
+summary: Reads a Google document as text.
+guidance: |
+  A document's id is the long part of its URL, between /d/ and /edit.
+  The text comes one paragraph a line; markdown marks headings with #.
+runtime: subprocess
+entry: ./main.mjs
+credentials:
+  - type: google-oauth
+    origin: https://docs.googleapis.com
+    header: "Authorization: Bearer {token}"
+    oauth:
+      authorize: https://accounts.google.com/o/oauth2/v2/auth
+      token: https://oauth2.googleapis.com/token
+      scopes: [https://www.googleapis.com/auth/documents.readonly]
+    guidance: |
+      In the Google Cloud console, enable the Google Docs API and make
+      an OAuth client of the Desktop type; give the town its client id
+      and secret, then connect, which opens Google's consent page.
+commands:
+  - name: read
+    summary: Print a document's text, one paragraph a line.
+    effect: read
+    args:
+      - { name: doc-id, type: string, required: true, doc: "The document's id, from its URL.", constrainable: [equals, one_of, prefix, regex] }
+      - { name: format, type: enum, values: [text, markdown], default: text }
+    output: text
+tests:
+  - name: a missing document fails
+    run: read --doc-id no-such-document
+    expect: { exit: 1 }

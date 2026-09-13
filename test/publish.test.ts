@@ -96,14 +96,15 @@ function db(data: string, sql: string): Array<Record<string, unknown>> {
   return JSON.parse(r.stdout) as Array<Record<string, unknown>>;
 }
 
-/** Every grant's source is a person's (the operator's or a permit's), or the publish grant of the pass at a shop its user owns and it published. */
+/** Every grant's source is a person's (the operator's or a permit's), or the publish grant of the pass at a shop its user owns and it published, and never at a shop with needs (consent's rule). */
 function expectSourcesPersonOrPublish(data: string): void {
-  const rows = db(data, "SELECT g.id, g.source, g.pass_id, g.shop, s.owner, p.user_id, (SELECT COUNT(*) FROM calls c WHERE c.pass_id = g.pass_id AND c.shop = 'town/hall' AND c.detail LIKE 'published ' || g.shop || ' %') AS published FROM grants g JOIN passes p ON p.id = g.pass_id LEFT JOIN shops s ON s.name = g.shop");
+  const rows = db(data, "SELECT g.id, g.source, g.pass_id, g.shop, s.owner, p.user_id, json_array_length(json_extract(s.manifest, '$.credentials')) AS needs, (SELECT COUNT(*) FROM calls c WHERE c.pass_id = g.pass_id AND c.shop = 'town/hall' AND c.detail LIKE 'published ' || g.shop || ' %') AS published FROM grants g JOIN passes p ON p.id = g.pass_id LEFT JOIN shops s ON s.name = g.shop");
   expect(rows.length).toBeGreaterThan(0);
   for (const g of rows) {
     const source = g.source as string | null;
     if (source === null || /^permit prm_[0-9a-f]{16}$/.test(source)) continue;
     expect(source, String(g.id)).toBe("publish");
+    expect(Number(g.needs ?? 0), `${g.id}: a publish grant at a shop with needs`).toBe(0);
     expect(Number(g.published), `${g.id}: a publish grant at a shop its pass did not publish`).toBeGreaterThan(0);
     if (g.owner !== null) expect(g.owner, String(g.id)).toBe(g.user_id);
   }
@@ -373,7 +374,7 @@ it("walks journey 2 steps 1 to 6: the hall at the box, a narrow hall grant, perm
   expect(db(composeData, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'permits'")).toEqual([{ name: "permits" }]);
   expect(db(composeData, "SELECT name FROM pragma_table_info('shops') WHERE name = 'owner'")).toEqual([{ name: "owner" }]);
   expect(db(composeData, "SELECT name FROM pragma_table_info('grants') WHERE name = 'source'")).toEqual([{ name: "source" }]);
-  expect(db(composeData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "5" }]);
+  expect(db(composeData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "6" }]);
   expect(composeTown.admin("grant", "ls").stdout).toMatch(/^grant_[0-9a-f]{16}\s+pass_e4dca651fb4453dc\s+town\/memory\s+\S+\s+-\s/m);
   await composeTown.stop();
 
@@ -431,9 +432,10 @@ it("walks journey 2 steps 1 to 6: the hall at the box, a narrow hall grant, perm
   const teller = admin("shop", "add", path.join(ROOT, "test/fixtures/teller-shop"), "--user", "ada");
   expect(teller.exit, teller.stderr).toBe(0);
   const needy = request("--shop test/teller --commands get");
-  expect(admin("permit", "approve", needy).stderr).toBe(`townd admin: permit approve refused: user dimitri holds no test-origin credential; add one with townd admin credential add\ntownd admin: ${needy} is still pending\n`);
-  expect(rowOf(admin("permit", "ls").stdout, composed)).toMatch(/\spending$/);
-  expect(rowOf(admin("permit", "ls").stdout, needy)).toMatch(/\spending$/);
+  expect(admin("permit", "approve", needy).stderr).toBe(`townd admin: permit approve refused: user dimitri holds no test-origin credential; add one with townd admin credential add --user dimitri --type test-origin\ntownd admin: ${needy} is still pending\nto do:\n        printf '%s\\n' "$TOKEN" | townd admin credential add --user dimitri --type test-origin --label test-origin\n        townd admin permit approve ${needy}\n`);
+  // A permit at a shop with needs adds the needs column: none for the composed shop, and the teller's need unmet for dimitri.
+  expect(rowOf(admin("permit", "ls").stdout, composed)).toMatch(/\spending\s+-$/);
+  expect(rowOf(admin("permit", "ls").stdout, needy)).toMatch(/\spending\s+test-origin: held, none connected$/);
 
   // Step 5: a published shop at the box: owner, the publish grant, and shop rm, after which it reaches nothing.
   writeShop(a, "todo", TODO_MANIFEST, TODO_ENTRY);
@@ -494,13 +496,13 @@ it("walks journey 3 steps 1 to 8: the hall is a shop, and never more than the ag
   expect([outside.exit, outside.stdout, oneLine(outside)]).toEqual([2, "", "error: --shop must start with 'town/' under this grant"]);
   expect(admin("permit", "ls").stdout.trim().split("\n")).toHaveLength(1);
 
-  // Step 2: credentials, a name outside the namespace, and runtime: town, refused and written nowhere.
+  // Step 2: a need moving a held type's origin, a name outside the namespace, and runtime: town, refused and written nowhere.
   const shopsBefore = admin("shop", "ls").stdout;
   const dirsBefore = readdirSync(path.join(data, "shops")).sort();
-  const withCredentials = TODO_MANIFEST.replace("entry: ./main.mjs\n", "entry: ./main.mjs\ncredentials:\n  - type: github-token\n");
+  const withCredentials = TODO_MANIFEST.replace("entry: ./main.mjs\n", 'entry: ./main.mjs\ncredentials:\n  - { type: github-token, origin: "https://api.github.example", header: "Authorization: Bearer {token}" }\n');
   writeShop(a, "creds", withCredentials, TODO_ENTRY);
   expect(sendTar(a, "creds", "publish")).toEqual({
-    stdout: "credentials: a shop you send holds no credential of its own; depend on the town's shop for that origin, or ask the person at the box to add one (spec §8)\n",
+    stdout: "credentials[0]: github-token is a type this town holds, at https://api.github.com in Authorization; leave the definition out, or write that (spec §8)\n",
     stderr: "",
     exit: 1,
   });

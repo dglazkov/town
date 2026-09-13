@@ -72,7 +72,7 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   // Step 1: the seeded type, one added and removed, and the fake origin added as a type.
   const types = admin("type", "ls");
   expect(types.exit).toBe(0);
-  expect(rowOf(types.stdout, "github-token")).toMatch(/^github-token\s+https:\/\/api\.github\.com\s+Authorization: Bearer \{token\}\s+\d{4}-/);
+  expect(rowOf(types.stdout, "github-token")).toMatch(/^github-token\s+token\s+held\s+-\s+https:\/\/api\.github\.com\s+Authorization: Bearer \{token\}\s+\d{4}-/);
   expect(admin("type", "add", "internal", "--origin", "https://api.example.internal", "--header", "Authorization: Bearer {token}")).toEqual({ exit: 0, stdout: "added internal\n", stderr: "" });
   expect(admin("type", "rm", "internal")).toEqual({ exit: 0, stdout: "removed internal\n", stderr: "" });
   expect(admin("type", "add", "test-origin", "--origin", origin.url, "--header", "Authorization: Bearer {token}").exit).toBe(0);
@@ -104,13 +104,13 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   const noUser = admin("shop", "add", TELLER);
   expect([noUser.exit, oneLine(noUser)]).toEqual([1, "townd admin: shop add refused: test/teller needs test-origin; write --user <name> for whose credential its tests run on"]);
   const lacking = admin("shop", "add", TELLER, "--user", "ada");
-  expect([lacking.exit, oneLine(lacking)]).toEqual([1, "townd admin: shop add refused: user ada holds no test-origin credential; add one with townd admin credential add"]);
+  expect([lacking.exit, oneLine(lacking)]).toEqual([1, "townd admin: shop add refused: user ada holds no test-origin credential; add one with townd admin credential add --user ada --type test-origin"]);
   const unheld = path.join(root, "unheld-type-shop");
   cpSync(TELLER, unheld, { recursive: true });
   writeFileSync(path.join(unheld, "manifest.yaml"), readFileSync(path.join(unheld, "manifest.yaml"), "utf8").replace("- type: test-origin", "- type: test-origins"));
   const unheldAdd = admin("shop", "add", unheld, "--user", "dimitri");
   expect(unheldAdd.exit).toBe(1);
-  expect(unheldAdd.stderr).toMatch(/^credentials\[0\]\.type: 'test-origins' is not a type this town holds; write one of \(github-token, test-origin\) instead \(spec §8\)$/m);
+  expect(unheldAdd.stderr).toMatch(/^credentials\[0\]\.type: 'test-origins' is not a type this town holds; write one of \(github-token, test-origin\), or an origin and a header beside it to propose one, instead \(spec §8\)$/m);
   expect(origin.seen()).toEqual([]);
   const shopAdd = admin("shop", "add", TELLER, "--user", "dimitri");
   expect(shopAdd, shopAdd.stderr).toEqual({ exit: 0, stdout: "ok the origin answers\nadded test/teller 0.0.1\n", stderr: "" });
@@ -174,7 +174,7 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   expect(rowOf(admin("grant", "ls", "--pass", pass2Id).stdout, grant2Id)).toContain(`test-origin=${c2}`);
   const pass3 = admin("pass", "new", "--user", "ada", "--label", "nothing to bind");
   const none = admin("grant", "new", "--pass", pass3.stderr.trim(), "--shop", "test/teller");
-  expect([none.exit, oneLine(none)]).toEqual([1, "townd admin: grant refused: user ada holds no test-origin credential; add one with townd admin credential add"]);
+  expect([none.exit, oneLine(none)]).toEqual([1, "townd admin: grant refused: user ada holds no test-origin credential; add one with townd admin credential add --user ada --type test-origin"]);
   const foreign = admin("grant", "new", "--pass", pass3.stderr.trim(), "--shop", "test/teller", "--credential", c1);
   expect(oneLine(foreign)).toBe(`townd admin: grant refused: --credential ${c1} is not a credential of user ada; townd admin credential ls --user ada lists them`);
   expect(admin("shop", "add", MEMORY).exit).toBe(0);

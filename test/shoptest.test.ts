@@ -253,7 +253,7 @@ describe("verdicts", () => {
       const err = await testShop(dir, { types: ["github-token"], wall }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ManifestRefused);
       expect((err as ManifestRefused).refusals).toEqual([
-        "credentials[0].type: 'api-key' is not a type this town holds; write one of (github-token) instead (spec §8)",
+        "credentials[0].type: 'api-key' is not a type this town holds; write one of (github-token), or an origin and a header beside it to propose one, instead (spec §8)",
       ]);
     } finally {
       await rm(dir, { recursive: true, force: true });

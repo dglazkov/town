@@ -6,16 +6,26 @@
 // publish, puts it in place with the agent's user as owner. Both refuse a
 // copy holding anything but plain files, and every shop in the town has
 // every dependency it declares, so a shop that would break a dependent is
-// refused; and both name the grants that stop being live.
+// refused; and both name the grants that stop being live. A manifest
+// defining a type the town lacks proposes it: the hall's door writes the
+// proposal with the shop, and the operator's holds it in one step before
+// it meets the shop's needs; since a credential needs its type held first,
+// a first add with no credential is refused saying the type stays held and
+// what to add, and the same add after it adds the shop. A sent shop with needs runs no test, since no
+// person has bound a credential to it: its tests wait for the permit's
+// approval, where `testAtApproval` runs them on the credentials a person
+// chose, recorded under the approval's row.
 
 import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Io } from "./admin.js";
 import type { BundleFile } from "./bundle.js";
-import { shopDir, type GateDeps } from "./gate.js";
+import { argvHash, newCallId, shopDir, type GateDeps } from "./gate.js";
+import { guidanceLine } from "./checklist.js";
 import { bindNeeds, grantStateText } from "./grants.js";
 import { HALL_NAME, type Manifest } from "./manifest.js";
+import { definesType } from "./needs.js";
 import type { RunCredential } from "./runtime.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
 import { StoreError, type Pass, type Store } from "./store.js";
@@ -88,7 +98,7 @@ export async function shopTest(town: { store: Store; key: Buffer | null } | null
   try {
     if (!town) return report(await testShop(dir, { wall }), io);
     const { store, key } = town;
-    const types = store.listTypes().map((t) => t.name);
+    const types = store.listTypes();
     const shops = townShops(store);
     const manifest = await loadShop(dir, types, shops);
     const met = meetNeeds(store, key, manifest.name, treeOf(manifest, store).needs, picked.user(), picked.credentials);
@@ -119,6 +129,11 @@ function meetNeeds(store: Store, key: Buffer | null, shop: string, needs: string
   }
   const user = store.userByName(userName);
   if (!user) return `user ${userName} does not exist; townd admin user ls lists them`;
+  for (const type of needs) {
+    const t = store.getType(type);
+    if (!t) return `${type} is not a type this town holds; townd admin type ls lists them, and townd admin type add makes one`;
+    if (t.state === "proposed") return `${type} is proposed and not yet the town's; townd admin type approve ${type} first`;
+  }
   const bound = bindNeeds(store, user, shop, needs, picked);
   if (typeof bound === "string") return bound;
   const out: RunCredential[] = [];
@@ -151,7 +166,9 @@ export async function strangeEntries(root: string): Promise<string[]> {
 
 /**
  * `shop add <dir> [--user <name>]`: refuse links, validate the manifest,
- * meet its needs with the user's credentials as `shop test` does, copy the
+ * hold each type it defines that the town lacks, the operator being the
+ * trust root, and refuse, the type still held, while the user holds no
+ * credential of it; meet its needs with the user's credentials as `shop test` does, copy the
  * directory to a staging place under the data directory, run the shop's
  * tests against the copy (the code that will run), then put the copy in
  * place and upsert the row. Latest only: a second add replaces the first,
@@ -169,7 +186,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
   if (strange.length) {
     return refuse(`${strange.map((s) => path.join(dir, s)).join(", ")} ${strange.length === 1 ? "is" : "are"} not a plain file; a shop is copied whole into the town, so put the file itself there instead of a link`);
   }
-  const types = store.listTypes().map((t) => t.name);
+  let types = store.listTypes();
   const shops = townShops(store);
   let needs: string[];
   let credentials: RunCredential[];
@@ -178,6 +195,22 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     if (manifest.name === HALL_NAME) return refuse(HALL_REFUSAL);
     const broken = breaksDependents(store, manifest);
     if (broken) return refuse(broken);
+    // The operator is the trust root: a type the manifest defines and the town lacks is held now, as defined, and says so.
+    for (const n of (manifest.credentials ?? []).filter(definesType)) {
+      const held = store.proposeType({ name: n.type, origin: n.origin!, header: n.header!, ...(n.guidance === undefined ? {} : { guidance: n.guidance }) }, manifest.name, true, now);
+      if (!held) continue;
+      io.out(`held ${held.name}, as ${manifest.name} defines it: a ${held.kind} type sent to ${held.origin} in ${held.header}\n`);
+      const said = guidanceLine(held);
+      if (said) io.out(`${said}\n`);
+    }
+    types = store.listTypes();
+    // A credential needs its type held first, and the tests need the credential: the refusal says the type stays and what comes next.
+    const user = picked.user();
+    const owner = user === undefined ? null : store.userByName(user);
+    const unmet = owner ? (manifest.credentials ?? []).filter(definesType).find((n) => store.getType(n.type)?.state === "held" && store.liveCredentials(owner.id, n.type).length === 0) : undefined;
+    if (owner && unmet) {
+      return refuse(`user ${owner.name} holds no ${unmet.type} credential; ${unmet.type} stays held, as ${manifest.name} defines it, so add one with townd admin credential add --user ${owner.name} --type ${unmet.type}, then shop add again`);
+    }
     needs = treeOf(manifest, store).needs;
     const met = meetNeeds(store, key, manifest.name, needs, picked.user(), picked.credentials);
     if (typeof met === "string") return refuse(met);
@@ -210,7 +243,8 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     if (failing.length) {
       return refuse(`${manifest.name}'s test${failing.length === 1 ? "" : "s"} ${failing.map((r) => `'${r.name}'`).join(", ")} failed; fix the shop and add it again`);
     }
-    const stopped = await putInPlace(store, staging, manifest, null, now);
+    // A type held above is the town's already, so this holds nothing twice.
+    const stopped = await putInPlace(store, staging, manifest, { owner: null, testedAt: now, held: true }, now);
     io.out(`added ${manifest.name} ${manifest.version}\n`);
     for (const line of stopped) io.out(`${line}\n`);
     return 0;
@@ -233,7 +267,7 @@ async function newStaging(store: Store): Promise<string> {
  * types and shops (ManifestRefused thrown), not named as the town's own,
  * and breaking no dependent. The manifest, or the line refusing.
  */
-async function checkCopy(store: Store, staging: string, types: readonly string[], shops: ReturnType<typeof townShops>): Promise<Manifest | string> {
+async function checkCopy(store: Store, staging: string, types: ReturnType<Store["listTypes"]>, shops: ReturnType<typeof townShops>): Promise<Manifest | string> {
   const late = await strangeEntries(staging);
   if (late.length) return `${late.join(", ")} is not a plain file in the copy`;
   const manifest = await loadShop(staging, types, shops);
@@ -243,18 +277,25 @@ async function checkCopy(store: Store, staging: string, types: readonly string[]
 
 /**
  * The copy put in place, both doors': the shop's directory moved aside,
- * the copy moved in, the row upserted with `owner`, the old directory
- * removed. Then the grants at the shop live before and not after, one line
- * each, and a line on what to do when one binds no credential.
+ * the copy moved in, the types the manifest defines that the town lacks
+ * written, proposed or `held`, and the row upserted with `owner` and
+ * `testedAt`, in one write, the old directory removed. Then the grants at
+ * the shop live before and not after, one line each, and a line on what to
+ * do when one binds no credential.
  */
-async function putInPlace(store: Store, staging: string, manifest: Manifest, owner: string | null, now: number): Promise<string[]> {
+async function putInPlace(store: Store, staging: string, manifest: Manifest, row: { owner: string | null; testedAt: number | null; held: boolean }, now: number): Promise<string[]> {
   const final = shopDir(store, manifest.name);
   const old = `${staging}-old`;
   const had = await lstat(final).then(() => true, () => false);
   const liveBefore = store.liveGrantsAt(manifest.name, now).map((g) => g.id);
   if (had) await rename(final, old);
   await rename(staging, final);
-  store.upsertShop(manifest, now, owner);
+  store.inTransaction(() => {
+    for (const n of (manifest.credentials ?? []).filter(definesType)) {
+      store.proposeType({ name: n.type, origin: n.origin!, header: n.header!, ...(n.guidance === undefined ? {} : { guidance: n.guidance }) }, manifest.name, row.held, now);
+    }
+    store.upsertShop(manifest, now, row.owner, row.testedAt);
+  });
   if (had) await rm(old, { recursive: true, force: true });
   const stillLive = store.liveOf(liveBefore, now);
   const states = liveBefore.filter((id) => !stillLive.includes(id)).map((id) => ({ id, state: store.grantState(id, now)! }));
@@ -266,8 +307,13 @@ async function putInPlace(store: Store, staging: string, manifest: Manifest, own
   return lines;
 }
 
-/** What the hall's door did with a sent shop: its tests' results, and for a publish whose tests all passed, the lines naming the grants that stopped being live; `kept` false otherwise. */
-export type Sent = { manifest: Manifest; results: TestResult[]; kept: boolean; stopped: string[] } | { refused: string[] };
+/**
+ * What the hall's door did with a sent shop: its tests' results, and for a
+ * publish whose tests all passed, the lines naming the grants that stopped
+ * being live; `kept` false otherwise. `waits` is the shop's needs, whose
+ * tests did not run; empty for a shop with none.
+ */
+export type Sent = { manifest: Manifest; results: TestResult[]; waits: string[]; kept: boolean; stopped: string[] } | { refused: string[] };
 
 /**
  * The hall's front door, publishing steps 6 to 8: the bundle's files
@@ -278,10 +324,12 @@ export type Sent = { manifest: Manifest; results: TestResult[]; kept: boolean; s
  * under `parent`; and, when `keep` and every test passed, the copy moved
  * into place with the pass's user as owner. The staging is removed on
  * every path, and the shop already in the town is untouched until the move.
+ * A shop with needs runs no test, and is moved in with `tested_at` null and
+ * the types it proposes written with it.
  */
 export async function sendShop(deps: GateDeps, req: { pass: Pass; files: ReadonlyMap<string, BundleFile>; parent: string; keep: boolean }, now: number): Promise<Sent> {
   const { store } = deps;
-  const types = store.listTypes().map((t) => t.name);
+  const types = store.listTypes();
   const shops = townShops(store);
   const staging = await newStaging(store);
   try {
@@ -299,12 +347,68 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
       throw err;
     }
     if (typeof manifest === "string") return { refused: [manifest] };
+    const waits = (manifest.credentials ?? []).map((n) => n.type);
     const timeout = deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs };
-    const results = await testShop(staging, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
-    if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, kept: false, stopped: [] };
-    const stopped = await putInPlace(store, staging, manifest, req.pass.userId, now);
-    return { manifest, results, kept: true, stopped };
+    const results = waits.length ? [] : await testShop(staging, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
+    if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, waits, kept: false, stopped: [] };
+    const stopped = await putInPlace(store, staging, manifest, { owner: req.pass.userId, testedAt: waits.length ? null : now, held: false }, now);
+    return { manifest, results, waits, kept: true, stopped };
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
+}
+
+/**
+ * `permit approve`'s third step, at a shop with needs whose tests have not
+ * run on its code: the tests run from the shop's directory in the town,
+ * each in a scratch state, as `shop add --user` runs them, on the
+ * credentials the binding chose, opened through tellers against the real
+ * origins, within the admin's wall. One row for the approval, pass none,
+ * the shop, detail `approval <permit> tests <n>/<m>`, and under it a row
+ * for each line and every call a line's shop made. The lines print as
+ * `shop test` prints them; a pass sets `tested_at`. How many passed of
+ * how many; a need the binding does not meet is thrown as its line.
+ */
+export async function testAtApproval(
+  store: Store,
+  key: Buffer | null,
+  req: { permit: string; shop: string; userName: string; bound: Record<string, string>; picked: readonly string[] },
+  decide: NonNullable<GateDeps["decide"]>,
+  io: Io,
+  now: number,
+  wall: Wall,
+): Promise<{ passed: number; of: number }> {
+  const manifest = store.getShop(req.shop)!.manifest;
+  const needs = treeOf(manifest, store).needs;
+  const picked = [...new Set([...Object.values(req.bound), ...req.picked])];
+  const met = meetNeeds(store, key, req.shop, needs, req.userName, picked);
+  if (typeof met === "string") throw new StoreError(met);
+  const parent = newCallId();
+  const started = performance.now();
+  const types = store.listTypes();
+  const results = await testShop(shopDir(store, req.shop), { types, shops: townShops(store), store, wall, credentials: met, audit: { parent, decide, now } });
+  report(results, io);
+  const passed = results.filter((r) => r.ok).length;
+  const argv = ["permit", "approve", req.permit];
+  store.recordCall({
+    callId: parent,
+    parent: null,
+    at: now,
+    passId: null,
+    grantId: null,
+    shop: req.shop,
+    command: null,
+    argvHash: argvHash(argv),
+    result: passed === results.length ? "ok" : "shop-error",
+    exit: passed === results.length ? 0 : 1,
+    shopExit: null,
+    latencyMs: performance.now() - started,
+    notices: [],
+    stderr: null,
+    detail: `approval ${req.permit} tests ${passed}/${results.length}`,
+    credentials: [],
+    wall: null,
+  });
+  if (passed === results.length) store.markTested(req.shop, now);
+  return { passed, of: results.length };
 }

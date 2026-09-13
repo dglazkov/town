@@ -65,6 +65,8 @@ export interface ShopRow {
   owner: string | null;
   /** That user's name; null when there is no owner. */
   ownerName: string | null;
+  /** When its tests last passed on this code; null for a shop with needs published and not yet approved, so an approval runs them. */
+  testedAt: number | null;
 }
 
 /** A grant an agent proposed with `request`, pending until a person decides it. */
@@ -306,14 +308,23 @@ export class Store {
 
   // shops
 
-  /** Latest only: the row for `manifest.name`, with `owner` the publishing user's id, or null for the operator's. */
-  upsertShop(manifest: Manifest, now = Date.now(), owner: string | null = null): void {
+  /**
+   * Latest only: the row for `manifest.name`, with `owner` the publishing
+   * user's id, or null for the operator's, and `testedAt` when its tests
+   * passed on this code, or null when they have not run on it.
+   */
+  upsertShop(manifest: Manifest, now = Date.now(), owner: string | null = null, testedAt: number | null = now): void {
     this.db
       .prepare(
-        `INSERT INTO shops (name, version, manifest, added_at, owner) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(name) DO UPDATE SET version = excluded.version, manifest = excluded.manifest, added_at = excluded.added_at, owner = excluded.owner`,
+        `INSERT INTO shops (name, version, manifest, added_at, owner, tested_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET version = excluded.version, manifest = excluded.manifest, added_at = excluded.added_at, owner = excluded.owner, tested_at = excluded.tested_at`,
       )
-      .run(manifest.name, manifest.version, JSON.stringify(manifest), now, owner);
+      .run(manifest.name, manifest.version, JSON.stringify(manifest), now, owner, testedAt);
+  }
+
+  /** Records that the shop's tests passed on its code at `now`. */
+  markTested(name: string, now = Date.now()): void {
+    this.db.prepare("UPDATE shops SET tested_at = ? WHERE name = ?").run(now, name);
   }
 
   getShop(name: string): ShopRow | null {
@@ -385,8 +396,16 @@ export class Store {
     return credentials.getType(this, name);
   }
 
-  addType(t: { name: string; origin: string; header: string }, now = Date.now()): CredentialType {
+  addType(t: { name: string; origin: string; header: string; guidance?: string }, now = Date.now()): CredentialType {
     return credentials.addType(this, t, now);
+  }
+
+  proposeType(t: { name: string; origin: string; header: string; guidance?: string }, proposedBy: string, held: boolean, now = Date.now()): CredentialType | null {
+    return credentials.proposeType(this, t, proposedBy, held, now);
+  }
+
+  approveType(name: string): CredentialType {
+    return credentials.approveType(this, name);
   }
 
   removeType(name: string): void {
@@ -487,6 +506,7 @@ function toShop(r: Row): ShopRow {
     addedAt: Number(r.added_at),
     owner,
     ownerName: r.owner_name === null || r.owner_name === undefined ? null : String(r.owner_name),
+    testedAt: nullableNumber(r.tested_at),
   };
 }
 

@@ -23,8 +23,7 @@ and never parses anything the manifest did not declare.
 
 ## 2. Top-level fields
 
-Every field below is required unless marked optional. No other field is
-accepted.
+Every field is required unless marked optional; no other is accepted.
 
     name: town/memory
       string, "<namespace>/<shop>", each part lowercase letters,
@@ -117,10 +116,9 @@ How an agent types arguments, and how they are checked:
   argument, an argument given twice, a value of the wrong type, an
   enum value not in values.
 
-The canonical form (what the entry receives, §7) is the command, then
-"--name value" for each argument in manifest order, defaults filled,
-bools written as true or false. An argument omitted with no default is
-left out.
+The canonical form (what the entry receives, §7): the command, then
+"--name value" per argument in manifest order, defaults filled, bools as
+true or false; an argument omitted with no default is left out.
 
 ## 5. Constraints
 
@@ -166,44 +164,34 @@ How a test runs:
 - Every line but the last must exit 0, or the test fails naming it.
 - Lines get empty stdin.
 
-These are the shop's only tests, and must pass for it to join a town;
-\`townd admin shop test <dir>\` prints "ok <name>" or "not ok <name>: <why>"
-for each. With needs or dependencies (§8) it takes \`--data <dir>\`, and
-\`--user <name>\` when the shop or a dependency has needs: the tests run
-on that user's credentials against the real origins, so a test reads
-and never writes. Dependencies run in the test's scratch state.
+These are the shop's only tests, and must pass for it to join a town.
+With needs (§8) they run on a person's credentials against the real
+origins, so a test reads and never writes. Dependencies run in the
+test's scratch state.
 
 ## 7. The runtime contract
 
-The town runs the entry as a process, from the shop's directory, once
-per call:
+The town runs the entry as a process from the shop's directory, per call:
 
-- argv: the command, then its arguments in canonical form (§4). The
-  arguments are already checked; parse "--name value" pairs and nothing
-  more clever. The command is argv's first word after the entry.
+- argv: the command, then its arguments in canonical form (§4), already
+  checked: parse "--name value" pairs and nothing more clever.
 - entry: a .mjs or .js entry runs under the town's own Node, argv as
-  process.argv.slice(2); any other file must be executable, run directly.
-- environment: exactly three names, plus one per need, plus TOWN_GRANT
-  when the shop has dependencies (§8), and nothing else:
-    TOWN_STATE  a directory made before the call, private to this shop
-                and this user. Keep all state here; it persists across
-                calls. Nothing outside it is yours.
+  process.argv.slice(2); any other file must be executable.
+- environment: these names, and nothing else:
+    TOWN_STATE  a directory private to this shop and this user, made
+                before the call. Keep all state here; it persists.
     TOWN_USER   an opaque id for the calling user.
     PATH        the town's own; with dependencies, \`town\` comes first.
     TOWN_CREDENTIAL_<TYPE>
-                per need, the type upper-cased with "-" as "_": a base
-                URL on loopback that lives as long as the call.
-    TOWN_GRANT  with dependencies, the path of a grant file only this
-                call can use, gone when it ends.
-- stdin: the call's stdin, text as sent, empty when none. Over one
-  megabyte is refused before the entry runs.
+                per need, upper-cased, "-" as "_": a loopback URL (§8).
+    TOWN_GRANT  with dependencies, a grant file for this call alone.
+- stdin: the call's stdin, text, empty when none; over one megabyte is
+  refused before the entry runs.
 - stdout: the result, passed to the agent as it is.
-- stderr: the shop's own log, kept in the town's audit and shown to the
-  agent only when the call fails. The audit never holds an argument, so
-  never write a value there: say "no value under that key", not the key.
+- stderr: the shop's log, in the audit, shown to the agent only when the
+  call fails. Never write a value there: "no value under that key".
 - exit code: 0 is success; anything else fails, and the agent sees exit 1.
-- time: thirty seconds. Then the entry and every process it started
-  are killed, and the call fails.
+- time: thirty seconds; then the entry and all it started are killed.
 
 The town walls the entry and all it starts. It reads only its directory,
 TOWN_STATE, and the box's system files; writes only TOWN_STATE; reaches
@@ -216,36 +204,48 @@ town. It names the credential types it needs and the shops it calls:
 
     credentials:
       - type: github-token
+      - type: figma
+        origin: https://api.figma.com
+        header: "X-Figma-Token: {token}"
+        guidance: Make a personal access token at Figma > Settings >
+          Security, with file_content:read, and paste it.
     depends:
       - shop: town/memory
         commands: [remember, recall]
 
-    credentials  optional list of needs, each { type: <name> } and no
-                 other key, one per type. A type is the town's: the
+    credentials  optional list of needs, one per type. A type is the
                  origin its secret may be sent to and the header it
-                 rides in. A type the town does not hold is refused,
-                 naming the ones it does.
+                 rides in. { type } names a type the town holds. With
+                 origin (an http: or https: URL, no query) and header
+                 (with {token}) it defines one: exactly as the town
+                 holds it, or, for a type it lacks, a proposal.
+      guidance   with a definition, one paragraph of at most 600 characters
+                 for whoever makes the secret: where, and what to allow. It
+                 names no host, bare or in a URL, the type does not send to.
+      oauth      with a definition, for an OAuth type: { authorize,
+                 token, scopes }, two https: URLs and a list. Refused
+                 until consent phase 1. A manifest never names a client
+                 id, secret, or redirect: a registration is the operator's.
     depends      optional list of dependencies, each { shop, commands }
                  and no other key, one per shop, never this shop nor
                  town/hall: a shop the town holds, and a non-empty list
                  of commands that shop has. Refusals name what it holds.
 
-A need: on each call the town opens a window per need that signs and
-forwards. Send $TOWN_CREDENTIAL_<TYPE> (§7) the request you would send
-the type's origin, path and all, with no credential; the town adds it.
-A GET of $TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World
-reaches https://api.github.com/repos/octocat/Hello-World signed.
+A need: send $TOWN_CREDENTIAL_<TYPE> (§7) the request you would send the
+type's origin, path and all, with no credential; the town signs it. A GET
+of $TOWN_CREDENTIAL_GITHUB_TOKEN/repos/octocat/Hello-World reaches
+https://api.github.com/repos/octocat/Hello-World signed.
 Method, query, headers, body, and status pass both ways as they are,
 streamed; an Authorization you set is replaced. Keep the URL out of
 stderr, which the audit keeps: dead by then, it is a secret's shape.
 
-A dependency: call it as an agent would, \`town <shop> <command> …\`, and
-read \`town --help\` for what you were given: the calling agent's grant,
-cut to what you declared. A shop or command you did not declare is "not
-available to this grant", exit 2; a value outside the agent's
-constraints is exit 2 with the constraint's line. Pass those lines on,
-since they carry no value, and no other stderr of town's. Every call
-still running ends with yours.
+A shop published with needs waits for a person: its tests run, and a
+grant at it is made, when a person approves the permit its publish asks.
+
+A dependency: call it as an agent would, \`town <shop> <command> …\`;
+\`town --help\` shows the agent's grant cut to what you declared. What you
+did not declare, or a value outside the agent's constraints, is exit 2
+with a line: pass it on, and no other stderr of town's.
 
 ## 9. A full example
 

@@ -1,0 +1,27 @@
+name: dimitri/figma
+version: 0.1.0
+summary: Reads Figma documents and what people said on them, for consent's tests.
+runtime: subprocess
+entry: ./main.mjs
+credentials:
+  - type: figma
+    origin: http://127.0.0.1:9
+    header: "X-Figma-Token: {token}"
+    guidance: Make a personal access token at Figma > Settings > Security, with file_content:read, and paste it.
+commands:
+  - name: file
+    summary: Print a file as Figma answers for it, after the status.
+    effect: read
+    args:
+      - { name: key, type: string, required: true, doc: "The file's key, from its URL." }
+    output: text
+  - name: comments
+    summary: Print a file's comments as Figma answers for them, after the status.
+    effect: read
+    args:
+      - { name: key, type: string, required: true, doc: "The file's key, from its URL." }
+    output: text
+tests:
+  - name: a file answers
+    run: file --key fixture
+    expect: { contains: "200" }

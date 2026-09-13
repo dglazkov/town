@@ -30,9 +30,13 @@ untouched, and `src/cli.ts` learns nothing here, not `consent`, not
 
 ---
 
-**Where we are: planned, 13 September 2026.** No phase begun. Consent
-phase 0 is next: a type proposed with the shop, and a permit that
-waits on it.
+**Where we are: 13 September 2026.** Consent phase 0 is closed, and
+consent phase 1, the `oauth` kind, is next: its code and rings need no
+one, and its by-hand proof waits on a Google OAuth client the conductor
+registers (⚑). What holds: a manifest proposes a `token` type with
+guidance, a publish of a shop with needs asks for a permit in the
+publish grant's place, and `permit show`'s checklist, typed as printed,
+ends at a grant with the shop's tests run at approval.
 
 The order is dependency order. Phase 0 is the type with the shop: the
 manifest's need grown, guidance included, proposed and held types, the
@@ -140,7 +144,40 @@ conductor starts, published by a pass through the built `town`; `permit
 show` read and its three lines typed as printed, and nothing else; the
 call answered.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held as written: 513 tests,
+both rings, typecheck, the spec at 298 lines; the four mutations each
+failed their named tests; and by hand, `permit show`'s three lines
+typed as printed ended at a grant, the call signed at the fake origin.
+
+**Findings:**
+
+- **2026-09-13 — The phase took about fifty-five minutes of wall
+  clock.** Three doc commits (e829844, d5d7f17, f4b2d71); the builder
+  went back twice, once for a rule the conductor invented and then
+  withdrew.
+- **2026-09-13 — `src/manifest.ts` split before the phase's work,**
+  `validateNeeds` to `src/needs.ts` (9e96828); the need's rules would
+  have crossed six hundred lines. `src/checklist.ts` is new.
+- **2026-09-13 — Guidance hosts match exactly, bare or in a URL.**
+  `www.figma.com` beside `api.figma.com` is refused, and an email's host
+  counts; guidance names places by the provider's menus. Consent phase 2
+  counts the round trips this costs.
+- **2026-09-13 — The approve line's note is a shell comment,** `#
+  runs dimitri/figma's 1 test on it first`, since a parenthesis breaks
+  the line typed as printed.
+- **2026-09-13 — An approval's test lines are audit rows,** grant
+  `shop-test:<shop>`, under a row `approval <prm> tests n/m`; a
+  publish's tests still write none, so the two doors record tests
+  differently.
+- **2026-09-13 — Tests at approval run from the shop's directory in
+  the town,** walled, with scratch state, not a fresh copy. A failing
+  test leaving the permit pending is proved in checkout only.
+- **2026-09-13 — A `shop add` refused for a credential leaves the
+  type held and says so;** a credential needs its type held first, so
+  the same add after `credential add` completes.
+- **2026-09-13 — The checklist's lines are `token`'s alone:** consent
+  phase 1 adds `--client-id` and `connect` in `todos()`, and
+  `proposeType` writes kind `token` only.
 
 ---
 

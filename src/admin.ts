@@ -13,16 +13,24 @@
 // Before any verb, `main` resolves the wall through the chooser it is
 // given, `--wall <kind>` or the box's, and a refusal ends it there; `shop
 // test` and `shop add` run the shop's tests within that wall, hiding the
-// data directory when there is one.
+// data directory when there is one. A type a shop proposed is held by
+// no credential until `type approve`; `permit show` prints the checklist
+// from a pending permit to its grant, and `permit approve` at a shop with
+// needs checks in its order, runs the shop's tests on the credentials
+// chosen when they have not run on its code, and on a refusal prints the
+// checklist that remains.
 
 import { rm } from "node:fs/promises";
 import type { CallRow } from "./audit.js";
 import { shopDir } from "./gate.js";
-import { approvePermit, bindingText, checkGrant, constraintText, grantStateText, permitTable } from "./grants.js";
+import { checklist, guidanceLine, todoBlock } from "./checklist.js";
+import { proposedRefusal } from "./credentials.js";
+import { bindingText, checkGrant, checkPermit, constraintText, grantStateText, makePermitGrant, needsOf, permitTable } from "./grants.js";
 import { table } from "./help.js";
 import { HALL_NAME, type Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
-import { dependentsOf, shopAdd, shopTest, type Picked } from "./publish.js";
+import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked } from "./publish.js";
+import { decideAndRecord } from "./server.js";
 import { StoreError, openStore, type Store } from "./store.js";
 import { VaultError, ensureKey, requireKey } from "./vault.js";
 import type { Wall } from "./wall.js";
@@ -51,9 +59,9 @@ const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb>
   pass new --user <name> --label <text> [--expires <duration>] | pass ls | pass revoke <id>
   grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>] [--credential <id>]...
   grant ls [--pass <id>] | grant revoke <id>
-  permit ls [--pass <id>] | permit approve <id> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--credential <id>]... [--expires <duration>] | permit deny <id>
+  permit ls [--pass <id>] | permit show <id> | permit approve <id> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--credential <id>]... [--expires <duration>] | permit deny <id>
   shop add <dir> [--user <name> [--credential <id>]...] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
-  type add <name> --origin <url> --header '<Name>: <value with {token}>' | type ls | type rm <name>
+  type add <name> --origin <url> --header '<Name>: <value with {token}>' [--guidance <text>] | type approve <name> | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] (the secret on stdin) | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
 durations: <n>d, <n>h, <n>m. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
@@ -65,7 +73,7 @@ interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call"];
+const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];
@@ -295,20 +303,35 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       noExtra(args, 0, "permit ls");
       io.out(permitTable(store, store.listPermits(one(p, "pass")), true));
       return 0;
+    case "permit show": {
+      noExtra(args, 1, "permit show");
+      const permit = store.permitById(args[0]!);
+      if (!permit) throw new StoreError(`permit ${args[0]!} does not exist; townd admin permit ls lists them`);
+      io.out(permitTable(store, [permit], true) + checklist(store, permit));
+      return 0;
+    }
     case "permit approve": {
       noExtra(args, 1, "permit approve");
+      const id = args[0]!;
       const expires = one(p, "expires");
-      const made = approvePermit(
-        store,
-        args[0]!,
-        { commands: one(p, "commands"), constraints: p.opts.get("constraint") ?? [], credentials: p.opts.get("credential") ?? [], expiresAt: expires ? now + parseDuration(expires) : null },
-        now,
-      );
-      if (Array.isArray(made)) {
-        for (const r of made) io.err(`townd admin: permit approve refused: ${r}\n`);
-        io.err(`townd admin: ${args[0]!} is still pending\n`);
+      const req = { commands: one(p, "commands"), constraints: p.opts.get("constraint") ?? [], credentials: p.opts.get("credential") ?? [], expiresAt: expires ? now + parseDuration(expires) : null };
+      const permit = store.pendingPermit(id);
+      const shop = store.getShop(permit.shop);
+      const needy = shop !== null && needsOf(shop.manifest).length > 0;
+      // A refusal leaves the permit pending and, at a shop with needs, prints what remains to do.
+      const refused = (lines: readonly string[]) => {
+        for (const r of lines) io.err(`townd admin: permit approve refused: ${r}\n`);
+        io.err(`townd admin: ${id} is still pending\n`);
+        if (needy) io.err(todoBlock(store, permit, true));
         return 1;
+      };
+      const checked = checkPermit(store, id, req, now);
+      if (Array.isArray(checked)) return refused(checked);
+      if (needy && shop.testedAt === null) {
+        const ran = await testAtApproval(store, vaultKey, { permit: id, shop: permit.shop, userName: permit.userName, bound: checked.credentials, picked: req.credentials }, decideAndRecord, io, now, wall);
+        if (ran.passed < ran.of) return refused([`tests ${ran.of - ran.passed}/${ran.of} failed; the shop needs work, and the permit waits`]);
       }
+      const made = makePermitGrant(store, id, checked, req.expiresAt, now);
       if (made.revoked) io.out(`revoked ${made.revoked.id} at ${made.revoked.shop}, which ${args[0]!} replaces\n`);
       io.out(`${made.grant.id}\n`);
       return 0;
@@ -322,13 +345,28 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
 
     case "type add": {
       noExtra(args, 1, "type add");
-      const t = store.addType({ name: args[0]!, origin: one(p, "origin", true), header: one(p, "header", true) }, now);
+      const guidance = one(p, "guidance");
+      const t = store.addType({ name: args[0]!, origin: one(p, "origin", true), header: one(p, "header", true), ...(guidance === undefined ? {} : { guidance }) }, now);
       io.out(`added ${t.name}\n`);
+      return 0;
+    }
+    case "type approve": {
+      noExtra(args, 1, "type approve");
+      const t = store.approveType(args[0]!);
+      io.out(`${t.name}: a ${t.kind} type, sent to ${t.origin} in ${t.header}\n`);
+      const said = guidanceLine(t);
+      if (said) io.out(`${said}\n`);
+      io.out(`approved ${t.name}, proposed by ${t.proposedBy}; it is the town's\n`);
       return 0;
     }
     case "type ls":
       noExtra(args, 0, "type ls");
-      io.out(table(["name", "origin", "header", "added"], store.listTypes().map((t) => [t.name, t.origin, t.header, isoTime(t.addedAt)])));
+      io.out(
+        table(
+          ["name", "kind", "state", "proposer", "origin", "header", "added"],
+          store.listTypes().map((t) => [t.name, t.kind, t.state, t.proposedBy ?? "-", t.origin, t.header, isoTime(t.addedAt)]),
+        ),
+      );
       return 0;
     case "type rm": {
       noExtra(args, 1, "type rm");
@@ -343,9 +381,14 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       const type = one(p, "type", true);
       const label = one(p, "label") ?? "";
       if (!store.userByName(userName)) throw new StoreError(`user ${userName} does not exist; add it with townd admin user add ${userName}`);
-      if (!store.getType(type)) {
+      const t = store.getType(type);
+      if (!t) {
         throw new StoreError(`type ${type} is not a type this town holds; write one of (${store.listTypes().map((t) => t.name).join(", ")}), or add it with townd admin type add`);
       }
+      if (t.state === "proposed") throw new StoreError(proposedRefusal(t));
+      // What to paste, in the words of whoever wrote the type, before the prompt reads it.
+      const said = guidanceLine(t);
+      if (said) io.err(`${said}\n`);
       const value = await readSecret(io);
       const c = store.addCredential({ userName, type, label, value }, ensureKey(store.dataDir), now);
       io.out(`${c.id}\n`);

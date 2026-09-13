@@ -12,14 +12,16 @@
 // and records each call under the hall's. A line that fails after a call
 // of its was denied says the denial's line. Every line runs within the
 // wall it is given, the agent's the gate's own: a shop's tests are the
-// shop's code too.
+// shop's code too. The operator's tree at a permit's approval is recorded:
+// each line's run a row under the approval's, and every call below it a
+// row under the line's.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseArgs, splitWords } from "./args.js";
-import { answerFor, type Caller, type GateDeps, type TestTree } from "./gate.js";
-import { parseManifest, type Manifest, type ShopTest, type TownShop } from "./manifest.js";
+import { canonicalArgv, parseArgs, splitWords } from "./args.js";
+import { answerFor, argvHash, newCallId, type Caller, type GateDeps, type TestTree } from "./gate.js";
+import { parseManifest, type Manifest, type ShopTest, type TownShop, type TownType } from "./manifest.js";
 import { run, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
 import type { Grant, Pass, Store } from "./store.js";
 import type { Wall } from "./wall.js";
@@ -44,8 +46,8 @@ export interface TestShopOptions {
   wall: Wall;
   /** The limit each line runs under; the runtime's thirty seconds when omitted. */
   timeoutMs?: number;
-  /** The credential types the town holds; omitted when no store is at hand, and then a need is refused. */
-  types?: readonly string[];
+  /** The credential types the town holds, with their definitions; omitted when no store is at hand, and then a need is refused. */
+  types?: readonly (string | TownType)[];
   /** The shops the town holds; omitted when no store is at hand, and then a dependency is refused. */
   shops?: readonly TownShop[];
   /** The town whose shops a shop with dependencies calls; read, never written. */
@@ -60,6 +62,12 @@ export interface TestShopOptions {
    * root, under `parent`, the hall's call.
    */
   agent?: { deps: GateDeps; pass: Pass; parent: string };
+  /**
+   * The operator's tree, recorded in `store`'s audit: each line's run a row
+   * under `parent`, the approval's row, at `now`, and every call below it
+   * decided and recorded by `decide` under the line's row.
+   */
+  audit?: { parent: string; decide: NonNullable<GateDeps["decide"]>; now: number };
 }
 
 /** The opaque user every shop test runs as. */
@@ -110,7 +118,7 @@ export function treeOf(manifest: Manifest, store: Store): { grants: Grant[]; nee
 }
 
 /** Reads and validates `dir/manifest.yaml` against the town's `types` and `shops`, throwing ManifestRefused when it is not v0. */
-export async function loadShop(dir: string, types?: readonly string[], shops?: readonly TownShop[]): Promise<Manifest> {
+export async function loadShop(dir: string, types?: readonly (string | TownType)[], shops?: readonly TownShop[]): Promise<Manifest> {
   let text: string;
   try {
     text = await readFile(path.join(dir, "manifest.yaml"), "utf8");
@@ -125,6 +133,7 @@ export async function loadShop(dir: string, types?: readonly string[], shops?: r
 /** Runs every test in the shop's manifest; one result per test, in order. */
 export async function testShop(dir: string, opts: TestShopOptions): Promise<TestResult[]> {
   if (opts.agent && opts.agent.deps.wall !== opts.wall) throw new Error("a shop's tests were given one wall and its gate another");
+  if (opts.audit && (opts.agent || !opts.store)) throw new Error("a shop's tests are recorded for the operator's tree in a store alone");
   const manifest = await loadShop(dir, opts.types, opts.shops);
   const composed = (manifest.depends ?? []).length > 0;
   if (composed && !opts.store && !opts.agent) throw new Error(`${manifest.name}'s tests call its dependencies, and were given no town to call them in`);
@@ -163,15 +172,38 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
         ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
         ...(own.length ? { credentials: own } : {}),
       };
+      const lineId = newCallId();
+      const started = performance.now();
       if (agent && (manifest.depends ?? []).length) {
         const caller: Caller = { passId: agent.pass.id, stateRoot, manifest, parent: agent.parent, depth: 1 };
         runOpts.town = { answer: answerFor(agent.deps, caller) };
       } else if (opts.store && (manifest.depends ?? []).length) {
         const test: TestTree = { grants: treeOf(manifest, opts.store).grants, user: TEST_USER, stateRoot, credentials: opts.credentials ?? [] };
-        const deps: GateDeps = { store: opts.store, wall: opts.wall, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) };
-        runOpts.town = { answer: answerFor(deps, { test, manifest, parent: null, depth: 1 }) };
+        const deps: GateDeps = { store: opts.store, wall: opts.wall, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }), ...(opts.audit ? { decide: opts.audit.decide } : {}) };
+        runOpts.town = { answer: answerFor(deps, { test, manifest, parent: opts.audit ? lineId : null, depth: 1 }) };
       }
       const result = await (agent?.deps.runtime ?? run)(dir, manifest, command, parsed.values, runOpts);
+      if (opts.audit) {
+        opts.store!.recordCall({
+          callId: lineId,
+          parent: opts.audit.parent,
+          at: opts.audit.now,
+          passId: null,
+          grantId: `shop-test:${manifest.name}`,
+          shop: manifest.name,
+          command,
+          argvHash: argvHash(canonicalArgv(manifest, command, parsed.values)),
+          result: result.timedOut ? "timeout" : result.exit === 0 ? "ok" : "shop-error",
+          exit: result.exit === 0 ? 0 : 1,
+          shopExit: result.exit,
+          latencyMs: performance.now() - started,
+          notices: [],
+          stderr: result.stderr,
+          detail: `test ${test.name}`,
+          credentials: result.credentials,
+          wall: result.wall,
+        });
+      }
       if (result.timedOut) return fail("ran out of time");
       if (i < lines.length - 1 && result.exit !== 0) return fail(`exited ${result.exit}${said(result)}`);
       last = result;

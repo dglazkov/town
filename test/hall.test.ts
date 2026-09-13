@@ -19,10 +19,17 @@
 // the grants that stop being live named; and the owner, both doors.
 // Wall phase 0: the wall in the gate's deps reaching a sent shop's tests
 // and the dependency calls below them, and `shop add`'s, by a fake wall's
-// record.
+// record. Consent phase 0: a bundle whose manifest proposes a token type
+// through `validate`, `test`, and `publish` with the fake runtime: the
+// refusals of a need, nothing run at `test`, the type proposed with the
+// shop, the permit made in the publish grant's place and replaced, a
+// publish grant made before the shop gained a need revoked, `tested_at`
+// null and cleared by a republish, `requests`, `show`, and `search` with
+// needs and the shop's guidance, and the sources of every grant after each
+// step.
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -373,10 +380,9 @@ describe("validate, test, and publish: the checks before any test", () => {
     expect(refused.stdout.split("\n")).toEqual([
       "colour: is not a manifest field; write only the fields in §2 (name, version, summary, guidance, runtime, entry, credentials, depends, commands, tests) instead (spec §2)",
       "name: town/todo is not under your namespace; write dimitri/todo instead (spec §2)",
-      "credentials: a shop you send holds no credential of its own; depend on the town's shop for that origin, or ask the person at the box to add one (spec §8)",
       "",
     ]);
-    expect(refused).toMatchObject({ exit: 1, result: "usage", detail: "refused §2,§2,§8", shopExit: null });
+    expect(refused).toMatchObject({ exit: 1, result: "usage", detail: "refused §2,§2", shopExit: null });
 
     // runtime: town, and a dependency on the hall, are the validator's.
     const townRuntime = await send(token, "validate", todo(TODO_MANIFEST.replace("runtime: subprocess", "runtime: town").replace("shop: town/memory", "shop: town/hall")));
@@ -613,4 +619,129 @@ describe("the publish grant, the staging, and the owner", () => {
       rmSync(at, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe("consent: a shop that proposes a type, through the hall", () => {
+  const FIGMA_DIR = path.resolve(import.meta.dirname, "fixtures/figma-shop");
+  const FIGMA_MANIFEST = readFileSync(path.join(FIGMA_DIR, "manifest.yaml"), "utf8").replace("http://127.0.0.1:9", "https://api.figma.com");
+  const FIGMA_ENTRY = readFileSync(path.join(FIGMA_DIR, "main.mjs"), "utf8");
+  const GUIDANCE = "Make a personal access token at Figma > Settings > Security, with file_content:read, and paste it.";
+  const figma = (manifest = FIGMA_MANIFEST) => bundleOf({ "manifest.yaml": manifest, "main.mjs": FIGMA_ENTRY });
+  const WAIT = "tests wait: dimitri/figma needs figma, which no grant of yours binds; they run when a person approves your permit\n";
+
+  /** The criterion: no grant at a shop with needs that no person made, whatever its state; a revoked publish grant made before the shop gained its need is the only other. */
+  function expectNoGrantAtNeedsNoPersonMade(step: string): void {
+    for (const g of store.listGrants()) {
+      const needs = store.getShop(g.shop)?.manifest.credentials ?? [];
+      if (needs.length === 0) continue;
+      const person = g.source === null || /^permit prm_[0-9a-f]{16}$/.test(g.source);
+      expect(person || (g.source === "publish" && g.revokedAt !== null), `${step}: ${g.id} at ${g.shop} source ${g.source}`).toBe(true);
+    }
+  }
+
+  it("validates a proposal and refuses a need's mistakes, runs nothing at test, and at publish proposes the type, keeps the shop untested, and asks for a permit in the publish grant's place", async () => {
+    const { token, pass } = agentWith({ "town/hall": {} });
+
+    // validate: ok, and each refusal of a need; nothing written.
+    expect(await send(token, "validate", figma())).toMatchObject({ exit: 0, stdout: "ok dimitri/figma 0.1.0: file, comments\n", detail: "valid dimitri/figma 0.1.0" });
+    const elsewhere = await send(token, "validate", figma(FIGMA_MANIFEST.replace("and paste it.", "and paste it at https://paste.example.com/figma.")));
+    expect(elsewhere).toMatchObject({ exit: 1, result: "usage", detail: "refused §8", stdout: "credentials[0].guidance: names paste.example.com, which is not where this type sends; say where the secret is made, not where to send it (spec §8)\n" });
+    const held = await send(token, "validate", figma(FIGMA_MANIFEST.replace("type: figma", "type: github-token")));
+    expect(held.stdout).toBe("credentials[0]: github-token is a type this town holds, at https://api.github.com in Authorization; leave the definition out, or write that (spec §8)\n");
+    const registration = FIGMA_MANIFEST.replace("    guidance:", "    oauth: { authorize: https://www.figma.com/oauth, token: https://api.figma.com/v1/oauth/token, scopes: [file_read], client_id: abc }\n    guidance:");
+    expect((await send(token, "validate", figma(registration))).stdout).toMatch(/^credentials\[0\]\.oauth\.client_id: is a registration, which is the operator's and never a manifest's; /);
+    const oauth = registration.replace(", client_id: abc", "");
+    expect((await send(token, "validate", figma(oauth))).stdout).toBe("credentials[0].oauth: oauth types come in consent phase 1; write a token type, an origin and a header alone, instead (spec §8)\n");
+    expect(store.listTypes().map((t) => t.name)).toEqual(["github-token"]);
+    expectNoGrantAtNeedsNoPersonMade("validate");
+
+    // test: the wait line, exit 0, nothing run, nothing kept.
+    const tested = await send(token, "test", figma());
+    expect(tested).toMatchObject({ exit: 0, result: "ok", stdout: WAIT, detail: "tests wait" });
+    expect(runs).toEqual([]);
+    expect([store.getShop("dimitri/figma"), store.getType("figma"), store.listPermits()]).toEqual([null, null, []]);
+    expect(stagings()).toEqual([]);
+    expectNoGrantAtNeedsNoPersonMade("test");
+
+    // publish: the wait line, then the permit's; the type proposed, the shop owned and untested, no grant, the permit pending at every command.
+    const published = await send(token, "publish", figma());
+    const permit = /requested (prm_[0-9a-f]{16}),/.exec(published.stdout)?.[1];
+    expect(published).toMatchObject({
+      exit: 0,
+      result: "ok",
+      stdout: `${WAIT}published dimitri/figma 0.1.0; it needs figma, so a person decides at the box: requested ${permit}, and town --help shows the answer\n`,
+      detail: `published dimitri/figma 0.1.0; requested ${permit}`,
+    });
+    expectNoGrantAtNeedsNoPersonMade("publish");
+    expect(runs).toEqual([]);
+    expect(store.getShop("dimitri/figma")).toMatchObject({ owner: pass.userId, testedAt: null });
+    expect(existsSync(path.join(shopDir(store, "dimitri/figma"), "main.mjs"))).toBe(true);
+    expect(store.getType("figma")).toMatchObject({ kind: "token", state: "proposed", proposedBy: "dimitri/figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: GUIDANCE });
+    expect(store.listPermits(pass.id).map((p) => [p.id, p.shop, p.commands, p.constraints, p.why, p.decision])).toEqual([[permit, "dimitri/figma", ["file", "comments"], {}, "published dimitri/figma 0.1.0", null]]);
+    expect(store.listGrants().filter((g) => g.shop === "dimitri/figma")).toEqual([]);
+    expect((await gate(deps, call(token, ["--help"]))).stdout).not.toContain("dimitri/figma");
+
+    // requests, show, and search say the need, never an id, with the shop's guidance under its name.
+    const requests = (await hall(token, "requests")).stdout.split("\n");
+    expect(requests[0]).toMatch(/^id\s+shop\s+commands\s+constraints\s+why\s+asked\s+state\s+needs$/);
+    expect(requests[1]).toMatch(new RegExp(`^${permit}\\s+dimitri/figma\\s+file,comments\\s+-\\s+published dimitri/figma 0\\.1\\.0\\s+\\S+\\s+pending\\s+figma: proposed \\(https://api\\.figma\\.com\\), none connected$`));
+    expect(requests.slice(2)).toEqual([`dimitri/figma says: ${GUIDANCE}`, ""]);
+    const shown = (await hall(token, "show", "--shop", "dimitri/figma")).stdout;
+    expect(shown).toMatch(/^dimitri\/figma: Reads Figma documents/);
+    expect(shown.endsWith(`\nthis pass holds: none of these\nneeds figma (none connected)\ndimitri/figma says: ${GUIDANCE}\n`)).toBe(true);
+    expect((await hall(token, "search", "--query", "figma")).stdout).toMatch(/^dimitri\/figma\s+Reads Figma .* held: none  needs figma \(none connected\)\n$/);
+
+    // A second publish moving the origin is refused, naming what the town holds; the proposal stands as first written.
+    const moved = await send(token, "publish", figma(FIGMA_MANIFEST.replace("origin: https://api.figma.com", "origin: https://api.figma.com/v2")));
+    expect(moved).toMatchObject({ exit: 1, stdout: "credentials[0]: figma is a type this town holds, at https://api.figma.com in X-Figma-Token; leave the definition out, or write that (spec §8)\n" });
+    expect(store.getType("figma")?.origin).toBe("https://api.figma.com");
+
+    // A second publish with a new command replaces the shop and the pending permit, which asks for three.
+    const three = FIGMA_MANIFEST.replace("tests:", "  - name: environment\n    summary: Print the environment the shop was given.\n    effect: read\n    output: json\ntests:");
+    const again = await send(token, "publish", figma(three));
+    const second = /requested (prm_[0-9a-f]{16}),/.exec(again.stdout)![1]!;
+    expect(second).not.toBe(permit);
+    expect(store.listPermits(pass.id).map((p) => [p.id, p.commands, p.decision])).toEqual([[second, ["file", "comments", "environment"], null]]);
+    expect(store.permitById(permit!)).toBeNull();
+    expectNoGrantAtNeedsNoPersonMade("republish");
+
+    // Approved at the box (the type, a credential, the tests, the grant): then a republish keeps the person's grant and clears tested_at.
+    store.approveType("figma");
+    const cred = store.addCredential({ userName: "dimitri", type: "figma", label: "figma", value: "figma-not-a-token" }, Buffer.alloc(32, 7), NOW);
+    store.markTested("dimitri/figma", NOW);
+    const approved = approvePermit(store, second, { commands: undefined, constraints: [], credentials: [], expiresAt: null }, NOW);
+    if (Array.isArray(approved)) throw new Error(approved.join("\n"));
+    expect(approved.grant).toMatchObject({ source: `permit ${second}`, credentials: { figma: cred.id } });
+    expectNoGrantAtNeedsNoPersonMade("approve");
+    const kept = await send(token, "publish", figma(three.replace("version: 0.1.0", "version: 0.1.1")));
+    expect(kept).toMatchObject({
+      exit: 0,
+      stdout: `${WAIT}this pass's grant ${approved.grant.id} at dimitri/figma was made by a person, so it stands as it is, and this publish asked for none\npublished dimitri/figma 0.1.1; town figma --help says what it does\n`,
+    });
+    expect(store.getShop("dimitri/figma")).toMatchObject({ version: "0.1.1", testedAt: null });
+    expect(store.listPermits(pass.id).map((p) => p.decision)).toEqual(["approved"]);
+    expect(runs).toEqual([]);
+    expectNoGrantAtNeedsNoPersonMade("republish after approval");
+  });
+
+  it("revokes a publish grant made before the shop gained a need, and asks for a permit in its place", async () => {
+    const { token, pass } = agentWith({ "town/hall": {} });
+    const noNeeds = FIGMA_MANIFEST.replace(/credentials:\n(    .*\n|  - .*\n)*/, "").replace(/tests:[\s\S]*$/, "tests:\n  - name: it runs\n    run: file --key x\n    expect: { exit: 0 }\n");
+    const first = await send(token, "publish", figma(noNeeds));
+    expect(first).toMatchObject({ exit: 0, stdout: "ok it runs\npublished dimitri/figma 0.1.0; town figma --help says what it does\n" });
+    const [made] = store.grantsForPass(pass.id, NOW).filter((g) => g.shop === "dimitri/figma");
+    expect(made).toMatchObject({ source: "publish" });
+    expect(store.getShop("dimitri/figma")?.testedAt).toBe(NOW);
+    expectNoGrantAtNeedsNoPersonMade("publish with no needs");
+    runs = [];
+
+    const needy = await send(token, "publish", figma());
+    const permit = /requested (prm_[0-9a-f]{16}),/.exec(needy.stdout)![1]!;
+    expect(needy.stdout).toBe(`${WAIT}${made!.id} at dimitri/figma is no longer live: it binds no credential for a need the shop gained\na grant made again with townd admin grant new binds a credential for each need\npublished dimitri/figma 0.1.0; it needs figma, so a person decides at the box: requested ${permit}, and town --help shows the answer\n`);
+    expect(store.grantById(made!.id)?.revokedAt).toBe(NOW);
+    expect(store.listGrants(pass.id).filter((g) => g.shop === "dimitri/figma" && g.revokedAt === null)).toEqual([]);
+    expect(store.getShop("dimitri/figma")?.testedAt).toBeNull();
+    expect(runs).toEqual([]);
+    expectNoGrantAtNeedsNoPersonMade("publish that gained a need");
+  });
 });

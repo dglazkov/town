@@ -38,9 +38,33 @@ export interface ShopTest {
   expect: Expect;
 }
 
-/** A need: a credential type the shop calls through (spec §8). */
+/** A need: a credential type the shop calls through, named, or defined as the town holds it or as a proposal (spec §8). */
 export interface Need {
   type: string;
+  /** With `header`, the type's definition: where its secret may be sent. */
+  origin?: string;
+  header?: string;
+  /** For an `oauth` type, beside a definition: shape-checked, and refused until consent phase 1. */
+  oauth?: OAuthEndpoints;
+  /** Beside a definition: prose for the person who makes the secret, the shop's words. */
+  guidance?: string;
+}
+
+/** An `oauth` type's endpoints and scopes, as a manifest proposes them; never its registration. */
+export interface OAuthEndpoints {
+  authorize: string;
+  token: string;
+  scopes: string[];
+}
+
+/** What the validator needs of a credential type the town holds, held or proposed: its name, state, and definition. */
+export interface TownType {
+  name: string;
+  kind: "token" | "oauth";
+  state: "proposed" | "held";
+  origin: string;
+  header: string;
+  oauth: OAuthEndpoints | null;
 }
 
 /** A dependency: a shop this one calls through the town, and the commands it calls there (spec §8). */
@@ -132,13 +156,15 @@ function isLine(v: unknown): v is string {
 
 /**
  * Parses manifest YAML and validates it. `manifest` is set only when
- * there are no refusals. `types` is the credential types the town holds
- * and `shops` the shops it holds; each omitted when no store is at hand,
- * and then a need, or a dependency, is refused.
+ * there are no refusals. `types` is the credential types the town holds,
+ * held or proposed, with their definitions (a bare name is a held type
+ * whose definition is not at hand), and `shops` the shops it holds; each
+ * omitted when no store is at hand, and then a need, or a dependency, is
+ * refused.
  */
 export function parseManifest(
   text: string,
-  types?: readonly string[],
+  types?: readonly (string | TownType)[],
   shops?: readonly TownShop[],
 ): { manifest: Manifest | null; refusals: string[] } {
   let raw: unknown;
@@ -161,7 +187,7 @@ export function parseManifest(
  * holds; each omitted when no store is at hand, and then a need, or a
  * dependency, is refused naming --data.
  */
-export function validateManifest(m: unknown, types?: readonly string[], shops?: readonly TownShop[]): string[] {
+export function validateManifest(m: unknown, types?: readonly (string | TownType)[], shops?: readonly TownShop[]): string[] {
   const out: string[] = [];
   if (!isRecord(m)) {
     return [refusal("manifest.yaml", "is not a mapping", "a YAML mapping of the fields in §2", 2)];

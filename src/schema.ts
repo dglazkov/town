@@ -27,11 +27,11 @@ function loadSqlite(): typeof import("node:sqlite") {
   }
 }
 
-/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3; hall's 4. */
-export const SCHEMA_VERSION = 5;
+/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3; hall's 4; wall's 5. */
+export const SCHEMA_VERSION = 6;
 
 /** The type every store is made with. */
-export const SEEDED_TYPES: ReadonlyArray<Omit<CredentialType, "addedAt">> = [
+export const SEEDED_TYPES: ReadonlyArray<Pick<CredentialType, "name" | "origin" | "header">> = [
   { name: "github-token", origin: "https://api.github.com", header: "Authorization: Bearer {token}" },
 ];
 
@@ -166,14 +166,19 @@ export function openDatabase(dataDir: string): Database {
 }
 
 /**
- * Brings an older store to schema 5, a step at a time. From gate's (no
+ * Brings an older store to schema 6, a step at a time. From gate's (no
  * `meta.schema`) to 2: the two tables, the two columns, the seeded type.
  * From vault's 2 to 3: `calls.call_id`, each old row given one, and
  * `calls.parent`, null for every old row. From compose's 3 to 4: the
  * permits table, `shops.owner` and `grants.source`, null for every old
  * row: an operator's shop and an operator's grant. From hall's 4 to 5:
  * `calls.wall`, the kind of wall a call's process ran within, null for
- * every old row, as for a call that ran no process. Done under a write
+ * every old row, as for a call that ran no process. From wall's 5 to 6,
+ * consent's: `credential_types.kind` (`token`), `state` (`held`),
+ * `proposed_by`, `guidance` (empty), `oauth`, and `client`, so every old
+ * type is a held token type; `credentials.scopes` and `revoked_why`, null;
+ * and `shops.tested_at`, set to `added_at`, since every shop in a store
+ * made before consent was tested when it was added. Done under a write
  * lock, so a second process opening the same file at the same moment
  * finds the work done.
  */
@@ -214,6 +219,19 @@ function migrate(db: Database, dataDir: string, now = Date.now()): void {
     if (version() < 5) {
       addColumn("calls", "wall", "TEXT");
       setMeta(db, "schema", "5");
+    }
+    if (version() < 6) {
+      addColumn("credential_types", "kind", "TEXT NOT NULL DEFAULT 'token'");
+      addColumn("credential_types", "state", "TEXT NOT NULL DEFAULT 'held'");
+      addColumn("credential_types", "proposed_by", "TEXT");
+      addColumn("credential_types", "guidance", "TEXT NOT NULL DEFAULT ''");
+      addColumn("credential_types", "oauth", "TEXT");
+      addColumn("credential_types", "client", "BLOB");
+      addColumn("credentials", "scopes", "TEXT");
+      addColumn("credentials", "revoked_why", "TEXT");
+      addColumn("shops", "tested_at", "INTEGER");
+      db.exec("UPDATE shops SET tested_at = added_at WHERE tested_at IS NULL");
+      setMeta(db, "schema", "6");
     }
     db.exec("COMMIT");
   } catch (err) {

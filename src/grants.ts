@@ -5,7 +5,11 @@
 // proposes: `request` is checked by the first half of those checks, and
 // `permit approve` makes its grant through all of them, never wider than
 // asked. Every refusal is a line the admin or the hall prints as it is.
+// At a shop with needs, `permit approve` checks in the order a person
+// reads: a type still proposed, a credential of each need, then (the
+// admin's, src/admin.ts) the shop's tests, and only then the grant.
 
+import { needStates, needsText } from "./checklist.js";
 import { checkGrantShape, parseConstraintLines, type Constraints } from "./constraints.js";
 import { table } from "./help.js";
 import type { GrantState } from "./liveness.js";
@@ -63,45 +67,75 @@ export function checkGrant(
   return { passId: req.passId, shop: manifest.name, commands, constraints, credentials: bound };
 }
 
+/** What `permit approve` is given at the box. */
+export interface ApproveRequest {
+  commands: string | undefined;
+  constraints: readonly string[];
+  credentials: readonly string[];
+  expiresAt: number | null;
+}
+
 /**
- * `permit approve`: the permit's grant, made through checkGrant with the
- * permit's commands or the subset given (a command it did not ask for is
- * refused as wider) and the permit's constraints on those commands with
- * the given ones added. A refusal leaves the permit pending. Made, in one
- * write: the pass's live grant at the shop revoked, the grant made with
- * source `permit <id>`, and the decision recorded with it.
+ * `permit approve`'s checks before the tests: the permit's commands or the
+ * subset given (a command it did not ask for is refused as wider); at a
+ * shop with needs, no need's type still proposed; then checkGrant, with
+ * the permit's constraints on those commands and the given ones added,
+ * which binds each need to the user's credential. The grant's fields, or
+ * the lines refusing; a refusal leaves the permit pending.
  */
-export function approvePermit(
-  store: Store,
-  id: string,
-  req: { commands: string | undefined; constraints: readonly string[]; credentials: readonly string[]; expiresAt: number | null },
-  now: number,
-): { grant: Grant; revoked: Grant | null } | string[] {
+export function checkPermit(store: Store, id: string, req: ApproveRequest, now: number): GrantFields | string[] {
   const permit = store.pendingPermit(id);
   const commands = req.commands === undefined ? permit.commands : req.commands.split(",").map((s) => s.trim()).filter(Boolean);
   const wider = commands.filter((c) => !permit.commands.includes(c));
   if (wider.length) {
     return [`--commands: ${wider.join(", ")} is wider than ${id} asked; write some of ${permit.commands.join(",")}, or leave it out for all it asked`];
   }
-  const checked = checkGrant(
+  const proposed = needStates(store, permit.shop, permit.userName).find((n) => n.t?.state === "proposed");
+  if (proposed) return [`${proposed.type} is proposed and not yet the town's; townd admin type approve ${proposed.type} first`];
+  return checkGrant(
     store,
     { passId: permit.passId, shop: permit.shop, commands: commands.join(","), constraints: [...constraintLinesOf(permit.constraints, commands), ...req.constraints], credentials: req.credentials },
     now,
   );
+}
+
+/**
+ * `permit approve`, whole for a shop whose tests need not run: checkPermit,
+ * then makePermitGrant. The admin runs a shop's tests between the two.
+ */
+export function approvePermit(store: Store, id: string, req: ApproveRequest, now: number): { grant: Grant; revoked: Grant | null } | string[] {
+  const checked = checkPermit(store, id, req, now);
   if (Array.isArray(checked)) return checked;
+  return makePermitGrant(store, id, checked, req.expiresAt, now);
+}
+
+/**
+ * The permit's grant, made in one write: the pass's live grant at the shop
+ * revoked, the grant made with source `permit <id>`, and the decision
+ * recorded with it.
+ */
+export function makePermitGrant(store: Store, id: string, checked: GrantFields, expiresAt: number | null, now: number): { grant: Grant; revoked: Grant | null } {
+  const permit = store.pendingPermit(id);
   return store.inTransaction(() => {
     const held = store.grantsForPass(permit.passId, now).find((g) => g.shop === permit.shop) ?? null;
     if (held) store.revokeGrant(held.id, now);
-    const grant = store.newGrant({ ...checked, expiresAt: req.expiresAt, source: `permit ${id}` }, now);
+    const grant = store.newGrant({ ...checked, expiresAt, source: `permit ${id}` }, now);
     store.decidePermit(id, "approved", grant.id, now);
     return { grant, revoked: held };
   });
 }
 
-/** Permits as a table, newest last: the agent's own in `requests`, and with the pass and its user's name in `permit ls`. */
+/**
+ * Permits as a table, newest last: the agent's own in `requests`, and with
+ * the pass and its user's name in `permit ls`. When any is at a shop with
+ * needs, a last column says each need's state; the agent's never names a
+ * credential.
+ */
 export function permitTable(store: Store, permits: readonly Permit[], withPass: boolean): string {
-  const header = ["id", ...(withPass ? ["pass", "user"] : []), "shop", "commands", "constraints", "why", "asked", "state"];
-  const rows = permits.map((p) => [
+  const needs = permits.map((p) => needsText(needStates(store, p.shop, p.userName), !withPass));
+  const withNeeds = needs.some((n) => n !== "");
+  const header = ["id", ...(withPass ? ["pass", "user"] : []), "shop", "commands", "constraints", "why", "asked", "state", ...(withNeeds ? ["needs"] : [])];
+  const rows = permits.map((p, i) => [
     p.id,
     ...(withPass ? [p.passId, p.userName] : []),
     p.shop,
@@ -110,6 +144,7 @@ export function permitTable(store: Store, permits: readonly Permit[], withPass: 
     p.why === "" ? "-" : p.why,
     isoTime(p.createdAt),
     permitStateText(store, p),
+    ...(withNeeds ? [needs[i] || "-"] : []),
   ]);
   return table(header, rows);
 }
@@ -172,7 +207,7 @@ export function bindingText(b: Record<string, string>): string {
   return parts.length ? parts.join(",") : "-";
 }
 
-function needsOf(manifest: { credentials?: Array<{ type: string }> }): string[] {
+export function needsOf(manifest: { credentials?: Array<{ type: string }> }): string[] {
   return (manifest.credentials ?? []).map((n) => n.type);
 }
 
@@ -202,7 +237,7 @@ export function bindNeeds(store: Store, user: User, shop: string, needs: string[
       continue;
     }
     const held = store.liveCredentials(user.id, type);
-    if (held.length === 0) return `user ${user.name} holds no ${type} credential; add one with townd admin credential add`;
+    if (held.length === 0) return `user ${user.name} holds no ${type} credential; add one with townd admin credential add --user ${user.name} --type ${type}`;
     if (held.length > 1) return `user ${user.name} holds ${held.length} ${type} credentials (${held.map((c) => c.id).join(", ")}); pick one with --credential <id>`;
     out[type] = held[0]!.id;
   }

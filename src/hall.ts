@@ -10,13 +10,17 @@
 // are one path that stops at three places (design's Publishing): the
 // bundle, the manifest, the hall's rules, the dependencies read for this
 // pass, and the dependents; then the staging and the tests as the agent,
-// src/publish.ts's; then the move, and the publish grant.
+// src/publish.ts's; then the move, and the publish grant. A shop with
+// needs is a door of its own at the tests and the grant: its tests wait,
+// since no person has bound a credential to it, and its publish asks for
+// a permit in the publish grant's place, so a person decides at the box.
 
 import { parse as parseYaml } from "yaml";
 import type { ArgValues } from "./args.js";
 import type { ResultClass } from "./audit.js";
 import { readBundle } from "./bundle.js";
 import type { GateDeps } from "./gate.js";
+import { guidanceLine, needStates, needsPhrase } from "./checklist.js";
 import { checkGrantAtShop, permitTable } from "./grants.js";
 import { allowedCommands, helpForShop, typedName } from "./help.js";
 import { parseManifest, type Manifest } from "./manifest.js";
@@ -34,10 +38,12 @@ guidance: |
   the manifest specification, printed here, is the whole of how to
   write one. A shop travels on stdin as a tar of its directory, made
   with \`tar --format ustar -cf - -C <dir> .\`. A shop you put in the
-  town is named \`<your user>/<shop>\`, declares no credentials of its
-  own, and its tests run as you: at the shops it depends on, with your
-  grants. What your grants do not allow, ask for; a person decides at
-  the box, and \`town --help\` shows the answer.
+  town is named \`<your user>/<shop>\`, and its tests run as you: at the
+  shops it depends on, with your grants. A shop that needs a credential
+  may propose its type, and waits for a person: its tests run, and a
+  grant at it is made, when they approve at the box. Tell them what its
+  guidance says. What your grants do not allow, ask for; a person
+  decides at the box, and \`town --help\` shows the answer.
 runtime: town
 entry: src/hall.ts
 commands:
@@ -66,7 +72,7 @@ commands:
     effect: write
     output: text
   - name: publish
-    summary: Check and test a shop on stdin, keep it under your name, and hold a grant at it.
+    summary: Check and test a shop on stdin, keep it under your name, and hold a grant at it, or ask for one when it needs a credential.
     effect: write
     output: text
   - name: request
@@ -132,7 +138,8 @@ export async function runHall(deps: HallDeps, call: HallCall): Promise<HallOutco
       const lines = shops.map(({ manifest: m }) => {
         const held = heldAt(m, live);
         const holds = held.length === 0 ? "none" : held.length === m.commands.length ? "all" : held.join(", ");
-        return `${m.name.padEnd(width)}  ${m.summary} [${m.commands.map((c) => c.name).join(", ")}]  held: ${holds}\n`;
+        const needs = needsPhrase(needStates(store, m.name, call.pass.userName));
+        return `${m.name.padEnd(width)}  ${m.summary} [${m.commands.map((c) => c.name).join(", ")}]  held: ${holds}${needs ? `  ${needs}` : ""}\n`;
       });
       return ok(lines.join(""));
     }
@@ -140,7 +147,10 @@ export async function runHall(deps: HallDeps, call: HallCall): Promise<HallOutco
       const name = text("shop")!;
       const shop = store.getShop(name);
       if (!shop) return refused([`--shop: ${name} is not a shop in this town; town hall search lists the shops it holds`], "no-shop");
-      return ok(helpForShop(shop.manifest, heldAt(shop.manifest, store.grantsForPass(call.pass.id, now))));
+      const states = needStates(store, name, call.pass.userName);
+      const said = states.map((n) => guidanceLine(n.t)).filter((l): l is string => l !== null);
+      const needs = states.length ? [needsPhrase(states), ...said].map((l) => `${l}\n`).join("") : "";
+      return ok(helpForShop(shop.manifest, heldAt(shop.manifest, store.grantsForPass(call.pass.id, now))) + needs);
     }
     case "spec":
       return ok(SPEC);
@@ -163,8 +173,18 @@ export async function runHall(deps: HallDeps, call: HallCall): Promise<HallOutco
       const drops = dropped.length ? `if approved, this replaces your grant at ${name} and drops ${dropped.join(", ")}; name them to keep them\n` : "";
       return ok(`requested ${permit.id}; a person decides at the box, and town --help shows the answer\n${drops}`, `requested ${permit.id}`);
     }
-    case "requests":
-      return ok(permitTable(store, store.listPermits(call.pass.id), false));
+    case "requests": {
+      // Under the table, the guidance of each need a pending permit waits on, so the agent has the shop's words to give the person.
+      const permits = store.listPermits(call.pass.id);
+      const said = new Set<string>();
+      for (const p of permits.filter((x) => x.decision === null)) {
+        for (const n of needStates(store, p.shop, p.userName)) {
+          const line = n.held.length ? null : guidanceLine(n.t);
+          if (line) said.add(line);
+        }
+      }
+      return ok(permitTable(store, permits, false) + [...said].map((l) => `${l}\n`).join(""));
+    }
     case "validate":
     case "test":
     case "publish":
@@ -200,12 +220,24 @@ async function send(deps: HallDeps, call: HallCall, now: number): Promise<HallOu
   if ("refused" in sent) return refused(sent.refused, 1);
   const passed = sent.results.filter((r) => r.ok).length;
   const lines = sent.results.map((r) => (r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`));
-  const tests = `tests ${passed}/${sent.results.length}`;
+  const shop = sent.manifest;
+  lines.push(...sent.waits.map((type) => `tests wait: ${shop.name} needs ${type}, which no grant of yours binds; they run when a person approves your permit\n`));
+  const tests = sent.waits.length ? "tests wait" : `tests ${passed}/${sent.results.length}`;
   if (passed < sent.results.length) return { stdout: lines.join(""), exit: 1, result: "shop-error", detail: tests };
   if (!sent.kept) return { stdout: lines.join(""), exit: 0, result: "ok", detail: tests };
 
-  const shop = sent.manifest;
   lines.push(...sent.stopped.map((l) => `${l}\n`));
+  if (sent.waits.length) {
+    const asked = permitInPlace(store, call.pass, shop, now);
+    if ("stands" in asked) {
+      lines.push(`this pass's grant ${asked.stands.id} at ${shop.name} was made by a person, so it stands as it is, and this publish asked for none\n`);
+      const typed = typedName(shop.name, store.grantsForPass(call.pass.id, now).map((g) => g.shop));
+      lines.push(`published ${shop.name} ${shop.version}; town ${typed} --help says what it does\n`);
+      return { stdout: lines.join(""), exit: 0, result: "ok", detail: `published ${shop.name} ${shop.version}` };
+    }
+    lines.push(`published ${shop.name} ${shop.version}; it needs ${sent.waits.join(", ")}, so a person decides at the box: requested ${asked.permit}, and town --help shows the answer\n`);
+    return { stdout: lines.join(""), exit: 0, result: "ok", detail: `published ${shop.name} ${shop.version}; requested ${asked.permit}` };
+  }
   const stands = publishGrant(store, call.pass, shop, now);
   if (stands) lines.push(`this pass's grant ${stands.id} at ${shop.name} was made by a person, so it stands as it is, and this publish made none\n`);
   const typed = typedName(shop.name, store.grantsForPass(call.pass.id, now).map((g) => g.shop));
@@ -215,14 +247,14 @@ async function send(deps: HallDeps, call: HallCall, now: number): Promise<HallOu
 
 /**
  * Steps 2 to 5 for a sent manifest's text: the validator's refusals
- * against this town's types and shops, then the hall's rules, the name
- * under the pass's user's namespace and no credentials; then, for a v0
+ * against this town's types and shops, then the hall's rule, the name
+ * under the pass's user's namespace; then, for a v0
  * manifest, each dependency covered by the pass's live grants, in the
  * agent's words; then the dependents, in `shop add`'s. The manifest, or
  * the lines refusing it.
  */
 function checkSent(store: Store, pass: Pass, text: string, now: number): Manifest | string[] {
-  const { manifest, refusals } = parseManifest(text, store.listTypes().map((t) => t.name), townShops(store));
+  const { manifest, refusals } = parseManifest(text, store.listTypes(), townShops(store));
   let raw: unknown = null;
   try {
     raw = parseYaml(text);
@@ -233,10 +265,6 @@ function checkSent(store: Store, pass: Pass, text: string, now: number): Manifes
   const name = fields.name;
   if (typeof name === "string" && /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/.test(name) && name.split("/")[0] !== pass.userName) {
     refusals.push(`name: ${name} is not under your namespace; write ${pass.userName}/${name.split("/")[1]} instead (spec §2)`);
-  }
-  const credentials = fields.credentials;
-  if (credentials !== undefined && credentials !== null && !(Array.isArray(credentials) && credentials.length === 0)) {
-    refusals.push("credentials: a shop you send holds no credential of its own; depend on the town's shop for that origin, or ask the person at the box to add one (spec §8)");
   }
   if (!manifest || refusals.length) return refusals;
 
@@ -269,6 +297,26 @@ function publishGrant(store: Store, pass: Pass, shop: Manifest, now: number): Gr
     store.newGrant({ passId: pass.id, shop: shop.name, commands: shop.commands.map((c) => c.name), constraints: {}, expiresAt: null, source: "publish" }, now);
     return null;
   });
+}
+
+/**
+ * Step 9 for a shop with needs: when the pass holds a live grant a person
+ * made at the shop, it stands and is returned. Otherwise, in one write,
+ * every unrevoked publish grant of the pass at the shop is revoked, since
+ * a publish grant is never at a shop with needs, and a permit is made in
+ * its place, replacing the pass's pending one there: every command, no
+ * constraints, why `published <name> <version>`.
+ */
+function permitInPlace(store: Store, pass: Pass, shop: Manifest, now: number): { stands: Grant } | { permit: string } {
+  const held = store.grantsForPass(pass.id, now).find((g) => g.shop === shop.name);
+  if (held && held.source !== "publish") return { stands: held };
+  store.inTransaction(() => {
+    for (const g of store.listGrants(pass.id, now)) {
+      if (g.shop === shop.name && g.source === "publish" && g.revokedAt === null) store.revokeGrant(g.id, now);
+    }
+  });
+  const permit = store.newPermit({ passId: pass.id, shop: shop.name, commands: shop.commands.map((c) => c.name), constraints: {}, why: `published ${shop.name} ${shop.version}` }, now);
+  return { permit: permit.id };
 }
 
 /** The commands of `manifest` the pass's live grant there holds, in manifest order; empty when it holds none. */

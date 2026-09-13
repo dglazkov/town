@@ -9,15 +9,27 @@
 // held grant, refusing an uncovered dependency or an unmet need with the
 // permit still pending, and `permit deny`; the hall refused at `shop add`
 // and `shop rm`; `source` in `grant ls` and `owner` in `shop ls`; and
-// `user add` refusing a name that is not a namespace.
+// `user add` refusing a name that is not a namespace. Consent phase 0: a
+// shop published by an agent's pass proposing the figma type over a fake
+// origin; `type ls` with kind, state, and proposer; `type approve`
+// printing the guidance; `credential add` refused at a proposed type and
+// printing the guidance before it reads stdin at a held one; `permit show`
+// in each state with its done marks and the one-line case; `permit
+// approve` in its order, each refusal leaving the permit pending and
+// printing what remains, the tests run on the binding at step 3 and
+// recorded under the approval, a failure leaving it pending, the grant
+// made with its source and binding; `type rm` of a proposed type; `shop
+// add` holding a type in one step; and the checklist typed as printed.
 
-import { spawn } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main, type Io } from "../src/admin.js";
+import { splitWords } from "../src/args.js";
+import { gate } from "../src/gate.js";
 import { openStore, type Store } from "../src/store.js";
 import { readKey } from "../src/vault.js";
 import { openWall } from "../src/wall.js";
@@ -76,15 +88,15 @@ describe("type", () => {
     const r = await admin(["type", "ls"]);
     expect(r.exit, r.stderr).toBe(0);
     const [header, row, ...rest] = r.stdout.trimEnd().split("\n");
-    expect(header).toMatch(/^name\s+origin\s+header\s+added$/);
-    expect(row).toMatch(/^github-token\s+https:\/\/api\.github\.com\s+Authorization: Bearer \{token\}\s+\d{4}-/);
+    expect(header).toMatch(/^name\s+kind\s+state\s+proposer\s+origin\s+header\s+added$/);
+    expect(row).toMatch(/^github-token\s+token\s+held\s+-\s+https:\/\/api\.github\.com\s+Authorization: Bearer \{token\}\s+\d{4}-/);
     expect(rest).toEqual([]);
   });
 
   it("add puts another in, and rm takes it out", async () => {
     const add = await admin(["type", "add", "internal", "--origin", "https://api.example.internal", "--header", "Authorization: Bearer {token}"]);
     expect(add).toEqual({ exit: 0, stdout: "added internal\n", stderr: "" });
-    expect((await admin(["type", "ls"])).stdout).toMatch(/^internal\s+https:\/\/api\.example\.internal\s+Authorization: Bearer \{token\}/m);
+    expect((await admin(["type", "ls"])).stdout).toMatch(/^internal\s+token\s+held\s+-\s+https:\/\/api\.example\.internal\s+Authorization: Bearer \{token\}/m);
     expect(await admin(["type", "rm", "internal"])).toEqual({ exit: 0, stdout: "removed internal\n", stderr: "" });
     expect((await admin(["type", "ls"])).stdout).not.toContain("internal");
   });
@@ -215,7 +227,7 @@ describe("shop test --user", () => {
     const noUser = await admin(["shop", "test", TELLER]);
     expect(noUser).toEqual({ exit: 1, stdout: "", stderr: "townd admin: shop test refused: test/teller needs test-origin; write --user <name> for whose credential its tests run on\n" });
     const lacking = await admin(["shop", "test", TELLER, "--user", "dimitri"]);
-    expect(lacking.stderr).toBe("townd admin: shop test refused: user dimitri holds no test-origin credential; add one with townd admin credential add\n");
+    expect(lacking.stderr).toBe("townd admin: shop test refused: user dimitri holds no test-origin credential; add one with townd admin credential add --user dimitri --type test-origin\n");
     const a = (await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf("one"))).stdout.trim();
     const b = (await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf("two"))).stdout.trim();
     const two = await admin(["shop", "test", TELLER, "--user", "dimitri"]);
@@ -246,7 +258,7 @@ describe("shop test --user", () => {
     const r = await admin(["type", "rm", "test-origin"]);
     expect(r.exit).toBe(0);
     const t = await admin(["shop", "test", TELLER, "--user", "dimitri"]);
-    expect(t).toEqual({ exit: 1, stdout: "", stderr: "credentials[0].type: 'test-origin' is not a type this town holds; write one of (github-token) instead (spec §8)\n" });
+    expect(t).toEqual({ exit: 1, stdout: "", stderr: "credentials[0].type: 'test-origin' is not a type this town holds; write one of (github-token), or an origin and a header beside it to propose one, instead (spec §8)\n" });
   });
 
   it("shop add that gives a shop with grants a need names the grants that stop being live, and grant ls says why", async () => {
@@ -437,7 +449,7 @@ describe("permit", () => {
     withStore((s) => s.upsertShop({ ...s.getShop("town/memory")!.manifest, name: "test/needy", credentials: [{ type: "test-origin" }] }));
     const id = request("test/needy", ["recall"]);
     const r = await admin(["permit", "approve", id]);
-    expect(r.stderr).toBe(`townd admin: permit approve refused: user dimitri holds no test-origin credential; add one with townd admin credential add\ntownd admin: ${id} is still pending\n`);
+    expect(r.stderr).toBe(`townd admin: permit approve refused: user dimitri holds no test-origin credential; add one with townd admin credential add --user dimitri --type test-origin\ntownd admin: ${id} is still pending\nto do:\n        printf '%s\\n' "$TOKEN" | townd admin credential add --user dimitri --type test-origin --label test-origin\n        townd admin permit approve ${id}\n`);
     expect(withStore((s) => s.permitById(id)?.decision)).toBeNull();
   });
 
@@ -447,5 +459,283 @@ describe("permit", () => {
     expect(rowOf((await admin(["permit", "ls"])).stdout, id)).toMatch(/\sdenied$/);
     expect(withStore((s) => s.listGrants(pass))).toEqual([]);
     expect(await admin(["permit", "deny", "prm_nothing"])).toEqual({ exit: 1, stdout: "", stderr: "townd admin: permit prm_nothing does not exist; townd admin permit ls lists them\n" });
+  });
+});
+
+describe("consent: a type proposed with the shop", () => {
+  const FIGMA_DIR = path.resolve(import.meta.dirname, "fixtures/figma-shop");
+  const GUIDANCE = "Make a personal access token at Figma > Settings > Security, with file_content:read, and paste it.";
+  const TOKEN = "figma-not-a-real-token";
+  let origin: FakeOrigin;
+  let failing: boolean;
+
+  beforeEach(async () => {
+    failing = false;
+    origin = await fakeOrigin((_req, res) => {
+      res.writeHead(failing ? 500 : 200, { "content-type": "text/plain" });
+      res.end(failing ? "the origin is down" : "hello from the origin");
+    });
+  });
+
+  afterEach(async () => {
+    await origin.close();
+  });
+
+  function withStore<T>(fn: (store: Store) => T): T {
+    const store = openStore(data);
+    try {
+      return fn(store);
+    } finally {
+      store.close();
+    }
+  }
+
+  const manifestText = () => readFileSync(path.join(FIGMA_DIR, "manifest.yaml"), "utf8").replace("http://127.0.0.1:9", origin.url);
+
+  /** The figma shop published through the hall by dimitri's agent, as `tar … | town hall publish` sends it: the pass, and the permit its publish asked for. */
+  async function published(): Promise<{ pass: string; permit: string }> {
+    const root = mkdtempSync(path.join(os.tmpdir(), "town-admin-figma-"));
+    try {
+      writeFileSync(path.join(root, "manifest.yaml"), manifestText());
+      cpSync(path.join(FIGMA_DIR, "main.mjs"), path.join(root, "main.mjs"));
+      const tar = spawnSync("tar", ["--format", "ustar", "-cf", "-", "-C", root, "."], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
+      const store = openStore(data);
+      try {
+        if (!store.userByName("dimitri")) store.addUser("dimitri");
+        const { pass, token } = store.newPass("dimitri", "the agent", null);
+        store.newGrant({ passId: pass.id, shop: "town/hall", commands: ["publish"], constraints: {}, expiresAt: null });
+        const o = await gate({ store, wall: openWall("none") }, { token, argv: ["hall", "publish"], stdin: tar.stdout.toString("utf8"), json: false });
+        const permit = /requested (prm_[0-9a-f]{16}),/.exec(o.stdout)?.[1];
+        expect(permit, o.stdout).toBeDefined();
+        return { pass: pass.id, permit: permit! };
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const todo = (out: string) => out.slice(out.indexOf("to do:"));
+  const TYPE = "        townd admin type approve figma";
+  const CRED = `        printf '%s\\n' "$TOKEN" | townd admin credential add --user dimitri --type figma --label figma`;
+  const APPROVE = (id: string) => `        townd admin permit approve ${id}  # runs dimitri/figma's 1 test on it first`;
+  const done = (line: string) => `  done${line.slice(6)}`;
+
+  it("shows the proposed type in type ls, refuses a credential at it, and type approve prints what it approves, the shop's guidance under its name", async () => {
+    await published();
+    const ls = (await admin(["type", "ls"])).stdout.split("\n");
+    expect(ls[0]).toMatch(/^name\s+kind\s+state\s+proposer\s+origin\s+header\s+added$/);
+    expect(ls[1]).toMatch(new RegExp(`^figma\\s+token\\s+proposed\\s+dimitri/figma\\s+${origin.url.replace(/[.]/g, "\\.")}\\s+X-Figma-Token: \\{token\\}\\s+\\d{4}-`));
+    expect(ls[2]).toMatch(/^github-token\s+token\s+held\s+-\s+https:\/\/api\.github\.com\s/);
+
+    const refused = await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN));
+    expect(refused).toEqual({ exit: 1, stdout: "", stderr: "townd admin: type figma is proposed by dimitri/figma and not yet the town's; townd admin type approve figma makes it so\n" });
+    expect(readKey(data)).toBeNull();
+
+    const approved = await admin(["type", "approve", "figma"]);
+    expect(approved).toEqual({
+      exit: 0,
+      stdout: `figma: a token type, sent to ${origin.url} in X-Figma-Token: {token}\ndimitri/figma says: ${GUIDANCE}\napproved figma, proposed by dimitri/figma; it is the town's\n`,
+      stderr: "",
+    });
+    expect((await admin(["type", "ls"])).stdout).toMatch(/^figma\s+token\s+held\s+dimitri\/figma\s/m);
+    expect((await admin(["type", "approve", "figma"])).stderr).toBe("townd admin: type figma is already the town's; townd admin type ls lists them\n");
+    expect((await admin(["type", "approve", "sketch"])).stderr).toBe("townd admin: type sketch is not in this town; townd admin type ls lists them\n");
+  });
+
+  it("credential add at a held type with guidance prints it on stderr before it reads stdin, and the id alone on stdout", async () => {
+    await published();
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    let stdout = "";
+    let stderr = "";
+    let seenBeforeRead: string | null = null;
+    const stdin = (async function* () {
+      seenBeforeRead = stderr;
+      yield Buffer.from(`${TOKEN}\n`);
+    })();
+    const io: Io = { out: (x) => void (stdout += x), err: (x) => void (stderr += x), env: {}, stdin };
+    const exit = await main(["--data", data, "credential", "add", "--user", "dimitri", "--type", "figma", "--label", "dimitri's figma token"], io, () => ({ open: (opts) => openWall("none", opts) }));
+    expect(exit, stderr).toBe(0);
+    expect(seenBeforeRead).toBe(`dimitri/figma says: ${GUIDANCE}\n`);
+    expect(stderr).toBe(`dimitri/figma says: ${GUIDANCE}\n`);
+    expect(stdout).toMatch(/^credential_[0-9a-f]{16}\n$/);
+    expect(opened(stdout.trim())).toBe(TOKEN);
+    // A type with no guidance prints nothing before the prompt; the operator's --guidance is attributed to the operator.
+    expect(await admin(["type", "add", "internal", "--origin", "https://api.example.internal", "--header", "X-Key: {token}", "--guidance", "Ask the platform team for a key."])).toEqual({ exit: 0, stdout: "added internal\n", stderr: "" });
+    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "internal"], pipeOf("internal-not-a-key"))).stderr).toBe("the operator says: Ask the platform team for a key.\n");
+    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "github-token"], pipeOf(SECRET))).stderr).toBe("");
+  });
+
+  it("permit show prints the checklist in each state with its done marks, and a permit with nothing left but approval is one line", async () => {
+    const { pass, permit } = await published();
+    const first = await admin(["permit", "show", permit]);
+    expect(first.exit, first.stderr).toBe(0);
+    const lines = first.stdout.split("\n");
+    expect(lines[0]).toMatch(/^id\s+pass\s+user\s+shop\s+commands\s+constraints\s+why\s+asked\s+state\s+needs$/);
+    expect(lines[1]).toMatch(new RegExp(`^${permit}\\s+${pass}\\s+dimitri\\s+dimitri/figma\\s+file,comments\\s+-\\s+published dimitri/figma 0\\.1\\.0\\s+\\S+\\s+pending\\s+figma: proposed \\(${origin.url.replace(/[.]/g, "\\.")}\\), none connected$`));
+    expect(lines.slice(2)).toEqual([
+      "dimitri/figma: Reads Figma documents and what people said on them, for consent's tests.",
+      "needs:",
+      `  figma: proposed, token, sent to ${origin.url} in X-Figma-Token: {token}`,
+      `    dimitri/figma says: ${GUIDANCE}`,
+      "    none connected",
+      "to do:",
+      TYPE,
+      CRED,
+      APPROVE(permit),
+      "",
+    ]);
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    expect(todo((await admin(["permit", "show", permit])).stdout)).toBe(`to do:\n${done(TYPE)}\n${CRED}\n${APPROVE(permit)}\n`);
+    const cred = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
+    const two = (await admin(["permit", "show", permit])).stdout;
+    expect(two).toContain(`  figma: held, token, sent to ${origin.url} in X-Figma-Token: {token}\n`);
+    expect(two).toContain(`    dimitri's: ${cred}\n`);
+    expect(two).toMatch(new RegExp(`\\s+pending\\s+figma: ${cred}\\n`));
+    expect(todo(two)).toBe(`to do:\n${done(TYPE)}\n${done(CRED)}\n${APPROVE(permit)}\n`);
+    expect((await admin(["permit", "approve", permit])).exit).toBe(0);
+    expect(todo((await admin(["permit", "show", permit])).stdout)).toBe("to do: nothing; it was approved\n");
+
+    // One line: a shop with no needs, and a shop whose need is the operator's type the user already holds, whose tests ran when it was added.
+    expect((await admin(["shop", "add", MEMORY])).exit).toBe(0);
+    const memory = withStore((s) => s.newPermit({ passId: pass, shop: "town/memory", commands: ["recall"], constraints: {}, why: "" }).id);
+    const shown = (await admin(["permit", "show", memory])).stdout;
+    expect(shown).toContain("town/memory: Short notes, kept by key.\nneeds: none\n");
+    expect(todo(shown)).toBe(`to do:\n        townd admin permit approve ${memory}\n`);
+    expect((await admin(["type", "add", "test-origin", "--origin", origin.url, "--header", "Authorization: Bearer {token}"])).exit).toBe(0);
+    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "test-origin"], pipeOf(SECRET))).exit).toBe(0);
+    expect((await admin(["shop", "add", TELLER, "--user", "dimitri"])).exit).toBe(0);
+    const teller = withStore((s) => s.newPermit({ passId: pass, shop: "test/teller", commands: ["get"], constraints: {}, why: "" }).id);
+    expect(todo((await admin(["permit", "show", teller])).stdout)).toBe(`to do:\n        townd admin permit approve ${teller}\n`);
+    expect((await admin(["permit", "show", "prm_nothing"])).stderr).toBe("townd admin: permit prm_nothing does not exist; townd admin permit ls lists them\n");
+  });
+
+  it("permit approve checks in order, each refusal leaving the permit pending and printing what remains, and a failing test waits", async () => {
+    const { pass, permit } = await published();
+    const pending = () => withStore((s) => s.permitById(permit)!.decision === null && s.listGrants(pass).every((g) => g.shop !== "dimitri/figma"));
+    const refusedWith = (line: string, remaining: string[]) => `townd admin: permit approve refused: ${line}\ntownd admin: ${permit} is still pending\nto do:\n${remaining.map((l) => `${l}\n`).join("")}`;
+
+    // 1. The type still proposed: first, whatever else is missing.
+    const typedFirst = await admin(["permit", "approve", permit]);
+    expect(typedFirst).toEqual({ exit: 1, stdout: "", stderr: refusedWith("figma is proposed and not yet the town's; townd admin type approve figma first", [TYPE, CRED, APPROVE(permit)]) });
+    expect(pending()).toBe(true);
+
+    // 2. No credential of the user's: vault's line, and the two lines that remain.
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    const noCredential = await admin(["permit", "approve", permit]);
+    expect(noCredential).toEqual({ exit: 1, stdout: "", stderr: refusedWith("user dimitri holds no figma credential; add one with townd admin credential add --user dimitri --type figma", [CRED, APPROVE(permit)]) });
+    expect(pending()).toBe(true);
+    expect(origin.seen).toEqual([]);
+
+    // 3. The tests, on the binding, through a teller: a failure waits, the shop untested, the run recorded under its approval's row.
+    expect((await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).exit).toBe(0);
+    failing = true;
+    const failed = await admin(["permit", "approve", permit]);
+    expect(failed.exit).toBe(1);
+    expect(failed.stdout).toBe('not ok a file answers: expected stdout to contain "200", got "500\\nthe origin is down"\n');
+    expect(failed.stderr).toBe(refusedWith("tests 1/1 failed; the shop needs work, and the permit waits", [APPROVE(permit)]));
+    expect(pending()).toBe(true);
+    expect(withStore((s) => s.getShop("dimitri/figma")!.testedAt)).toBeNull();
+    const [approval] = withStore((s) => s.calls({ shop: "dimitri/figma" }).filter((c) => c.parent === null));
+    expect(withStore((s) => s.callTree(approval!.callId)).map((c) => [c.depth, c.command, c.result, c.shopExit, c.detail])).toEqual([
+      [0, null, "shop-error", null, `approval ${permit} tests 0/1`],
+      [1, "file", "shop-error", 1, "test a file answers"],
+    ]);
+    for (const r of [typedFirst, noCredential, failed]) expect(r.stdout + r.stderr).not.toContain(TOKEN);
+  });
+
+  it("permit approve runs the shop's tests on the binding, each run a row under the approval's, then makes the grant with its source and binding", async () => {
+    const { pass, permit } = await published();
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    const cred = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
+    const passed = await admin(["permit", "approve", permit]);
+
+    // The approval's rows: one for the approval, pass none, and under it the test's call, on the figma binding, through one teller request.
+    const approvals = withStore((s) => s.calls({ shop: "dimitri/figma" }).filter((c) => c.parent === null));
+    expect(approvals.map((c) => [c.passId, c.command, c.result, c.exit, c.detail])).toEqual([[null, null, "ok", 0, `approval ${permit} tests 1/1`]]);
+    const tree = withStore((s) => s.callTree(approvals[0]!.callId));
+    expect(tree.map((c) => [c.depth, c.passId, c.grantId, c.shop, c.command, c.result, c.shopExit, c.credentials, c.wall, c.detail])).toEqual([
+      [0, null, null, "dimitri/figma", null, "ok", null, [], null, `approval ${permit} tests 1/1`],
+      [1, null, "shop-test:dimitri/figma", "dimitri/figma", "file", "ok", 0, [{ type: "figma", requests: 1 }], "none", "test a file answers"],
+    ]);
+    expect(origin.seen.map((x) => [x.method, x.url, x.headers["x-figma-token"]])).toEqual([["GET", "/v1/files/fixture", TOKEN]]);
+    const audit = await admin(["audit", "--call", approvals[0]!.callId]);
+    expect(audit.stdout.trimEnd().split("\n").slice(1).map((l) => /^( *)call_/.exec(l)![1]!.length)).toEqual([0, 2]);
+
+    // The grant: every command, the binding, source permit <id>, and the permit approved as it; tested_at set.
+    expect(passed.exit, passed.stderr).toBe(0);
+    expect(passed.stdout).toMatch(/^ok a file answers\ngrant_[0-9a-f]{16}\n$/);
+    expect(passed.stderr).toBe("");
+    const grant = passed.stdout.trim().split("\n").at(-1)!;
+    expect(withStore((s) => s.grantById(grant))).toMatchObject({ passId: pass, shop: "dimitri/figma", commands: ["file", "comments"], constraints: {}, credentials: { figma: cred }, source: `permit ${permit}` });
+    expect((await admin(["grant", "ls"])).stdout).toMatch(new RegExp(`^${grant}\\s+${pass}\\s+dimitri/figma\\s+file,comments\\s+permit ${permit}\\s+-\\s+figma=${cred}\\s+-\\s+live\\s+-$`, "m"));
+    expect((await admin(["permit", "ls"])).stdout).toMatch(new RegExp(`^${permit}\\s.*\\sapproved as ${grant}\\s+figma: ${cred}$`, "m"));
+    expect(withStore((s) => s.getShop("dimitri/figma")!.testedAt)).not.toBeNull();
+    expect(passed.stdout + passed.stderr).not.toContain(TOKEN);
+    expect((await admin(["permit", "approve", permit])).stderr).toMatch(/was approved at/);
+  });
+
+  it("type rm of a proposed type is refused while a shop names it and removes it after; of the held type, refused while a credential holds it", async () => {
+    await published();
+    expect((await admin(["type", "rm", "figma"])).stderr).toBe("townd admin: type figma is proposed and named by a shop (dimitri/figma); remove it with townd admin shop rm first\n");
+    expect((await admin(["shop", "rm", "dimitri/figma"])).exit).toBe(0);
+    expect(await admin(["type", "rm", "figma"])).toEqual({ exit: 0, stdout: "removed figma\n", stderr: "" });
+    await published();
+    expect((await admin(["type", "approve", "figma"])).exit).toBe(0);
+    const cred = (await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).stdout.trim();
+    expect((await admin(["type", "rm", "figma"])).stderr).toBe(`townd admin: type figma is held by a credential (${cred}); remove it with townd admin credential rm first\n`);
+  });
+
+  it("shop add of a manifest defining a type the town lacks holds it in one step, is refused with the type held while the user has no credential of it, and the same add after credential add adds the shop", async () => {
+    await addUser("dimitri");
+    const dir = mkdtempSync(path.join(os.tmpdir(), "town-admin-figma-add-"));
+    try {
+      writeFileSync(path.join(dir, "manifest.yaml"), manifestText());
+      cpSync(path.join(FIGMA_DIR, "main.mjs"), path.join(dir, "main.mjs"));
+      const shops = (await admin(["shop", "ls"])).stdout;
+      const first = await admin(["shop", "add", dir, "--user", "dimitri"]);
+      expect(first).toEqual({
+        exit: 1,
+        stdout: `held figma, as dimitri/figma defines it: a token type sent to ${origin.url} in X-Figma-Token: {token}\ndimitri/figma says: ${GUIDANCE}\n`,
+        stderr: "townd admin: shop add refused: user dimitri holds no figma credential; figma stays held, as dimitri/figma defines it, so add one with townd admin credential add --user dimitri --type figma, then shop add again\n",
+      });
+      expect((await admin(["type", "ls"])).stdout).toMatch(new RegExp(`^figma\\s+token\\s+held\\s+dimitri/figma\\s+${origin.url.replace(/[.]/g, "\\.")}\\s+X-Figma-Token: \\{token\\}\\s`, "m"));
+      expect(withStore((s) => s.getType("figma"))).toMatchObject({ state: "held", proposedBy: "dimitri/figma", guidance: GUIDANCE });
+      expect((await admin(["shop", "ls"])).stdout).toBe(shops);
+      expect(origin.seen).toEqual([]);
+      // The same add again, still with no credential: the same refusal, and nothing held twice.
+      const again = await admin(["shop", "add", dir, "--user", "dimitri"]);
+      expect(again).toEqual({ exit: 1, stdout: "", stderr: first.stderr });
+
+      expect((await admin(["credential", "add", "--user", "dimitri", "--type", "figma"], pipeOf(TOKEN))).exit).toBe(0);
+      const added = await admin(["shop", "add", dir, "--user", "dimitri"]);
+      expect(added).toEqual({ exit: 0, stdout: "ok a file answers\nadded dimitri/figma 0.1.0\n", stderr: "" });
+      expect(withStore((s) => s.getShop("dimitri/figma"))).toMatchObject({ owner: null });
+      expect(withStore((s) => s.listTypes().filter((t) => t.name === "figma"))).toMatchObject([{ state: "held", proposedBy: "dimitri/figma" }]);
+      expect(origin.seen.map((x) => x.headers["x-figma-token"])).toEqual([TOKEN]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the checklist is enough: the commands permit show prints, typed as printed in order and nothing else, end with the grant", async () => {
+    const { pass, permit } = await published();
+    const shown = (await admin(["permit", "show", permit])).stdout;
+    const lines = shown.slice(shown.indexOf("to do:\n") + "to do:\n".length).trimEnd().split("\n").map((l) => l.replace(/^  (done  |      )/, ""));
+    const typed: string[] = [];
+    for (const line of lines) {
+      // As a shell reads the line: a comment is not a word, and `printf '%s\n' "$TOKEN" |` is the token on stdin.
+      const piped = /^printf '%s\\n' "\$TOKEN" \| (.*)$/.exec(line);
+      const command = (piped ? piped[1]! : line).replace(/\s+#.*$/, "");
+      const split = splitWords(command);
+      if (!split.ok) throw new Error(split.error);
+      const [binary, verb, ...words] = split.words;
+      expect([binary, verb], line).toEqual(["townd", "admin"]);
+      const r = await admin(words, piped ? pipeOf(`${TOKEN}\n`) : undefined);
+      typed.push(`${line} -> exit ${r.exit} ${r.stderr}`);
+    }
+    const grants = withStore((s) => s.grantsForPass(pass).filter((g) => g.shop === "dimitri/figma"));
+    expect(grants.map((g) => [g.source, Object.keys(g.credentials)]), typed.join("\n")).toEqual([[`permit ${permit}`, ["figma"]]]);
   });
 });

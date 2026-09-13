@@ -1,12 +1,18 @@
 // ring: checkout
 // Manifest v0: the memory manifest parses, and every refusal names its
 // field, what is wrong, what to write instead, and a real spec section.
+// Consent phase 0: a need that defines its type, every shape and each
+// refusal citing §8, a definition matching and differing from a held and a
+// proposed type, a registration refused naming its key, guidance without
+// a definition, over its length, or naming a host the type does not send
+// to, an oauth definition shape-checked and then refused, and the spec's
+// §8 saying so within its line count.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
-import { parseManifest, validateManifest } from "../src/manifest.js";
+import { parseManifest, validateManifest, type TownType } from "../src/manifest.js";
 import { SPEC, specSections } from "../src/spec.js";
 
 const MEMORY = readFileSync(path.resolve(import.meta.dirname, "../shops/memory/manifest.yaml"), "utf8");
@@ -156,12 +162,12 @@ describe("credentials", () => {
   it("refuses a type the town does not hold, naming the ones it does", () => {
     const refusals = validateManifest(withNeeds([{ type: "github-tokens" }]), ["github-token", "internal"]);
     expectWellFormed(refusals);
-    expect(refusals).toEqual(["credentials[0].type: 'github-tokens' is not a type this town holds; write one of (github-token, internal) instead (spec §8)"]);
+    expect(refusals).toEqual(["credentials[0].type: 'github-tokens' is not a type this town holds; write one of (github-token, internal), or an origin and a header beside it to propose one, instead (spec §8)"]);
   });
 
   it("writes the design's line for one type held", () => {
     expect(validateManifest(withNeeds([{ type: "github-tokens" }]), TYPES)).toEqual([
-      "credentials[0].type: 'github-tokens' is not a type this town holds; write one of (github-token) instead (spec §8)",
+      "credentials[0].type: 'github-tokens' is not a type this town holds; write one of (github-token), or an origin and a header beside it to propose one, instead (spec §8)",
     ]);
   });
 
@@ -192,6 +198,134 @@ describe("credentials", () => {
       expect(validateManifest(withNeeds(credentials))).toEqual([]);
       expect(validateManifest(withNeeds(credentials), [])).toEqual([]);
     }
+  });
+});
+
+describe("needs that define a type", () => {
+  const GITHUB: TownType = { name: "github-token", kind: "token", state: "held", origin: "https://api.github.com", header: "Authorization: Bearer {token}", oauth: null };
+  const PROPOSED: TownType = { name: "figma", kind: "token", state: "proposed", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", oauth: null };
+  const GUIDANCE = "Make a personal access token at Figma > Settings > Security, with file_content:read, and paste it.";
+  const FIGMA = { type: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: GUIDANCE };
+  const OAUTH = { authorize: "https://accounts.google.com/o/oauth2/v2/auth", token: "https://oauth2.googleapis.com/token", scopes: ["https://www.googleapis.com/auth/documents.readonly"] };
+  const withNeeds = (credentials: unknown) => memoryWith((m) => (m.credentials = credentials));
+  /** Each refusal ends citing a section the spec has. */
+  const cites8 = (refusals: string[]) => {
+    for (const r of refusals) expect(r, r).toMatch(/ \(spec §8\)$/);
+  };
+
+  it("accepts every need shape: a held type named, a held or proposed type defined as the town holds it, and a type the town lacks proposed, with or without guidance", () => {
+    for (const [town, needs] of [
+      [[GITHUB], [{ type: "github-token" }]],
+      [[GITHUB], [{ type: "github-token", origin: GITHUB.origin, header: GITHUB.header }]],
+      [[GITHUB], [{ type: "github-token" }, FIGMA]],
+      [[GITHUB], [{ type: "figma", origin: FIGMA.origin, header: FIGMA.header }]],
+      [[GITHUB, PROPOSED], [{ type: "figma" }]],
+      [[GITHUB, PROPOSED], [FIGMA]],
+      [[GITHUB], [{ ...FIGMA, guidance: "Make one at https://api.figma.com/settings, with file_content:read.\n" }]],
+    ] as Array<[TownType[], unknown[]]>) {
+      expect(validateManifest(withNeeds(needs), town), JSON.stringify(needs)).toEqual([]);
+    }
+    const { manifest } = parseManifest(`${MEMORY}credentials:\n  - type: figma\n    origin: https://api.figma.com\n    header: "X-Figma-Token: {token}"\n    guidance: |\n      ${GUIDANCE}\n`, [GITHUB]);
+    expect(manifest?.credentials).toEqual([{ ...FIGMA, guidance: `${GUIDANCE}\n` }]);
+  });
+
+  it("refuses a definition differing from a held type, or a proposed one, in the design's words, naming what the town holds", () => {
+    const moved = validateManifest(withNeeds([{ type: "github-token", origin: "https://api.figma.com", header: GITHUB.header }]), [GITHUB]);
+    expect(moved).toEqual(["credentials[0]: github-token is a type this town holds, at https://api.github.com in Authorization; leave the definition out, or write that (spec §8)"]);
+    const v2 = validateManifest(withNeeds([{ type: "github-token" }, { ...FIGMA, origin: "https://api.figma.com/v2" }]), [GITHUB, PROPOSED]);
+    expect(v2).toEqual(["credentials[1]: figma is a type this town holds, at https://api.figma.com in X-Figma-Token; leave the definition out, or write that (spec §8)"]);
+    const header = validateManifest(withNeeds([{ ...FIGMA, header: "Authorization: Bearer {token}" }]), [PROPOSED]);
+    expect(header).toEqual(["credentials[0]: figma is a type this town holds, at https://api.figma.com in X-Figma-Token; leave the definition out, or write that (spec §8)"]);
+  });
+
+  it("refuses a type the town lacks with no definition, naming the ones it holds and how to propose one, and a definition with no store at hand naming --data", () => {
+    const lacks = validateManifest(withNeeds([{ type: "figma" }]), [GITHUB]);
+    expectWellFormed(lacks);
+    expect(lacks).toEqual(["credentials[0].type: 'figma' is not a type this town holds; write one of (github-token), or an origin and a header beside it to propose one, instead (spec §8)"]);
+    const nowhere = validateManifest(withNeeds([FIGMA]));
+    expectWellFormed(nowhere);
+    expect(nowhere).toEqual(["credentials[0].type: 'figma' cannot be checked with no data directory at hand; write the verb again with --data <dir>, so the town's types are read, instead (spec §8)"]);
+  });
+
+  // Each case: the need, and the one field its refusal names; every refusal cites §8.
+  const shapes: Array<[string, unknown, string]> = [
+    ["origin without a header", { type: "figma", origin: FIGMA.origin }, "credentials[0].header"],
+    ["a header without an origin", { type: "figma", header: FIGMA.header }, "credentials[0].origin"],
+    ["an origin with a query", { ...FIGMA, origin: "https://api.figma.com/?x=1" }, "credentials[0].origin"],
+    ["an origin with userinfo", { ...FIGMA, origin: "https://me:pw@api.figma.com" }, "credentials[0].origin"],
+    ["an origin that is not http", { ...FIGMA, origin: "ftp://api.figma.com" }, "credentials[0].origin"],
+    ["a header with no {token}", { ...FIGMA, header: "X-Figma-Token: abc" }, "credentials[0].header"],
+    ["a type that is not a name", { ...FIGMA, type: "Figma" }, "credentials[0].type"],
+    ["a key that is not a need's", { ...FIGMA, scopes: ["file_content:read"] }, "credentials[0].scopes"],
+    ["a registration beside the definition", { ...FIGMA, client_secret: "s3cret" }, "credentials[0].client_secret"],
+    ["a registration under oauth", { ...FIGMA, oauth: { ...OAUTH, client_id: "123.apps" } }, "credentials[0].oauth.client_id"],
+    ["a redirect under oauth", { ...FIGMA, oauth: { ...OAUTH, redirect_uri: "http://127.0.0.1/" } }, "credentials[0].oauth.redirect_uri"],
+    ["oauth with no origin and header", { type: "google-oauth", oauth: OAUTH }, "credentials[0].oauth"],
+    ["oauth that is not a mapping", { ...FIGMA, oauth: "google" }, "credentials[0].oauth"],
+    ["an authorize endpoint on http", { ...FIGMA, oauth: { ...OAUTH, authorize: "http://accounts.google.com/auth" } }, "credentials[0].oauth.authorize"],
+    ["a token endpoint missing", { ...FIGMA, oauth: { authorize: OAUTH.authorize, scopes: OAUTH.scopes } }, "credentials[0].oauth.token"],
+    ["scopes empty", { ...FIGMA, oauth: { ...OAUTH, scopes: [] } }, "credentials[0].oauth.scopes"],
+    ["a key that is not oauth's", { ...FIGMA, oauth: { ...OAUTH, audience: "x" } }, "credentials[0].oauth.audience"],
+    ["guidance with no definition", { type: "github-token", guidance: "Make a classic token." }, "credentials[0].guidance"],
+    ["guidance over six hundred characters", { ...FIGMA, guidance: "Make a token. ".repeat(43) }, "credentials[0].guidance"],
+    ["guidance of two paragraphs", { ...FIGMA, guidance: "Make a token.\n\nThen paste it.\n" }, "credentials[0].guidance"],
+    ["guidance that is not text", { ...FIGMA, guidance: ["Make a token."] }, "credentials[0].guidance"],
+  ];
+
+  it.each(shapes)("refuses %s, naming the field, citing §8", (_label, need, field) => {
+    const refusals = validateManifest(withNeeds([need]), [GITHUB]);
+    cites8(refusals);
+    expect(refusals.map((r) => r.split(": ")[0]), refusals.join("\n")).toEqual([field]);
+  });
+
+  it("refuses a registration naming the key and saying it is the operator's", () => {
+    const [line] = validateManifest(withNeeds([{ ...FIGMA, oauth: { ...OAUTH, client_id: "123.apps" } }]), [GITHUB]);
+    expect(line).toBe("credentials[0].oauth.client_id: is a registration, which is the operator's and never a manifest's; write authorize, token, and scopes alone, and the operator gives the town its client, instead (spec §8)");
+  });
+
+  it("refuses guidance at six hundred and one characters and takes it at six hundred", () => {
+    const at = (n: number) => validateManifest(withNeeds([{ ...FIGMA, guidance: "x".repeat(n) }]), [GITHUB]);
+    expect(at(600)).toEqual([]);
+    expect(at(601)).toEqual(["credentials[0].guidance: is 601 characters, over 600; write one paragraph of at most 600 characters instead (spec §8)"]);
+  });
+
+  it("refuses guidance naming a host the type does not send to, naming the host and the rule, and takes the origin's own host", () => {
+    const elsewhere = validateManifest(withNeeds([{ ...FIGMA, guidance: "Make a token in Figma, then paste it at https://paste.example.com/figma so the shop can read it." }]), [GITHUB]);
+    expect(elsewhere).toEqual(["credentials[0].guidance: names paste.example.com, which is not where this type sends; say where the secret is made, not where to send it (spec §8)"]);
+    expect(validateManifest(withNeeds([{ ...FIGMA, guidance: "Paste it at HTTPS://API.FIGMA.COM/v1/me to check it." }]), [GITHUB])).toEqual([]);
+    // Compared exactly: www.figma.com is not api.figma.com.
+    expect(validateManifest(withNeeds([{ ...FIGMA, guidance: "See www.figma.com, Settings > Security." }]), [GITHUB])).toEqual([
+      "credentials[0].guidance: names www.figma.com, which is not where this type sends; say where the secret is made, not where to send it (spec §8)",
+    ]);
+  });
+
+  it("refuses a host written bare as a URL is, takes the origin's own host bare, and takes a file's name", () => {
+    const guided = (guidance: string, need: object = FIGMA) => validateManifest(withNeeds([{ ...need, guidance }]), [GITHUB]);
+    expect(guided("Make a token in Figma, then paste it at paste.example.com so the shop can read it.")).toEqual([
+      "credentials[0].guidance: names paste.example.com, which is not where this type sends; say where the secret is made, not where to send it (spec §8)",
+    ]);
+    expect(guided("Email the token to someone@Paste.Example.com.")).toEqual([
+      "credentials[0].guidance: names paste.example.com, which is not where this type sends; say where the secret is made, not where to send it (spec §8)",
+    ]);
+    expect(guided("It is sent to api.figma.com alone; make it at Figma > Settings > Security.")).toEqual([]);
+    expect(guided("Make a token at Figma > Settings > Security; main.mjs reads it through the town, as Node.js does, never client_secret.json, e.g. not v1.2.3.")).toEqual([]);
+    // The oauth endpoints' hosts count as the type's, bare too: the shape passes to the oauth refusal, not the host rule.
+    const oauth = { type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: OAUTH };
+    expect(guided("Consent happens at accounts.google.com, for docs.googleapis.com.", oauth).map((r) => r.split(": ")[0])).toEqual(["credentials[0].oauth"]);
+    expect(guided("Make the client at console.cloud.google.com.", oauth).map((r) => r.split(": ")[0])).toEqual(["credentials[0].guidance"]);
+  });
+
+  it("shape-checks an oauth definition whole, then refuses it until consent phase 1, so nothing is proposed", () => {
+    const refusals = validateManifest(withNeeds([{ type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: OAUTH, guidance: "In the Google Cloud console, enable the Docs API and make a Desktop client; consent is at https://accounts.google.com." }]), [GITHUB]);
+    expect(refusals).toEqual(["credentials[0].oauth: oauth types come in consent phase 1; write a token type, an origin and a header alone, instead (spec §8)"]);
+    // A shape refusal comes first, alone.
+    expect(validateManifest(withNeeds([{ type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", oauth: { ...OAUTH, scopes: "documents" } }]), [GITHUB]).map((r) => r.split(": ")[0])).toEqual(["credentials[0].oauth.scopes"]);
+  });
+
+  it("says the need's definition in §8 of the spec, and names no host in its example that the type does not send to", () => {
+    const section = SPEC.split("## 8. ")[1]!.split("## 9. ")[0]!;
+    for (const word of ["origin", "header", "guidance", "oauth", "authorize", "scopes", "a proposal", "a registration is the operator's", "600", "names no host, bare or in a URL, the type does not send to"]) expect(section, word).toContain(word);
+    expect(SPEC.split("\n").length).toBeLessThan(300);
   });
 });
 

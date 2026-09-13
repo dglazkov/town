@@ -3,8 +3,10 @@
 // town's it imports, name no shop, command, or argument of any shop under
 // shops/, none of the operator's verbs, nothing of vault's: no github,
 // no credential, no repo; and nothing of compose's: no depends, no watch,
-// no clerk; and nothing of hall's: no hall, no publish, no permit. Its
-// one new line, that stdin is not text, names none of them either.
+// no clerk; and nothing of hall's: no hall, no publish, no permit; and
+// nothing of consent's: no consent, no connect, no oauth, no refresh, no
+// guidance. Its one new line, that stdin is not text, names none of them
+// either.
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -47,10 +49,10 @@ function localImports(source: string): string[] {
   return [...source.matchAll(/^import\s+(type\s+)?[^'"]*from\s+"(\.[^"]+)";/gm)].map((m) => `${m[1] ? "type " : ""}${m[2]}`);
 }
 
-const FORBIDDEN = ["memory", "remember", "recall", "forget", "--key", "--prefix", "serve", "admin", "spec", "github", "credential", "repo", "depends", "watch", "clerk", "hall", "publish", "permit"];
+const FORBIDDEN = ["memory", "remember", "recall", "forget", "--key", "--prefix", "serve", "admin", "spec", "github", "credential", "repo", "depends", "watch", "clerk", "hall", "publish", "permit", "consent", "connect", "oauth", "refresh", "guidance"];
 
-it("knows the words it must not hold: memory's, the operator's, vault's, compose's, and hall's", () => {
-  for (const w of ["github", "credential", "repo", "depends", "watch", "clerk", "hall", "publish", "permit"]) expect(FORBIDDEN).toContain(w);
+it("knows the words it must not hold: memory's, the operator's, vault's, compose's, hall's, and consent's", () => {
+  for (const w of ["github", "credential", "repo", "depends", "watch", "clerk", "hall", "publish", "permit", "consent", "connect", "oauth", "refresh"]) expect(FORBIDDEN).toContain(w);
   const words = shopWords();
   for (const w of ["town/memory", "memory", "remember", "recall", "list", "forget", "--key", "--value", "--prefix"]) expect(words).toContain(w);
   for (const w of ["town/watch", "watch", "mark", "changes", "--repo"]) expect(words).toContain(w);

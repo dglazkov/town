@@ -11,7 +11,12 @@
 // permits made, replaced, decided, and listed, and a user's name a namespace.
 // Wall's schema 5: `calls.wall`, the kind a call's process ran within, and a
 // store hall made, by the binaries at 4a8e89c, migrated in place with every
-// row intact and the column null.
+// row intact and the column null. Consent's schema 6: the type's kind,
+// state, proposer, guidance, and registration, a credential's scopes and
+// why it was revoked, and a shop's `tested_at`; a store wall made, by the
+// binaries at e829844, migrated in place with every row intact, every type
+// a held token type, and every shop tested at its `added_at`; and proposed
+// types made, met, refused a credential, approved, and removed.
 
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -19,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadShop } from "../src/shoptest.js";
+import { parseManifest } from "../src/manifest.js";
 import { HALL } from "../src/hall.js";
 import type { Manifest } from "../src/manifest.js";
 import { StoreError, hashToken, openStore, type Store } from "../src/store.js";
@@ -27,6 +33,8 @@ import { ensureKey } from "../src/vault.js";
 let dir: string;
 let store: Store;
 const MEMORY = path.resolve(import.meta.dirname, "../shops/memory");
+/** The columns consent's migration gives every type an older store held: a held token type, no proposer, no guidance, no registration. */
+const HELD_TOKEN = { kind: "token", state: "held", proposed_by: null, guidance: "", oauth: null, client: null };
 
 beforeEach(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), "town-store-test-"));
@@ -49,12 +57,14 @@ function passFor(user = "dimitri", now = 1000) {
 }
 
 describe("the schema", () => {
-  it("lives at <data>/town.db with gate's tables, vault's two, compose's two columns, hall's table and two columns, wall's column, and meta.schema 5", () => {
+  it("lives at <data>/town.db with gate's tables, vault's two, compose's two columns, hall's table and two columns, wall's column, consent's columns, and meta.schema 6", () => {
     const tables = (store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
     expect(tables).toEqual(["calls", "credential_types", "credentials", "grants", "meta", "passes", "permits", "shops", "users"]);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(columns(store, "permits")).toEqual(["id", "pass_id", "shop", "commands", "constraints", "why", "created_at", "decided_at", "decision", "grant_id"]);
-    expect(columns(store, "shops").at(-1)).toBe("owner");
+    expect(columns(store, "shops").slice(-2)).toEqual(["owner", "tested_at"]);
+    expect(columns(store, "credential_types")).toEqual(["name", "origin", "header", "added_at", "kind", "state", "proposed_by", "guidance", "oauth", "client"]);
+    expect(columns(store, "credentials").slice(-2)).toEqual(["scopes", "revoked_why"]);
     expect(columns(store, "grants").at(-1)).toBe("source");
     expect(columns(store, "grants")).toContain("credentials");
     expect(columns(store, "calls")).toContain("credentials");
@@ -223,26 +233,26 @@ describe("a store gate made", () => {
     expect(store.calls()).toMatchObject([{ at: 40, passId: "pass_1", result: "ok", command: "recall" }]);
     expect(store.getMeta("address")).toBe("http://127.0.0.1:7000");
 
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(store.listTypes().map((t) => [t.name, t.origin, t.header])).toEqual([["github-token", "https://api.github.com", "Authorization: Bearer {token}"]]);
-    expect(columns(store, "credentials")).toEqual(["id", "user_id", "type", "label", "sealed", "created_at", "revoked_at"]);
+    expect(columns(store, "credentials")).toEqual(["id", "user_id", "type", "label", "sealed", "created_at", "revoked_at", "scopes", "revoked_why"]);
     expect(store.db.prepare("SELECT credentials FROM grants WHERE id = 'grant_1'").get()).toEqual({ credentials: "{}" });
     expect(store.db.prepare("SELECT credentials FROM calls").get()).toEqual({ credentials: "[]" });
     expect(store.calls()).toMatchObject([{ callId: expect.stringMatching(/^call_[0-9a-f]{16}$/), parent: null }]);
 
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(store.listUsers()).toHaveLength(1);
   });
 
   it("refuses a store a newer town made", () => {
-    store.setMeta("schema", "6");
+    store.setMeta("schema", "7");
     store.close();
-    expect(() => openStore(dir)).toThrow(/is schema 6, newer than this town's 5/);
+    expect(() => openStore(dir)).toThrow(/is schema 7, newer than this town's 6/);
     const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
     const db = new DatabaseSync(path.join(dir, "town.db"));
-    db.prepare("UPDATE meta SET value = '5' WHERE key = 'schema'").run();
+    db.prepare("UPDATE meta SET value = '6' WHERE key = 'schema'").run();
     db.close();
     store = openStore(dir);
   });
@@ -267,7 +277,7 @@ describe("a store vault made", () => {
     expect(before.calls).toHaveLength(3);
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(store.listUsers().map((u) => u.name)).toEqual(["dimitri"]);
     const [pass] = store.listPasses();
     expect(pass).toMatchObject({ id: "pass_a648d98fa018fc7c", userName: "dimitri", label: "research assistant", revokedAt: null });
@@ -299,7 +309,7 @@ describe("a store vault made", () => {
     store.close();
     store = openStore(dir);
     expect(store.calls().map((c) => c.callId)).toEqual(calls.map((c) => c.callId));
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(store.listTypes()).toEqual([]);
   });
 });
@@ -446,6 +456,57 @@ describe("credential types", () => {
       expect(() => store.addType({ ...ok, header }), header).toThrow(/is not a header/);
     }
     expect(store.addType({ ...ok, origin: "http://127.0.0.1:9/base" }).origin).toBe("http://127.0.0.1:9/base");
+  });
+
+  it("are proposed by a shop's manifest, met by the same definition, held by no credential, approved, and removed while no shop names them", async () => {
+    const figma = { name: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: "Make a personal access token at Figma > Settings > Security.\n" };
+    const made = store.proposeType(figma, "dimitri/figma", false, 50);
+    expect(made).toEqual({ ...figma, guidance: "Make a personal access token at Figma > Settings > Security.", addedAt: 50, kind: "token", state: "proposed", proposedBy: "dimitri/figma", oauth: null });
+    // A second proposal of the name is met by the first: nothing is written, the first proposer's guidance stays.
+    expect(store.proposeType({ ...figma, guidance: "Another shop's words." }, "ada/figma", false, 60)).toBeNull();
+    expect(store.getType("figma")).toEqual(made);
+    expect(store.listTypes().map((t) => [t.name, t.kind, t.state, t.proposedBy])).toEqual([["figma", "token", "proposed", "dimitri/figma"], ["github-token", "token", "held", null]]);
+    // The validator reads it: the same definition is met, a different one refused, as for a held type.
+    const memory = await loadShop(MEMORY);
+    const withNeed = (need: string) => `name: dimitri/figma\nversion: 0.1.0\nsummary: Reads Figma.\nruntime: subprocess\nentry: ./main.mjs\ncredentials:\n  - ${need}\ncommands:\n  - { name: read, summary: Read., effect: read, output: text }\ntests:\n  - { name: reads, run: read, expect: { exit: 0 } }\n`;
+    expect(parseManifest(withNeed('{ type: figma, origin: "https://api.figma.com", header: "X-Figma-Token: {token}" }'), store.listTypes()).refusals).toEqual([]);
+    expect(parseManifest(withNeed("{ type: figma }"), store.listTypes()).refusals).toEqual([]);
+    expect(parseManifest(withNeed('{ type: figma, origin: "https://api.figma.com/v2", header: "X-Figma-Token: {token}" }'), store.listTypes()).refusals).toEqual([
+      "credentials[0]: figma is a type this town holds, at https://api.figma.com in X-Figma-Token; leave the definition out, or write that (spec §8)",
+    ]);
+
+    // Held by no credential until approved.
+    store.addUser("dimitri", 70);
+    expect(() => store.addCredential({ userName: "dimitri", type: "figma", label: "", value: "figma-not-a-token" }, ensureKey(dir))).toThrow(
+      new StoreError("type figma is proposed by dimitri/figma and not yet the town's; townd admin type approve figma makes it so"),
+    );
+    expect(store.sealedRows()).toBe(0);
+
+    // Removed while no shop names it; refused while one does.
+    const shop = parseManifest(withNeed("{ type: figma }"), store.listTypes()).manifest!;
+    store.upsertShop(shop, 80, null, null);
+    expect(() => store.removeType("figma")).toThrow(new StoreError("type figma is proposed and named by a shop (dimitri/figma); remove it with townd admin shop rm first"));
+    expect(store.getShop("dimitri/figma")?.testedAt).toBeNull();
+    store.markTested("dimitri/figma", 90);
+    expect(store.getShop("dimitri/figma")?.testedAt).toBe(90);
+    store.upsertShop(shop, 95, null, null);
+    expect(store.getShop("dimitri/figma")?.testedAt).toBeNull();
+    store.removeShop("dimitri/figma");
+    store.removeType("figma");
+    expect(store.getType("figma")).toBeNull();
+    expect(memory.name).toBe("town/memory");
+
+    // Approved: held, its definition the proposal's; approved once; then a credential of it, and removal refused as vault's.
+    store.proposeType(figma, "dimitri/figma", false, 100);
+    expect(store.approveType("figma")).toMatchObject({ state: "held", proposedBy: "dimitri/figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", addedAt: 100 });
+    expect(() => store.approveType("figma")).toThrow("type figma is already the town's; townd admin type ls lists them");
+    expect(() => store.approveType("nothing")).toThrow("type nothing is not in this town; townd admin type ls lists them");
+    const c = store.addCredential({ userName: "dimitri", type: "figma", label: "", value: "figma-not-a-token" }, ensureKey(dir));
+    expect(() => store.removeType("figma")).toThrow(`type figma is held by a credential (${c.id}); remove it with townd admin credential rm first`);
+
+    // The operator's shop add holds a type it defines in one step, and the operator's own type carries the operator's guidance.
+    expect(store.proposeType({ ...figma, name: "sketch", origin: "https://api.sketch.com" }, "dimitri/sketch", true, 110)).toMatchObject({ state: "held", proposedBy: "dimitri/sketch" });
+    expect(store.addType({ name: "internal", origin: "https://api.example.internal", header: "X-Key: {token}", guidance: "  Ask the team for a key.\n" }, 120)).toMatchObject({ state: "held", proposedBy: null, guidance: "Ask the team for a key." });
   });
 
   it("stay removed: github-token removed is not seeded again on the next open", () => {
@@ -643,7 +704,7 @@ describe("a store compose made", () => {
     expect(before.calls).toHaveLength(4);
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(columns(store, "permits")).toEqual(["id", "pass_id", "shop", "commands", "constraints", "why", "created_at", "decided_at", "decision", "grant_id"]);
     expect(store.listPermits()).toEqual([]);
     // Every old row is as compose left it, with the new columns null: an operator's shop and an operator's grant.
@@ -651,7 +712,19 @@ describe("a store compose made", () => {
       const after = store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>;
       const old = after.filter((r) => !(t === "shops" && r.name === "town/hall") && !(t === "meta" && r.key !== "schema"));
       const want = (before[t] as Array<Record<string, unknown>>).map((r) =>
-        t === "shops" ? { ...r, owner: null } : t === "grants" ? { ...r, source: null } : t === "meta" ? { ...r, value: "5" } : t === "calls" ? { ...r, wall: null } : { ...r },
+        t === "shops"
+          ? { ...r, owner: null, tested_at: r.added_at }
+          : t === "grants"
+            ? { ...r, source: null }
+            : t === "meta"
+              ? { ...r, value: "6" }
+              : t === "calls"
+                ? { ...r, wall: null }
+                : t === "credential_types"
+                  ? { ...r, ...HELD_TOKEN }
+                  : t === "credentials"
+                    ? { ...r, scopes: null, revoked_why: null }
+                    : { ...r },
       );
       expect(old, t).toEqual(want);
     }
@@ -664,7 +737,7 @@ describe("a store compose made", () => {
     // A second open migrates nothing and leaves one hall row.
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(store.listShops().map((x) => x.name)).toEqual(["town/hall", "town/memory"]);
   });
 
@@ -702,11 +775,26 @@ describe("a store hall made", () => {
     expect(Object.keys(before.calls![0]!)).not.toContain("wall");
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(columns(store, "calls").at(-1)).toBe("wall");
     for (const t of TABLES) {
-      const after = store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>;
-      const want = (before[t] as Array<Record<string, unknown>>).map((r) => (t === "calls" ? { ...r, wall: null } : t === "meta" && r.key === "schema" ? { ...r, value: "5" } : { ...r }));
+      // The hall's row is this town's hall, written again on open; consent's columns are on every old row as its migration writes them.
+      const after = (store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
+      const want = (before[t] as Array<Record<string, unknown>>)
+        .filter((r) => !(t === "shops" && r.name === "town/hall"))
+        .map((r) =>
+          t === "calls"
+            ? { ...r, wall: null }
+            : t === "meta" && r.key === "schema"
+              ? { ...r, value: "6" }
+              : t === "shops"
+                ? { ...r, tested_at: r.added_at }
+                : t === "credential_types"
+                  ? { ...r, ...HELD_TOKEN }
+                  : t === "credentials"
+                    ? { ...r, scopes: null, revoked_why: null }
+                    : { ...r },
+        );
       expect(after, t).toEqual(want);
     }
     const calls = store.calls();
@@ -730,8 +818,76 @@ describe("a store hall made", () => {
     // A second open migrates nothing.
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("5");
+    expect(store.getMeta("schema")).toBe("6");
     expect(store.calls()).toEqual(calls);
+  });
+});
+
+describe("a store wall made", () => {
+  // Made by the binaries at e829844, whose src is wall's 1aac7d9: townd serve, townd admin, and town, walled by seatbelt, then sqlite3 .dump.
+  const FIXTURE = readFileSync(path.resolve(import.meta.dirname, "fixtures/wall-store.sql"), "utf8");
+  const KEY = Buffer.from(/^-- vault\.key: ([0-9a-f]{64})$/m.exec(FIXTURE)![1]!, "hex");
+  const TABLES = ["users", "passes", "grants", "shops", "calls", "meta", "credential_types", "credentials", "permits"];
+
+  it("opens with every row of every table intact, every type a held token type, and every shop tested at its added_at", () => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(path.join(os.tmpdir(), "town-store-wall-"));
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+    const wall = new DatabaseSync(path.join(dir, "town.db"));
+    wall.exec(FIXTURE);
+    const before = Object.fromEntries(TABLES.map((t) => [t, wall.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
+    wall.close();
+    expect(before.meta).toContainEqual({ key: "schema", value: "5" });
+    expect(before.calls).toHaveLength(9);
+    expect(before.calls!.map((c) => c.wall)).toContain("seatbelt");
+    expect(before.permits).toHaveLength(1);
+    expect(Object.keys(before.shops![0]!)).not.toContain("tested_at");
+
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("6");
+    for (const t of TABLES) {
+      // The hall's row is this town's hall, written again on open.
+      const after = (store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
+      const want = (before[t] as Array<Record<string, unknown>>)
+        .filter((r) => !(t === "shops" && r.name === "town/hall"))
+        .map((r) =>
+          t === "meta" && r.key === "schema"
+            ? { ...r, value: "6" }
+            : t === "shops"
+              ? { ...r, tested_at: r.added_at }
+              : t === "credential_types"
+                ? { ...r, ...HELD_TOKEN }
+                : t === "credentials"
+                  ? { ...r, scopes: null, revoked_why: null }
+                  : { ...r },
+        );
+      expect(after, t).toEqual(want);
+    }
+    expect(store.listTypes().map((t) => [t.name, t.kind, t.state, t.proposedBy, t.guidance])).toEqual([["github-token", "token", "held", null, ""]]);
+    expect(store.listShops().map((x) => [x.name, x.ownerName, x.testedAt === x.addedAt])).toEqual([["dimitri/todo", "dimitri", true], ["town/hall", null, true], ["town/memory", null, true]]);
+    expect(store.listGrants().map((g) => [g.shop, g.source, g.state.kind])).toEqual([["town/hall", null, "live"], ["town/memory", null, "live"], ["dimitri/todo", "publish", "live"]]);
+    expect(store.listPermits().map((x) => [x.commands, x.decision])).toEqual([[["remember", "recall", "list", "forget"], null]]);
+    expect(store.openCredential(store.listCredentials()[0]!.id, KEY)).toBe("wall-fixture-not-a-token");
+    const calls = store.calls();
+    expect(calls.map((c) => [c.shop, c.command, c.result])).toEqual([
+      ["town/memory", "remember", "ok"],
+      ["town/memory", "recall", "ok"],
+      ["town/memory", "forget", "denied"],
+      ["town/memory", "remember", "ok"],
+      ["town/memory", "list", "ok"],
+      ["town/hall", "publish", "ok"],
+      ["dimitri/todo", "add", "ok"],
+      ["town/memory", "remember", "ok"],
+      ["town/hall", "request", "ok"],
+    ]);
+
+    // A second open migrates nothing.
+    store.close();
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("6");
+    expect(store.calls()).toEqual(calls);
+    expect(store.listShops().map((x) => x.testedAt)).toEqual(store.listShops().map((x) => x.addedAt));
   });
 });
 

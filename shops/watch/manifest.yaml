@@ -4,7 +4,7 @@ summary: A repository's issues, compared with the last time you looked.
 guidance: |
   A repo is `owner/name`. The last look is kept in your memory under
   `watch/<owner>/<name>`, so it is yours and outlives the call.
-runtime: subprocess
+runtime: worker
 entry: ./main.mjs
 depends:
   - shop: town/github

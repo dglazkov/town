@@ -1,34 +1,13 @@
-// The schema: the store's tables at <data>/town.db, as each project left
-// them, and the migrations that bring an older store's file to this code's
-// schema on open. node:sqlite is loaded here, without its warning.
+// The schema: the store's tables, as each project left them, and the
+// migrations that bring an older store to this code's schema on open,
+// over the sql seam. It loads no database itself: src/sql.ts does.
 
-import path from "node:path";
-import type { DatabaseSync as Database } from "node:sqlite";
-import { createRequire } from "node:module";
 import type { CredentialType } from "./credentials.js";
+import type { Sql } from "./sql.js";
 import { StoreError } from "./store.js";
 
-// node:sqlite prints an ExperimentalWarning when it loads; the town's
-// binaries speak on stderr to people and agents, so that one line is
-// dropped and every other warning passes.
-const { DatabaseSync } = loadSqlite();
-
-function loadSqlite(): typeof import("node:sqlite") {
-  const emit = process.emitWarning;
-  process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
-    const text = typeof warning === "string" ? warning : warning.message;
-    if (/SQLite is an experimental feature/.test(text)) return;
-    return (emit as (...a: unknown[]) => void).call(process, warning, ...rest);
-  }) as typeof process.emitWarning;
-  try {
-    return createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
-  } finally {
-    process.emitWarning = emit;
-  }
-}
-
-/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3; hall's 4; wall's 5. */
-export const SCHEMA_VERSION = 6;
+/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3; hall's 4; wall's 5; consent's 6. */
+export const SCHEMA_VERSION = 7;
 
 /** The type every store is made with. */
 export const SEEDED_TYPES: ReadonlyArray<Pick<CredentialType, "name" | "origin" | "header">> = [
@@ -140,33 +119,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS permits_pending ON permits(pass_id, shop) WHER
 
 type Row = Record<string, unknown>;
 
-export function setMeta(db: Database, key: string, value: string): void {
-  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+export function setMeta(sql: Sql, key: string, value: string): void {
+  sql.run("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
 }
 
-export function getMeta(db: Database, key: string): string | null {
-  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as Row | undefined;
+export function getMeta(sql: Sql, key: string): string | null {
+  const row = sql.get<Row>("SELECT value FROM meta WHERE key = ?", key);
   return row ? String(row.value) : null;
 }
 
-/** The store's file under `dataDir`, made or brought to this schema; closed again when that fails. */
-export function openDatabase(dataDir: string): Database {
-  const db = new DatabaseSync(path.join(dataDir, "town.db"));
-  db.exec("PRAGMA busy_timeout = 5000;");
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA foreign_keys = ON;");
-  try {
-    db.exec(SCHEMA);
-    migrate(db, dataDir);
-  } catch (err) {
-    db.close();
-    throw err;
-  }
-  return db;
+/** The store's tables over `sql`, made or brought to this schema; `where` names the store in a refusal. */
+export function openSchema(sql: Sql, where: string): void {
+  sql.exec(SCHEMA);
+  migrate(sql, where);
 }
 
 /**
- * Brings an older store to schema 6, a step at a time. From gate's (no
+ * Brings an older store to schema 7, a step at a time. From gate's (no
  * `meta.schema`) to 2: the two tables, the two columns, the seeded type.
  * From vault's 2 to 3: `calls.call_id`, each old row given one, and
  * `calls.parent`, null for every old row. From compose's 3 to 4: the
@@ -178,47 +147,49 @@ export function openDatabase(dataDir: string): Database {
  * `proposed_by`, `guidance` (empty), `oauth`, and `client`, so every old
  * type is a held token type; `credentials.scopes` and `revoked_why`, null;
  * and `shops.tested_at`, set to `added_at`, since every shop in a store
- * made before consent was tested when it was added. Done under a write
- * lock, so a second process opening the same file at the same moment
- * finds the work done.
+ * made before consent was tested when it was added. From consent's 6 to
+ * 7, box's: no column and no row, since `calls.wall` takes a third word,
+ * `isolate`, for a call whose process was an isolate on the box, beside
+ * `seatbelt` and `none`, and every old row keeps the word it has. Done
+ * under a write lock, so a second process opening the same store at the
+ * same moment finds the work done.
  */
-function migrate(db: Database, dataDir: string, now = Date.now()): void {
-  const version = () => Number(getMeta(db, "schema") ?? "1");
+function migrate(sql: Sql, where: string, now = Date.now()): void {
+  const version = () => Number(getMeta(sql, "schema") ?? "1");
   if (version() === SCHEMA_VERSION) return;
   if (version() > SCHEMA_VERSION) {
-    throw new StoreError(`${path.join(dataDir, "town.db")} is schema ${version()}, newer than this town's ${SCHEMA_VERSION}; run the town that made it`);
+    throw new StoreError(`${where} is schema ${version()}, newer than this town's ${SCHEMA_VERSION}; run the town that made it`);
   }
-  db.exec("BEGIN IMMEDIATE");
-  try {
+  sql.transaction(() => {
     const addColumn = (table: string, column: string, decl: string) => {
-      const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => String(r.name));
-      if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+      const cols = sql.all<Row>(`PRAGMA table_info(${table})`).map((r) => String(r.name));
+      if (!cols.includes(column)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
     };
     if (version() < 2) {
-      db.exec(VAULT_TABLES);
+      sql.exec(VAULT_TABLES);
       addColumn("grants", "credentials", "TEXT NOT NULL DEFAULT '{}'");
       addColumn("calls", "credentials", "TEXT NOT NULL DEFAULT '[]'");
       for (const t of SEEDED_TYPES) {
-        db.prepare("INSERT OR IGNORE INTO credential_types (name, origin, header, added_at) VALUES (?, ?, ?, ?)").run(t.name, t.origin, t.header, now);
+        sql.run("INSERT OR IGNORE INTO credential_types (name, origin, header, added_at) VALUES (?, ?, ?, ?)", t.name, t.origin, t.header, now);
       }
-      setMeta(db, "schema", "2");
+      setMeta(sql, "schema", "2");
     }
     if (version() < 3) {
       addColumn("calls", "call_id", "TEXT");
       addColumn("calls", "parent", "TEXT");
-      db.exec("UPDATE calls SET call_id = 'call_' || lower(hex(randomblob(8))) WHERE call_id IS NULL");
-      db.exec(COMPOSE_INDEXES);
-      setMeta(db, "schema", "3");
+      sql.exec("UPDATE calls SET call_id = 'call_' || lower(hex(randomblob(8))) WHERE call_id IS NULL");
+      sql.exec(COMPOSE_INDEXES);
+      setMeta(sql, "schema", "3");
     }
     if (version() < 4) {
-      db.exec(HALL_TABLES);
+      sql.exec(HALL_TABLES);
       addColumn("shops", "owner", "TEXT");
       addColumn("grants", "source", "TEXT");
-      setMeta(db, "schema", "4");
+      setMeta(sql, "schema", "4");
     }
     if (version() < 5) {
       addColumn("calls", "wall", "TEXT");
-      setMeta(db, "schema", "5");
+      setMeta(sql, "schema", "5");
     }
     if (version() < 6) {
       addColumn("credential_types", "kind", "TEXT NOT NULL DEFAULT 'token'");
@@ -230,12 +201,11 @@ function migrate(db: Database, dataDir: string, now = Date.now()): void {
       addColumn("credentials", "scopes", "TEXT");
       addColumn("credentials", "revoked_why", "TEXT");
       addColumn("shops", "tested_at", "INTEGER");
-      db.exec("UPDATE shops SET tested_at = added_at WHERE tested_at IS NULL");
-      setMeta(db, "schema", "6");
+      sql.exec("UPDATE shops SET tested_at = added_at WHERE tested_at IS NULL");
+      setMeta(sql, "schema", "6");
     }
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+    if (version() < 7) {
+      setMeta(sql, "schema", "7");
+    }
+  });
 }

@@ -17,7 +17,7 @@ import type { OAuthEndpoints } from "./manifest.js";
 import { namedHosts, sameDefinition } from "./needs.js";
 import { parseEndpoint, type OAuthValue } from "./oauth.js";
 import { StoreError, newId, nullableNumber, type Store } from "./store.js";
-import { parseHeaderTemplate, parseOrigin } from "./teller.js";
+import { parseHeaderTemplate, parseOrigin } from "./window.js";
 import { openCredential as openSealed, sealCredential } from "./vault.js";
 
 /** A credential type: where its secret may be sent, the header it rides in, and whether the town holds it or a shop proposed it. */
@@ -75,11 +75,11 @@ const clientSeal = (name: string) => `client:${name}`;
 // credential types
 
 export function listTypes(store: Store): CredentialType[] {
-  return (store.db.prepare("SELECT * FROM credential_types ORDER BY name").all() as Row[]).map(toType);
+  return store.sql.all<Row>("SELECT * FROM credential_types ORDER BY name").map(toType);
 }
 
 export function getType(store: Store, name: string): CredentialType | null {
-  const row = store.db.prepare("SELECT * FROM credential_types WHERE name = ?").get(name) as Row | undefined;
+  const row = store.sql.get<Row>("SELECT * FROM credential_types WHERE name = ?", name);
   return row ? toType(row) : null;
 }
 
@@ -98,9 +98,10 @@ export function addType(store: Store, t: TypeDefinition & { client?: Client }, n
   if (getType(store, t.name)) throw new StoreError(`type ${t.name} already exists; townd admin type ls lists them`);
   if (t.oauth && !t.client) throw new StoreError(`type ${t.name} is an oauth type and needs its registration; write --client-id <id>, with the client secret on stdin`);
   if (!t.oauth && t.client) throw new StoreError(`type ${t.name} is a token type and takes no registration; leave out --client-id, or write --kind oauth with its endpoints`);
-  store.db
-    .prepare("INSERT INTO credential_types (name, origin, header, added_at, guidance, kind, oauth, client) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(t.name, t.origin, t.header, now, (t.guidance ?? "").trim(), t.oauth ? "oauth" : "token", t.oauth ? oauthJson(t.oauth) : null, t.client ? sealClient(t.name, t.client, key) : null);
+  store.sql.run(
+    "INSERT INTO credential_types (name, origin, header, added_at, guidance, kind, oauth, client) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    t.name, t.origin, t.header, now, (t.guidance ?? "").trim(), t.oauth ? "oauth" : "token", t.oauth ? oauthJson(t.oauth) : null, t.client ? sealClient(t.name, t.client, key) : null,
+  );
   return getType(store, t.name)!;
 }
 
@@ -132,7 +133,7 @@ function sealClient(name: string, client: Client, key: Buffer | undefined): Buff
 
 /** An `oauth` type's registration, opened for one use in memory. */
 export function openClient(store: Store, name: string, key: Buffer): Client {
-  const row = store.db.prepare("SELECT client FROM credential_types WHERE name = ?").get(name) as Row | undefined;
+  const row = store.sql.get<Row>("SELECT client FROM credential_types WHERE name = ?", name);
   if (!row || row.client === null || row.client === undefined) throw new StoreError(`type ${name} holds no registration; townd admin type ls lists the types`);
   const c = JSON.parse(openSealed(key, clientSeal(name), row.client as Uint8Array)) as Client;
   return { id: String(c.id), secret: String(c.secret) };
@@ -161,9 +162,10 @@ export function proposeType(
   // A held oauth type is the operator's, with the registration; a proposal never holds one.
   if (held && t.oauth && !registration) throw new StoreError(`${proposedBy} defines ${t.name}, an oauth type, and holding it needs its registration; write --client-id <id>, with the client secret on stdin`);
   const client = held && t.oauth && registration ? sealClient(t.name, registration.client, registration.key) : null;
-  store.db
-    .prepare("INSERT INTO credential_types (name, origin, header, added_at, kind, state, proposed_by, guidance, oauth, client) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(t.name, t.origin, t.header, now, t.oauth ? "oauth" : "token", held ? "held" : "proposed", proposedBy, (t.guidance ?? "").trim(), t.oauth ? oauthJson(t.oauth) : null, client);
+  store.sql.run(
+    "INSERT INTO credential_types (name, origin, header, added_at, kind, state, proposed_by, guidance, oauth, client) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    t.name, t.origin, t.header, now, t.oauth ? "oauth" : "token", held ? "held" : "proposed", proposedBy, (t.guidance ?? "").trim(), t.oauth ? oauthJson(t.oauth) : null, client,
+  );
   return getType(store, t.name)!;
 }
 
@@ -183,7 +185,7 @@ export function reviseGuidance(store: Store, t: TypeDefinition, by: string): boo
   const sends = [held.origin, ...(held.oauth ? [held.oauth.authorize, held.oauth.token] : [])].map((u) => new URL(u).hostname.toLowerCase());
   const other = namedHosts(words).find((h) => !sends.includes(h));
   if (other !== undefined) throw new StoreError(`${by}'s guidance for ${t.name} names ${other}, which is not where this type sends; the validator refuses it (spec §8)`);
-  store.db.prepare("UPDATE credential_types SET guidance = ? WHERE name = ? AND proposed_by = ?").run(words, t.name, by);
+  store.sql.run("UPDATE credential_types SET guidance = ? WHERE name = ? AND proposed_by = ?", words, t.name, by);
   return true;
 }
 
@@ -202,7 +204,7 @@ export function proposedRefusal(t: CredentialType): string {
 export function approveType(store: Store, name: string, registration?: { client: Client; key: Buffer }): CredentialType {
   const t = checkApprove(store, name, registration !== undefined);
   const client = registration ? sealClient(name, registration.client, registration.key) : null;
-  store.db.prepare("UPDATE credential_types SET state = 'held', client = COALESCE(?, client) WHERE name = ? AND state = 'proposed'").run(client, t.name);
+  store.sql.run("UPDATE credential_types SET state = 'held', client = COALESCE(?, client) WHERE name = ? AND state = 'proposed'", client, t.name);
   return getType(store, name)!;
 }
 
@@ -227,12 +229,12 @@ export function removeType(store: Store, name: string): void {
       throw new StoreError(`type ${name} is proposed and named by ${many ? "shops" : "a shop"} (${naming.join(", ")}); remove ${many ? "them" : "it"} with townd admin shop rm first`);
     }
   }
-  const held = (store.db.prepare("SELECT id FROM credentials WHERE type = ? AND revoked_at IS NULL ORDER BY created_at, id").all(name) as Row[]).map((r) => String(r.id));
+  const held = store.sql.all<Row>("SELECT id FROM credentials WHERE type = ? AND revoked_at IS NULL ORDER BY created_at, id", name).map((r) => String(r.id));
   if (held.length) {
     const many = held.length !== 1;
     throw new StoreError(`type ${name} is held by ${many ? `${held.length} credentials` : "a credential"} (${held.join(", ")}); remove ${many ? "them" : "it"} with townd admin credential rm first`);
   }
-  store.db.prepare("DELETE FROM credential_types WHERE name = ?").run(name);
+  store.sql.run("DELETE FROM credential_types WHERE name = ?", name);
 }
 
 // credentials
@@ -248,9 +250,7 @@ export function addCredential(store: Store, c: { userName: string; type: string;
   if (t.state === "proposed") throw new StoreError(proposedRefusal(t));
   if (t.kind === "oauth") throw new StoreError(oauthRefusal(t, c.userName));
   const id = newId("credential");
-  store.db
-    .prepare("INSERT INTO credentials (id, user_id, type, label, sealed, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(id, user.id, c.type, c.label, sealCredential(key, id, c.value), now);
+  store.sql.run("INSERT INTO credentials (id, user_id, type, label, sealed, created_at) VALUES (?, ?, ?, ?, ?, ?)", id, user.id, c.type, c.label, sealCredential(key, id, c.value), now);
   return credentialById(store, id)!;
 }
 
@@ -279,41 +279,40 @@ export function connectCredential(store: Store, c: { userName: string; type: str
   connectableType(store, c.userName, c.type);
   const user = store.userByName(c.userName)!;
   const id = newId("credential");
-  store.db
-    .prepare("INSERT INTO credentials (id, user_id, type, label, sealed, created_at, scopes) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(id, user.id, c.type, c.label, sealCredential(key, id, JSON.stringify(c.value)), now, JSON.stringify(c.value.scope.split(/\s+/).filter(Boolean)));
+  store.sql.run(
+    "INSERT INTO credentials (id, user_id, type, label, sealed, created_at, scopes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    id, user.id, c.type, c.label, sealCredential(key, id, JSON.stringify(c.value)), now, JSON.stringify(c.value.scope.split(/\s+/).filter(Boolean)),
+  );
   return credentialById(store, id)!;
 }
 
 /** Seals an `oauth` credential's row again with the value a refresh made, its scopes with it. */
 export function refreshCredential(store: Store, id: string, value: OAuthValue, key: Buffer): void {
-  store.db
-    .prepare("UPDATE credentials SET sealed = ?, scopes = ? WHERE id = ?")
-    .run(sealCredential(key, id, JSON.stringify(value)), JSON.stringify(value.scope.split(/\s+/).filter(Boolean)), id);
+  store.sql.run("UPDATE credentials SET sealed = ?, scopes = ? WHERE id = ?", sealCredential(key, id, JSON.stringify(value)), JSON.stringify(value.scope.split(/\s+/).filter(Boolean)), id);
 }
 
 export function credentialById(store: Store, id: string): Credential | null {
-  const row = store.db.prepare(`${CREDENTIAL_SELECT} WHERE c.id = ?`).get(id) as Row | undefined;
+  const row = store.sql.get<Row>(`${CREDENTIAL_SELECT} WHERE c.id = ?`, id);
   return row ? toCredential(store, row) : null;
 }
 
 /** Every credential, or one user's, oldest first, revoked ones included. */
 export function listCredentials(store: Store, userName?: string): Credential[] {
-  const rows = (userName === undefined
-    ? store.db.prepare(`${CREDENTIAL_SELECT} ORDER BY c.created_at, c.id`).all()
-    : store.db.prepare(`${CREDENTIAL_SELECT} WHERE u.name = ? ORDER BY c.created_at, c.id`).all(userName)) as Row[];
+  const rows = userName === undefined
+    ? store.sql.all<Row>(`${CREDENTIAL_SELECT} ORDER BY c.created_at, c.id`)
+    : store.sql.all<Row>(`${CREDENTIAL_SELECT} WHERE u.name = ? ORDER BY c.created_at, c.id`, userName);
   return rows.map((r) => toCredential(store, r));
 }
 
 /** A user's credentials of a type that are not revoked. */
 export function liveCredentials(store: Store, userId: string, type: string): Credential[] {
-  const rows = store.db.prepare(`${CREDENTIAL_SELECT} WHERE c.user_id = ? AND c.type = ? AND c.revoked_at IS NULL ORDER BY c.created_at, c.id`).all(userId, type) as Row[];
+  const rows = store.sql.all<Row>(`${CREDENTIAL_SELECT} WHERE c.user_id = ? AND c.type = ? AND c.revoked_at IS NULL ORDER BY c.created_at, c.id`, userId, type);
   return rows.map((r) => toCredential(store, r));
 }
 
 /** A credential's value, opened from its sealed row for one use in memory. */
 export function openCredential(store: Store, id: string, key: Buffer): string {
-  const row = store.db.prepare("SELECT sealed FROM credentials WHERE id = ?").get(id) as Row | undefined;
+  const row = store.sql.get<Row>("SELECT sealed FROM credentials WHERE id = ?", id);
   if (!row) throw new StoreError(`credential ${id} does not exist; townd admin credential ls lists them`);
   return openSealed(key, id, row.sealed as Uint8Array);
 }
@@ -322,7 +321,7 @@ export function openCredential(store: Store, id: string, key: Buffer): string {
 export function revokeCredential(store: Store, id: string, now = Date.now(), why: string | null = null): Credential {
   const c = credentialById(store, id);
   if (!c) throw new StoreError(`credential ${id} does not exist; townd admin credential ls lists them`);
-  if (c.revokedAt === null) store.db.prepare("UPDATE credentials SET revoked_at = ?, revoked_why = ? WHERE id = ?").run(now, why, id);
+  if (c.revokedAt === null) store.sql.run("UPDATE credentials SET revoked_at = ?, revoked_why = ? WHERE id = ?", now, why, id);
   return credentialById(store, id)!;
 }
 
@@ -351,10 +350,10 @@ export function replaceCredential(store: Store, old: string, make: () => Credent
   return store.inTransaction(() => {
     const c = make();
     checkReplace(store, old, c.userName, c.type);
-    const bound = store.db.prepare("SELECT DISTINCT g.id, g.shop, g.credentials FROM grants g, json_each(g.credentials) j WHERE j.value = ? AND g.revoked_at IS NULL ORDER BY g.id").all(old) as Row[];
+    const bound = store.sql.all<Row>("SELECT DISTINCT g.id, g.shop, g.credentials FROM grants g, json_each(g.credentials) j WHERE j.value = ? AND g.revoked_at IS NULL ORDER BY g.id", old);
     const moved = bound.map((g) => {
       const binding = Object.fromEntries(Object.entries(JSON.parse(String(g.credentials)) as Record<string, string>).map(([type, id]) => [type, id === old ? c.id : id]));
-      store.db.prepare("UPDATE grants SET credentials = ? WHERE id = ?").run(JSON.stringify(binding), String(g.id));
+      store.sql.run("UPDATE grants SET credentials = ? WHERE id = ?", JSON.stringify(binding), String(g.id));
       return { id: String(g.id), shop: String(g.shop) };
     });
     revokeCredential(store, old, now, `replaced by ${c.id}`);
@@ -364,11 +363,11 @@ export function replaceCredential(store: Store, old: string, make: () => Credent
 
 /** How many sealed rows there are, revoked credentials and types' registrations included: rows the vault's key must be there to open. */
 export function sealedRows(store: Store): number {
-  return Number((store.db.prepare("SELECT (SELECT COUNT(*) FROM credentials) + (SELECT COUNT(*) FROM credential_types WHERE client IS NOT NULL) AS n").get() as Row).n);
+  return Number(store.sql.get<Row>("SELECT (SELECT COUNT(*) FROM credentials) + (SELECT COUNT(*) FROM credential_types WHERE client IS NOT NULL) AS n")!.n);
 }
 
 function toCredential(store: Store, r: Row): Credential {
-  const grants = (store.db.prepare("SELECT DISTINCT g.id FROM grants g, json_each(g.credentials) j WHERE j.value = ? ORDER BY g.id").all(String(r.id)) as Row[]).map((g) => String(g.id));
+  const grants = store.sql.all<Row>("SELECT DISTINCT g.id FROM grants g, json_each(g.credentials) j WHERE j.value = ? ORDER BY g.id", String(r.id)).map((g) => String(g.id));
   return {
     id: String(r.id),
     userId: String(r.user_id),

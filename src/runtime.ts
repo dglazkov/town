@@ -10,7 +10,12 @@
 // process runs within the wall it is given, around an enclosure built
 // once the windows are open: the shop's directory, Node's, the town's
 // install, and the call's directory to read, the state to write, and the
-// windows' ports to reach.
+// windows' ports to reach. A `runtime: worker` shop's entry runs the same
+// way under the town's own Node through bin/main.js, which imports the
+// entry and calls its `main` (src/main.ts), within the same enclosure,
+// since bin/ is under the town's install. The gate hands a runtime the
+// shop by name, the shelf its files are on; this one runs the process
+// from the shelf's directory for it.
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -20,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { canonicalArgv, type ArgValues } from "./args.js";
 import { openClerk, type Answer, type Clerk } from "./clerk.js";
 import type { Manifest } from "./manifest.js";
+import type { Shelf } from "./shelf.js";
 import { openTeller, type Teller } from "./teller.js";
 import type { Enclosure, Wall, WallKind } from "./wall.js";
 
@@ -28,6 +34,9 @@ export const STDIN_LIMIT_BYTES = 1024 * 1024;
 
 /** The agent's binary, as the town's own Node runs it: what `town` in a call directory execs. */
 export const TOWN_BIN = fileURLToPath(new URL("../bin/town.js", import.meta.url));
+
+/** The launcher a worker shop's entry runs through: `node bin/main.js <entry> <argv>`. */
+export const MAIN_BIN = fileURLToPath(new URL("../bin/main.js", import.meta.url));
 
 export interface RunOptions {
   /** The calling user's opaque id; becomes TOWN_USER. */
@@ -97,6 +106,13 @@ export function segment(name: string): string {
     })
     .join("");
   return escaped === "" ? "%" : escaped;
+}
+
+/** Runs `command` of the shop `manifest` names, from the directory `shelf` keeps it in; the runtime the gate is given on a laptop. */
+export function runShelved(shelf: Shelf, manifest: Manifest, command: string, args: ArgValues, opts: RunOptions): Promise<RunResult> {
+  const dir = shelf.dir?.(manifest.name);
+  if (dir === undefined) return Promise.reject(new Error(`the shelf holding ${manifest.name} keeps no directory for its process to run from`));
+  return run(dir, manifest, command, args, opts);
 }
 
 /** Runs `command` of the shop at `shopDir` with `args`, under the contract. */
@@ -170,7 +186,8 @@ export async function run(
     env.PATH = [path.join(callDir, "bin"), process.env.PATH].filter(Boolean).join(path.delimiter);
   }
 
-  const isNode = /\.m?js$/.test(entry);
+  const worker = manifest.runtime === "worker";
+  const isNode = worker || /\.m?js$/.test(entry);
   const limit = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const within: Enclosure = {
     reads: [root, path.dirname(path.dirname(process.execPath)), path.dirname(path.dirname(TOWN_BIN)), ...(callDir ? [callDir] : [])],
@@ -180,7 +197,7 @@ export async function run(
   let file: string;
   let fileArgs: string[];
   try {
-    ({ file, args: fileArgs } = wall.enclose(isNode ? process.execPath : entry, isNode ? [entry, ...argv] : argv, within));
+    ({ file, args: fileArgs } = wall.enclose(isNode ? process.execPath : entry, worker ? [MAIN_BIN, entry, ...argv] : isNode ? [entry, ...argv] : argv, within));
   } catch (err) {
     await finish();
     throw err;

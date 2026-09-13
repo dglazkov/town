@@ -3,12 +3,15 @@
 // segment is forwarded to the type's origin with the type's header set
 // from the token, and the origin's answer comes back, both bodies
 // streamed. It holds the token in this closure and nowhere else, writes
-// nothing to any log, and after `close` its port refuses.
+// nothing to any log, and after `close` its port refuses. The rule it
+// forwards by, the origin and header parsed, the path joined, the header
+// set, and the hop's headers dropped, is src/window.ts's.
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import http, { type ClientRequest, type IncomingHttpHeaders, type IncomingMessage, type OutgoingHttpHeaders, type ServerResponse } from "node:http";
+import http, { type ClientRequest, type IncomingMessage, type OutgoingHttpHeaders, type ServerResponse } from "node:http";
 import https from "node:https";
 import type { AddressInfo, Socket } from "node:net";
+import { forwardHeaders, forwardPath, parseHeaderTemplate, parseOrigin, signedHeader } from "./window.js";
 
 export interface TellerOptions {
   /** An absolute http: or https: URL, perhaps with a base path; no query or fragment. */
@@ -27,38 +30,13 @@ export interface Teller {
   close(): Promise<void>;
 }
 
-const HOP_BY_HOP = ["connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"];
-
-/** `<Name>: <value with {token}>` as a name and a value; null when it is not that shape. */
-export function parseHeaderTemplate(header: string): { name: string; value: string } | null {
-  const m = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*(.*\S)[ \t]*$/.exec(header);
-  if (!m || !m[2]!.includes("{token}") || /[\r\n]/.test(header)) return null;
-  return { name: m[1]!, value: m[2]! };
-}
-
-/** The origin as a URL, or null when it is not an absolute http: or https: URL without query or fragment. */
-export function parseOrigin(origin: string): URL | null {
-  let u: URL;
-  try {
-    u = new URL(origin);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  if (u.search !== "" || u.hash !== "" || origin.includes("?") || origin.includes("#")) return null;
-  if (u.username !== "" || u.password !== "") return null;
-  return u;
-}
-
 export async function openTeller(opts: TellerOptions): Promise<Teller> {
   const origin = parseOrigin(opts.origin);
   if (!origin) throw new Error("the type's origin is not an absolute http: or https: URL");
   const template = parseHeaderTemplate(opts.header);
   if (!template) throw new Error("the type's header is not '<Name>: <value with {token}>'");
-  const headerName = template.name.toLowerCase();
-  const headerValue = template.value.split("{token}").join(opts.token);
-  if (/[\r\n]/.test(headerValue)) throw new Error("the credential's value cannot ride in a header");
-  const basePath = origin.pathname.replace(/\/+$/, "");
+  const signed = signedHeader(template, opts.token);
+  if (!signed) throw new Error("the credential's value cannot ride in a header");
   const client = origin.protocol === "https:" ? https : http;
   const hostname = origin.hostname.replace(/^\[(.*)\]$/, "$1");
   const port = origin.port === "" ? undefined : Number(origin.port);
@@ -86,18 +64,12 @@ export async function openTeller(opts: TellerOptions): Promise<Teller> {
       return empty(res, 404);
     }
 
-    const rest = target.slice(prefix.length);
-    const q = rest.indexOf("?");
-    const restPath = q === -1 ? rest : rest.slice(0, q);
-    const query = q === -1 ? "" : rest.slice(q);
-    const joined = `${basePath}${restPath}` || "/";
-
-    const headers = forwardHeaders(req.headers, [headerName]);
-    headers[template.name] = headerValue;
+    const headers: OutgoingHttpHeaders = forwardHeaders(req.headers, [signed.name]);
+    headers[signed.name] = signed.value;
 
     let upstream: ClientRequest;
     try {
-      upstream = client.request({ protocol: origin.protocol, hostname, port, method: req.method, path: `${joined}${query}`, headers });
+      upstream = client.request({ protocol: origin.protocol, hostname, port, method: req.method, path: forwardPath(origin, target.slice(prefix.length)), headers });
     } catch {
       return empty(res, 502);
     }
@@ -151,22 +123,4 @@ export async function openTeller(opts: TellerOptions): Promise<Teller> {
       return closing;
     },
   };
-}
-
-/**
- * A message's headers less `Host`, `Authorization`, the hop-by-hop set,
- * every header `Connection` names, and `also`; names lower-cased.
- */
-function forwardHeaders(from: IncomingHttpHeaders, also: string[]): OutgoingHttpHeaders {
-  const named = String(from.connection ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  const drop = new Set(["host", "authorization", ...HOP_BY_HOP, ...named, ...also]);
-  const out: OutgoingHttpHeaders = {};
-  for (const [name, value] of Object.entries(from)) {
-    if (value === undefined || drop.has(name) || name.startsWith("proxy-")) continue;
-    out[name] = value;
-  }
-  return out;
 }

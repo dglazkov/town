@@ -47,7 +47,7 @@ import { approvePermit } from "../src/grants.js";
 import { HALL, HALL_YAML, runHall } from "../src/hall.js";
 import { parseManifest, validateManifest } from "../src/manifest.js";
 import { shopAdd } from "../src/publish.js";
-import { run } from "../src/runtime.js";
+import { runShelved } from "../src/runtime.js";
 import { decideAndRecord } from "../src/server.js";
 import { SPEC } from "../src/spec.js";
 import { loadShop } from "../src/shoptest.js";
@@ -449,7 +449,7 @@ describe("validate, test, and publish: the tests, as the agent", () => {
     processes = [];
     const counted: Runtime = (shop, manifest, command, values, opts) => {
       processes.push(`${manifest.name} ${command}`);
-      return run(shop, manifest, command, values, opts);
+      return runShelved(shop, manifest, command, values, opts);
     };
     walled = recordingWall();
     real = { store, wall: walled, runtime: counted, now: () => NOW, decide: decideAndRecord };

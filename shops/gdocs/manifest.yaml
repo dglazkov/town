@@ -4,7 +4,7 @@ summary: Reads a Google document as text.
 guidance: |
   A document's id is the long part of its URL, between /d/ and /edit.
   The text comes one paragraph a line; markdown marks headings with #.
-runtime: subprocess
+runtime: worker
 entry: ./main.mjs
 credentials:
   - type: google-oauth

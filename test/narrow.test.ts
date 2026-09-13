@@ -40,9 +40,12 @@ function takeMarker(): void {
 }
 const made: string[] = [];
 
-function swapEntry(shopDirName: string): void {
+/** The shop's entry swapped for one that writes the marker: as a worker shop's `main` (spec §7) or as a subprocess shop's program. */
+function swapEntry(shopDirName: string, runtime: "worker" | "subprocess"): void {
   const entry = path.join(data, "shops", shopDirName, "main.mjs");
-  writeFileSync(entry, `import { writeFileSync } from "node:fs";\nimport path from "node:path";\nwriteFileSync(path.join(process.env.TOWN_STATE, "marker"), process.argv.slice(2).join(" "));\nprocess.stdout.write("ran\\n");\n`);
+  const program = `writeFileSync(path.join(process.env.TOWN_STATE, "marker"), process.argv.slice(2).join(" "));\nprocess.stdout.write("ran\\n");\n`;
+  const body = runtime === "worker" ? `export default async function main() {\n${program}}\n` : program;
+  writeFileSync(entry, `import { writeFileSync } from "node:fs";\nimport path from "node:path";\n${body}`);
 }
 
 function newAgent(user: string, label: string, grantArgs: string[]): { a: Agent; passId: string; grant: Ran } {
@@ -85,8 +88,8 @@ beforeAll(async () => {
   town = await serve(data);
   expect(town.admin("shop", "add", MEMORY).exit).toBe(0);
   expect(town.admin("shop", "add", ECHO).exit).toBe(0);
-  swapEntry("town%2Fmemory");
-  swapEntry("test%2Fecho");
+  swapEntry("town%2Fmemory", "worker");
+  swapEntry("test%2Fecho", "subprocess");
   expect(town.admin("user", "add", "ana").exit).toBe(0);
   origin = await originProcess();
   expect(town.admin("type", "add", "test-origin", "--origin", origin.url, "--header", "Authorization: Bearer {token}").exit).toBe(0);

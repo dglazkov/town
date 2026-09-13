@@ -45,12 +45,12 @@ Every field is required unless marked optional; no other is accepted.
     word, in any case: a grant may hide any command and help prints
     this prose whole, so say it in a command's summary or an arg's doc.
 
-    runtime: subprocess
-      the only value an author writes in v0.
+    runtime: worker
+      worker, the program a function the entry exports; or subprocess,
+      the entry run as a process. §7 says how each is run.
 
     entry: ./main.mjs
       string, a path relative to the shop's directory, inside it.
-      See §7 for how it is run.
 
     commands:
       a non-empty list of commands, §3.
@@ -66,11 +66,8 @@ Every field is required unless marked optional; no other is accepted.
 
 ## 3. Commands
 
-    - name: remember
-      summary: Store a value under a key.
-      effect: write
-      args: [ ... ]
-      output: text
+    - { name: remember, summary: Store a value under a key.,
+        effect: write, args: [ ... ], output: text }
 
     name     string, lowercase letters, digits, "-", starting with a
              letter; unique in the manifest. The agent types it first.
@@ -107,8 +104,7 @@ How an agent types arguments, and how they are checked:
     --name=value     the same
     --name           bool only: true
 
-- A value is the next word whatever it looks like; "--value --x"
-  gives value "--x".
+- A value is the next word, whatever it looks like: "--value --x".
 - string: any text. int: an optional "-" and digits. bool: true or
   false. enum: exactly one of values.
 - Refused before anything runs: a required argument missing, an
@@ -182,6 +178,7 @@ The town runs the entry as a process from the shop's directory, per call:
                 before the call. Keep all state here; it persists.
     TOWN_USER   an opaque id for the calling user.
     PATH        the town's own; with dependencies, \`town\` comes first.
+                On the box there is none: post to the town in TOWN_GRANT.
     TOWN_CREDENTIAL_<TYPE>
                 per need, upper-cased, "-" as "_": a loopback URL (§8).
     TOWN_GRANT  with dependencies, a grant file for this call alone.
@@ -192,6 +189,14 @@ The town runs the entry as a process from the shop's directory, per call:
   call fails. Never write a value there: "no value under that key".
 - exit code: 0 is success; anything else fails, and the agent sees exit 1.
 - time: thirty seconds; then the entry and all it started are killed.
+
+runtime: worker is this contract with the program a function: the entry
+exports default async function main(), called once per call; its return
+is the exit code (none is 0), a throw exit 1 with the error's line on
+stderr. Outside main, only imports and definitions: no await, I/O, or
+timers. The rest is the same on every box. An entry with no main exits
+1: "the entry exports no main; write export default async function
+main() around the program (spec §7)".
 
 The town walls the entry and all it starts. It reads only its directory,
 TOWN_STATE, and the box's system files; writes only TOWN_STATE; reaches
@@ -256,7 +261,7 @@ with a line: pass it on, and no other stderr of town's.
       Keys are paths, like \`notes/lunch\`, and a prefix such as \`notes/\`
       gathers the keys under it. A value is one line; a longer one comes on
       stdin.
-    runtime: subprocess
+    runtime: worker
     entry: ./main.mjs
     commands:
       - name: remember
@@ -290,16 +295,10 @@ with a line: pass it on, and no other stderr of town's.
           remember --key t/a --value hello
           recall --key t/a
         expect: { contains: hello }
-      - name: forget removes
-        run: |
-          remember --key t/b --value x
-          forget --key t/b
-          recall --key t/b
-        expect: { exit: 1 }
 
-The entry, main.mjs, reads process.argv.slice(2), keeps one file per key
-under TOWN_STATE, writes the value to stdout for recall, and exits 1 with
-a line on stderr, naming no key, when a key has no value.
+Its main.mjs exports main, which reads process.argv.slice(2), keeps a
+file per key under TOWN_STATE, writes the value to stdout for recall, and
+exits 1 with a line on stderr, naming no key, when a key has no value.
 `;
 
 /** The numbered sections the spec holds, e.g. [1, 2, ..., 9]. */

@@ -20,9 +20,7 @@
 // chosen when they have not run on its code, and on a refusal prints the
 // checklist that remains. The type and credential verbs are src/secrets.ts.
 
-import { rm } from "node:fs/promises";
 import type { CallRow } from "./audit.js";
-import { shopDir } from "./gate.js";
 import { checklist, todoBlock } from "./checklist.js";
 import { bindingText, checkGrant, checkPermit, constraintText, grantStateText, makePermitGrant, needsOf, permitTable } from "./grants.js";
 import { table } from "./help.js";
@@ -32,7 +30,7 @@ import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked } from "./
 import { readClient, secretVerb } from "./secrets.js";
 import { decideAndRecord } from "./server.js";
 import { StoreError, openStore, type Store } from "./store.js";
-import { VaultError, requireKey } from "./vault.js";
+import { VaultError } from "./vault.js";
 import type { Wall } from "./wall.js";
 
 export interface Io {
@@ -163,7 +161,7 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
       io.err(`townd admin: ${(err as Error).message}\n`);
       return 1;
     }
-    const key = requireKey(store.dataDir, store.sealedRows());
+    const key = store.key.require(store.sealedRows());
     if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p, io), io, wall);
     return await dispatch(store, key, noun, verb, args, p, io, now(), wall);
   } catch (err) {
@@ -291,7 +289,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
         return 1;
       }
       if (!store.removeShop(name)) throw new StoreError(`shop ${name} is not in this town; townd admin shop ls lists them`);
-      await rm(shopDir(store, name), { recursive: true, force: true });
+      store.shelf.remove(name);
       io.out(`removed ${name}; its grants now reach nothing, and its state is kept under ${store.stateRoot}\n`);
       return 0;
     }

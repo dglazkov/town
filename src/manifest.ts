@@ -84,8 +84,8 @@ export interface Manifest {
   version: string;
   summary: string;
   guidance?: string;
-  /** `town` is the town's own shop's alone (src/hall.ts); the validator refuses it in any manifest it sees. */
-  runtime: "subprocess" | "town";
+  /** `worker`, the program a function its entry exports; `subprocess`, the entry a process (spec §7). `town` is the town's own shop's alone (src/hall.ts); the validator refuses it in any manifest it sees. */
+  runtime: "subprocess" | "worker" | "town";
   entry: string;
   credentials?: Need[];
   depends?: Dependency[];
@@ -215,8 +215,8 @@ export function validateManifest(m: unknown, types?: readonly (string | TownType
   }
   if (m.runtime === "town") {
     out.push(refusal("runtime", "is town, the runtime of the town's own shop and no other", "runtime: subprocess", 2));
-  } else if (m.runtime !== "subprocess") {
-    out.push(refusal("runtime", describe(m.runtime, "subprocess"), "runtime: subprocess", 2));
+  } else if (m.runtime !== "subprocess" && m.runtime !== "worker") {
+    out.push(refusal("runtime", describe(m.runtime, "subprocess or worker"), "runtime: worker or runtime: subprocess", 2));
   }
   if (!(typeof m.entry === "string" && isInsidePath(m.entry))) {
     out.push(refusal("entry", describe(m.entry, "a relative path inside the shop"), "a path like ./main.mjs", 2));

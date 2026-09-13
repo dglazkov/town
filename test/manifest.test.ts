@@ -6,7 +6,9 @@
 // proposed type, a registration refused naming its key, guidance without
 // a definition, over its length, or naming a host the type does not send
 // to, an oauth definition shape-checked and then refused, and the spec's
-// §8 saying so within its line count.
+// §8 saying so within its line count. Box phase 0: `runtime: worker`, the
+// four shops' runtime, validated, and any other word refused naming both
+// runtimes; §7's paragraph for a worker shop and its line for the box.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -137,7 +139,7 @@ describe("refusals", () => {
   });
 
   it("gives no manifest while there is any refusal", () => {
-    expect(parseManifest(MEMORY.replace("runtime: subprocess", "runtime: wasi")).manifest).toBeNull();
+    expect(parseManifest(MEMORY.replace("runtime: worker", "runtime: wasi")).manifest).toBeNull();
   });
 });
 
@@ -440,6 +442,36 @@ describe("the town's own shop", () => {
     expectWellFormed(refusals);
     const offered = validateManifest(memoryWith((m) => (m.depends = [{ shop: "test/gh", commands: ["list"] }])), [], [HALL_SHOP, { name: "test/echo", commands: ["echo"] }]);
     expect(offered).toEqual(["depends[0].shop: 'test/gh' is not a shop this town holds; write one of (test/echo), or add it with townd admin shop add first, instead (spec §8)"]);
+  });
+});
+
+describe("the runtime", () => {
+  it("is worker in the four shops, and a worker shop validates as a subprocess shop does", () => {
+    for (const shop of ["memory", "github", "watch", "gdocs"]) {
+      expect(parseYaml(readFileSync(path.resolve(import.meta.dirname, `../shops/${shop}/manifest.yaml`), "utf8")).runtime, shop).toBe("worker");
+    }
+    expect(validateManifest(memoryWith((m) => (m.runtime = "worker")))).toEqual([]);
+    expect(validateManifest(memoryWith((m) => (m.runtime = "subprocess")))).toEqual([]);
+    expect(parseManifest(MEMORY).manifest?.runtime).toBe("worker");
+  });
+
+  it("refuses runtime: box, or any other word, naming subprocess and worker", () => {
+    const refusals = validateManifest(memoryWith((m) => (m.runtime = "box")));
+    expect(refusals).toEqual(["runtime: is not subprocess or worker; write runtime: worker or runtime: subprocess instead (spec §2)"]);
+    expectWellFormed(refusals);
+    expect(validateManifest(memoryWith((m) => delete m.runtime))).toEqual(["runtime: is missing; write runtime: worker or runtime: subprocess instead (spec §2)"]);
+  });
+
+  it("is said in §2 and §7: the program as a function, what the top level may not do, what is the same, and the box's PATH", () => {
+    const two = SPEC.split("## 2. ")[1]!.split("## 3. ")[0]!;
+    expect(two).toMatch(/runtime: worker\n\s+worker, the program a function the entry exports; or subprocess,/);
+    const seven = SPEC.split("## 7. ")[1]!.split("## 8. ")[0]!;
+    const flat = seven.replace(/\s+/g, " ");
+    expect(flat).toContain("runtime: worker is this contract with the program a function: the entry exports default async function main(), called once per call");
+    expect(flat).toContain("Outside main, only imports and definitions: no await, I/O, or timers.");
+    expect(flat).toContain("The rest is the same on every box.");
+    expect(seven).toContain("On the box there is none: post to the town in TOWN_GRANT.");
+    expect(SPEC.split("\n").length).toBeLessThan(300);
   });
 });
 

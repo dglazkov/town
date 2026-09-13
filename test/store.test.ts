@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 function columns(s: Store, table: string): string[] {
-  return (s.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+  return (s.sql.all(`PRAGMA table_info(${table})`) as Array<{ name: string }>).map((c) => c.name);
 }
 
 function passFor(user = "dimitri", now = 1000) {
@@ -58,10 +58,10 @@ function passFor(user = "dimitri", now = 1000) {
 }
 
 describe("the schema", () => {
-  it("lives at <data>/town.db with gate's tables, vault's two, compose's two columns, hall's table and two columns, wall's column, consent's columns, and meta.schema 6", () => {
-    const tables = (store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+  it("lives at <data>/town.db with gate's tables, vault's two, compose's two columns, hall's table and two columns, wall's column, consent's columns, and meta.schema 7", () => {
+    const tables = (store.sql.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name") as Array<{ name: string }>).map((t) => t.name);
     expect(tables).toEqual(["calls", "credential_types", "credentials", "grants", "meta", "passes", "permits", "shops", "users"]);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(columns(store, "permits")).toEqual(["id", "pass_id", "shop", "commands", "constraints", "why", "created_at", "decided_at", "decision", "grant_id"]);
     expect(columns(store, "shops").slice(-2)).toEqual(["owner", "tested_at"]);
     expect(columns(store, "credential_types")).toEqual(["name", "origin", "header", "added_at", "kind", "state", "proposed_by", "guidance", "oauth", "client"]);
@@ -71,7 +71,7 @@ describe("the schema", () => {
     expect(columns(store, "calls")).toContain("credentials");
     expect(columns(store, "calls").slice(-3)).toEqual(["call_id", "parent", "wall"]);
     expect(readdirSync(dir)).toContain("town.db");
-    expect((store.db.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("wal");
+    expect((store.sql.get("PRAGMA journal_mode") as { journal_mode: string }).journal_mode).toBe("wal");
   });
 
   it("opens again over the same file with its rows", () => {
@@ -107,7 +107,7 @@ describe("passes", () => {
     expect(Buffer.from(token, "base64url")).toHaveLength(32);
     expect(pass.id).toMatch(/^pass_[0-9a-f]{16}$/);
     expect(pass.id).not.toContain(token);
-    const row = store.db.prepare("SELECT * FROM passes WHERE id = ?").get(pass.id) as Record<string, unknown>;
+    const row = store.sql.get("SELECT * FROM passes WHERE id = ?", pass.id) as Record<string, unknown>;
     expect(row.token_hash).toBe(hashToken(token));
     expect(Object.values(row)).not.toContain(token);
     store.close();
@@ -234,26 +234,26 @@ describe("a store gate made", () => {
     expect(store.calls()).toMatchObject([{ at: 40, passId: "pass_1", result: "ok", command: "recall" }]);
     expect(store.getMeta("address")).toBe("http://127.0.0.1:7000");
 
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.listTypes().map((t) => [t.name, t.origin, t.header])).toEqual([["github-token", "https://api.github.com", "Authorization: Bearer {token}"]]);
     expect(columns(store, "credentials")).toEqual(["id", "user_id", "type", "label", "sealed", "created_at", "revoked_at", "scopes", "revoked_why"]);
-    expect(store.db.prepare("SELECT credentials FROM grants WHERE id = 'grant_1'").get()).toEqual({ credentials: "{}" });
-    expect(store.db.prepare("SELECT credentials FROM calls").get()).toEqual({ credentials: "[]" });
+    expect(store.sql.get("SELECT credentials FROM grants WHERE id = 'grant_1'")).toEqual({ credentials: "{}" });
+    expect(store.sql.get("SELECT credentials FROM calls")).toEqual({ credentials: "[]" });
     expect(store.calls()).toMatchObject([{ callId: expect.stringMatching(/^call_[0-9a-f]{16}$/), parent: null }]);
 
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.listUsers()).toHaveLength(1);
   });
 
   it("refuses a store a newer town made", () => {
-    store.setMeta("schema", "7");
+    store.setMeta("schema", "8");
     store.close();
-    expect(() => openStore(dir)).toThrow(/is schema 7, newer than this town's 6/);
+    expect(() => openStore(dir)).toThrow(/is schema 8, newer than this town's 7/);
     const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
     const db = new DatabaseSync(path.join(dir, "town.db"));
-    db.prepare("UPDATE meta SET value = '6' WHERE key = 'schema'").run();
+    db.prepare("UPDATE meta SET value = '7' WHERE key = 'schema'").run();
     db.close();
     store = openStore(dir);
   });
@@ -278,7 +278,7 @@ describe("a store vault made", () => {
     expect(before.calls).toHaveLength(3);
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.listUsers().map((u) => u.name)).toEqual(["dimitri"]);
     const [pass] = store.listPasses();
     expect(pass).toMatchObject({ id: "pass_a648d98fa018fc7c", userName: "dimitri", label: "research assistant", revokedAt: null });
@@ -300,17 +300,17 @@ describe("a store vault made", () => {
     const cols = columns(store, "calls");
     expect(cols).toEqual(["id", "at", "pass_id", "grant_id", "shop", "command", "argv_hash", "result", "exit", "shop_exit", "latency_ms", "notices", "stderr", "detail", "credentials", "call_id", "parent", "wall"]);
     // Every other column of every old row is as vault left it.
-    const after = store.db.prepare("SELECT * FROM calls ORDER BY id").all() as Array<Record<string, unknown>>;
+    const after = store.sql.all("SELECT * FROM calls ORDER BY id") as Array<Record<string, unknown>>;
     expect(after.map(({ call_id: _c, parent: _p, wall, ...rest }) => [rest, wall])).toEqual(before.calls.map((r) => [{ ...r }, null]));
-    expect(store.db.prepare("SELECT sealed FROM credentials").get()).toEqual(before.sealed);
+    expect(store.sql.get("SELECT sealed FROM credentials")).toEqual(before.sealed);
     expect(store.callTree(calls[2]!.callId).map((c) => c.command)).toEqual(["forget"]);
 
     // The migration runs once: the ids stay, and a removed seeded type is not seeded again.
-    store.db.prepare("DELETE FROM credential_types WHERE name = 'github-token'").run();
+    store.sql.run("DELETE FROM credential_types WHERE name = 'github-token'");
     store.close();
     store = openStore(dir);
     expect(store.calls().map((c) => c.callId)).toEqual(calls.map((c) => c.callId));
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.listTypes()).toEqual([]);
   });
 });
@@ -349,7 +349,7 @@ describe("liveness with dependencies", () => {
     store.revokeGrant(revoked.id, 1500);
     expect(store.grantState(watch.id, 2000)).toEqual(notGranted);
     grant(pass.id, "town/memory", ["remember", "recall"], 1600);
-    store.db.prepare("UPDATE grants SET expires_at = 1700 WHERE shop = 'town/memory' AND revoked_at IS NULL").run();
+    store.sql.run("UPDATE grants SET expires_at = 1700 WHERE shop = 'town/memory' AND revoked_at IS NULL");
     expect(store.grantState(watch.id, 1699)).toEqual({ kind: "live" });
     expect(store.grantState(watch.id, 1700)).toEqual(notGranted);
     // A dependency not live by a need unmet: the composed grant lacks it too.
@@ -530,7 +530,7 @@ describe("credentials", () => {
     const files = ["town.db", "town.db-wal"].map((f) => path.join(dir, f));
     expect(existsSync(files[1]!)).toBe(true);
     for (const f of files) expect(readFileSync(f).includes(needle), `${path.basename(f)} before a checkpoint`).toBe(false);
-    store.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    store.sql.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     store.close();
     for (const f of files.filter((x) => existsSync(x))) expect(readFileSync(f).includes(needle), `${path.basename(f)} after close`).toBe(false);
     store = openStore(dir);
@@ -671,7 +671,7 @@ describe("the hall's row", () => {
     store.close();
     store = openStore(dir);
     expect(store.listShops().filter((x) => x.name === "town/hall")).toEqual([before]);
-    expect((store.db.prepare("SELECT COUNT(*) AS n FROM shops WHERE name = 'town/hall'").get() as { n: number }).n).toBe(1);
+    expect((store.sql.get("SELECT COUNT(*) AS n FROM shops WHERE name = 'town/hall'") as { n: number }).n).toBe(1);
   });
 
   it("is written again on open when it was removed or is not this town's", () => {
@@ -705,12 +705,12 @@ describe("a store compose made", () => {
     expect(before.calls).toHaveLength(4);
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(columns(store, "permits")).toEqual(["id", "pass_id", "shop", "commands", "constraints", "why", "created_at", "decided_at", "decision", "grant_id"]);
     expect(store.listPermits()).toEqual([]);
     // Every old row is as compose left it, with the new columns null: an operator's shop and an operator's grant.
     for (const t of TABLES) {
-      const after = store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>;
+      const after = store.sql.all(`SELECT * FROM ${t} ORDER BY rowid`) as Array<Record<string, unknown>>;
       const old = after.filter((r) => !(t === "shops" && r.name === "town/hall") && !(t === "meta" && r.key !== "schema"));
       const want = (before[t] as Array<Record<string, unknown>>).map((r) =>
         t === "shops"
@@ -718,7 +718,7 @@ describe("a store compose made", () => {
           : t === "grants"
             ? { ...r, source: null }
             : t === "meta"
-              ? { ...r, value: "6" }
+              ? { ...r, value: "7" }
               : t === "calls"
                 ? { ...r, wall: null }
                 : t === "credential_types"
@@ -738,7 +738,7 @@ describe("a store compose made", () => {
     // A second open migrates nothing and leaves one hall row.
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.listShops().map((x) => x.name)).toEqual(["town/hall", "town/memory"]);
   });
 
@@ -776,18 +776,18 @@ describe("a store hall made", () => {
     expect(Object.keys(before.calls![0]!)).not.toContain("wall");
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(columns(store, "calls").at(-1)).toBe("wall");
     for (const t of TABLES) {
       // The hall's row is this town's hall, written again on open; consent's columns are on every old row as its migration writes them.
-      const after = (store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
+      const after = (store.sql.all(`SELECT * FROM ${t} ORDER BY rowid`) as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
       const want = (before[t] as Array<Record<string, unknown>>)
         .filter((r) => !(t === "shops" && r.name === "town/hall"))
         .map((r) =>
           t === "calls"
             ? { ...r, wall: null }
             : t === "meta" && r.key === "schema"
-              ? { ...r, value: "6" }
+              ? { ...r, value: "7" }
               : t === "shops"
                 ? { ...r, tested_at: r.added_at }
                 : t === "credential_types"
@@ -819,7 +819,7 @@ describe("a store hall made", () => {
     // A second open migrates nothing.
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.calls()).toEqual(calls);
   });
 });
@@ -846,15 +846,15 @@ describe("a store wall made", () => {
     expect(Object.keys(before.shops![0]!)).not.toContain("tested_at");
 
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     for (const t of TABLES) {
       // The hall's row is this town's hall, written again on open.
-      const after = (store.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
+      const after = (store.sql.all(`SELECT * FROM ${t} ORDER BY rowid`) as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
       const want = (before[t] as Array<Record<string, unknown>>)
         .filter((r) => !(t === "shops" && r.name === "town/hall"))
         .map((r) =>
           t === "meta" && r.key === "schema"
-            ? { ...r, value: "6" }
+            ? { ...r, value: "7" }
             : t === "shops"
               ? { ...r, tested_at: r.added_at }
               : t === "credential_types"
@@ -886,9 +886,77 @@ describe("a store wall made", () => {
     // A second open migrates nothing.
     store.close();
     store = openStore(dir);
-    expect(store.getMeta("schema")).toBe("6");
+    expect(store.getMeta("schema")).toBe("7");
     expect(store.calls()).toEqual(calls);
     expect(store.listShops().map((x) => x.testedAt)).toEqual(store.listShops().map((x) => x.addedAt));
+  });
+});
+
+describe("a store consent made", () => {
+  // Made by the binaries at 51883e9, whose src is consent's with src/store.ts split along its nouns: townd admin, townd serve, and town, walled by seatbelt, then sqlite3 .dump.
+  const FIXTURE = readFileSync(path.resolve(import.meta.dirname, "fixtures/consent-store.sql"), "utf8");
+  const KEY = Buffer.from(/^-- vault\.key: ([0-9a-f]{64})$/m.exec(FIXTURE)![1]!, "hex");
+  const TABLES = ["users", "passes", "grants", "shops", "calls", "meta", "credential_types", "credentials", "permits"];
+
+  it("opens under box with every row of every table intact and its schema at 7, the wall column's words as they were", () => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(path.join(os.tmpdir(), "town-store-consent-"));
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+    const consent = new DatabaseSync(path.join(dir, "town.db"));
+    consent.exec(FIXTURE);
+    const before = Object.fromEntries(TABLES.map((t) => [t, consent.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
+    consent.close();
+    expect(before.meta).toContainEqual({ key: "schema", value: "6" });
+    expect(before.calls).toHaveLength(5);
+    expect(before.credential_types!.map((t) => [t.name, t.kind, t.state])).toEqual([["github-token", "token", "held"], ["docs-oauth", "oauth", "held"], ["figma", "token", "proposed"]]);
+    expect(before.permits).toHaveLength(2);
+
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("7");
+    for (const t of TABLES) {
+      // The hall's row is this town's hall, written again on open; nothing else moves but the schema's number.
+      const after = (store.sql.all(`SELECT * FROM ${t} ORDER BY rowid`) as Array<Record<string, unknown>>).filter((r) => !(t === "shops" && r.name === "town/hall"));
+      const want = (before[t] as Array<Record<string, unknown>>)
+        .filter((r) => !(t === "shops" && r.name === "town/hall"))
+        .map((r) => (t === "meta" && r.key === "schema" ? { ...r, value: "7" } : { ...r }));
+      expect(after, t).toEqual(want);
+    }
+    const calls = store.calls();
+    expect(calls.map((c) => [c.shop, c.command, c.result, c.wall])).toEqual([
+      ["town/memory", "remember", "ok", "seatbelt"],
+      ["town/memory", "recall", "ok", "seatbelt"],
+      ["town/memory", "forget", "denied", null],
+      ["town/hall", "publish", "ok", null],
+      ["town/hall", "request", "ok", null],
+    ]);
+    expect(store.listShops().map((x) => [x.name, x.ownerName, x.testedAt === null])).toEqual([["dimitri/figma", "dimitri", true], ["town/hall", null, false], ["town/memory", null, false]]);
+    expect(store.listGrants().map((g) => [g.shop, g.state.kind])).toEqual([["town/hall", "live"], ["town/memory", "live"]]);
+    expect(store.listPermits().map((x) => [x.shop, x.commands, x.decision])).toEqual([["dimitri/figma", ["file", "comments"], null], ["town/memory", ["forget"], null]]);
+    const [old, live] = store.listCredentials();
+    expect([old!.revokedWhy, live!.revokedAt]).toEqual([`replaced by ${live!.id}`, null]);
+    expect(store.openCredential(live!.id, KEY)).toBe("consent-fixture-replacement");
+    expect(store.openClient("docs-oauth", KEY)).toEqual({ id: "consent-fixture.apps", secret: "consent-fixture-client-secret" });
+
+    // A second open migrates nothing.
+    store.close();
+    store = openStore(dir);
+    expect(store.getMeta("schema")).toBe("7");
+    expect(store.calls()).toEqual(calls);
+  });
+});
+
+describe("the sql seam, as the store uses it", () => {
+  it("is the only place node:sqlite is loaded: src/schema.ts loads none itself", () => {
+    const src = path.resolve(import.meta.dirname, "../src");
+    const loading = readdirSync(src).filter((f) => f.endsWith(".ts") && /"node:sqlite"/.test(readFileSync(path.join(src, f), "utf8")));
+    expect(loading).toEqual(["sql.ts"]);
+  });
+
+  it("refuses a query that names a parameter, so every query the store makes is positional", () => {
+    store.addUser("dimitri", 1000);
+    expect(() => store.sql.get("SELECT * FROM users WHERE name = :name", "dimitri")).toThrow(/names a parameter, :name; write \?/);
+    expect(store.sql.get("SELECT name FROM users WHERE name = ?", "dimitri")).toEqual({ name: "dimitri" });
   });
 });
 

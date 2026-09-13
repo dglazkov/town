@@ -4,7 +4,8 @@
 // not open. The sealed form, in `credentials.sealed`, is a BLOB of
 // nonce(12) || ciphertext || tag(16). The key is 32 random bytes, made
 // with mode 600 by the first verb that needs it. It is a seatbelt on one
-// box, not a boundary: whoever reads the directory reads the key.
+// box, not a boundary: whoever reads the directory reads the key. The
+// store takes the key from a source: `fileKey`, the file, on a laptop.
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { closeSync, openSync, readFileSync, writeSync } from "node:fs";
@@ -100,4 +101,23 @@ export function requireKey(dataDir: string, sealedRows: number): Buffer | null {
     );
   }
   return key;
+}
+
+/** Where the store takes the vault's key from: on a laptop, the file under the data directory. */
+export interface KeySource {
+  /** The key, or null when there is none. */
+  read(): Buffer | null;
+  /** The key, made on first need where the source makes one. */
+  ensure(): Buffer;
+  /** The key, or null when there is none and nothing is sealed; refused when `sealedRows` are sealed by a key that is missing. */
+  require(sealedRows: number): Buffer | null;
+}
+
+/** The key at <data>/vault.key, as `readKey`, `ensureKey`, and `requireKey` read and make it. */
+export function fileKey(dataDir: string): KeySource {
+  return {
+    read: () => readKey(dataDir),
+    ensure: () => ensureKey(dataDir),
+    require: (sealedRows) => requireKey(dataDir, sealedRows),
+  };
 }

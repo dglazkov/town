@@ -19,7 +19,6 @@ import { oauthRefusal, proposedRefusal, type Client, type CredentialType } from 
 import { table } from "./help.js";
 import { isoTime } from "./notices.js";
 import { StoreError, type Store } from "./store.js";
-import { ensureKey } from "./vault.js";
 
 /** The most `credential add` reads from stdin. */
 export const SECRET_LIMIT_BYTES = 64 * 1024;
@@ -43,7 +42,7 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       const clientId = one(p, "client-id", true);
       if (store.getType(name)) throw new StoreError(`type ${name} already exists; townd admin type ls lists them`);
       const client = await readClient(io, clientId, "type add");
-      io.out(`added ${store.addType({ ...base, oauth, client }, now, ensureKey(store.dataDir)).name}\n`);
+      io.out(`added ${store.addType({ ...base, oauth, client }, now, store.key.ensure()).name}\n`);
       return 0;
     }
     case "type approve": {
@@ -55,7 +54,7 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       if (t.oauth) io.out(`${t.name}: consent at ${t.oauth.authorize}, tokens from ${t.oauth.token}, scopes ${t.oauth.scopes.join(", ")}\n`);
       const said = guidanceLine(t);
       if (said) io.out(`${said}\n`);
-      const registration = clientId === undefined ? undefined : { client: await readClient(io, clientId, "type approve"), key: ensureKey(store.dataDir) };
+      const registration = clientId === undefined ? undefined : { client: await readClient(io, clientId, "type approve"), key: store.key.ensure() };
       store.approveType(t.name, registration);
       io.out(`approved ${t.name}, proposed by ${t.proposedBy}; it is the town's${registration ? `, with client ${clientId} and its secret sealed` : ""}\n`);
       return 0;
@@ -95,7 +94,7 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       const said = guidanceLine(t);
       if (said) io.err(`${said}\n`);
       const value = await readSecret(io);
-      const make = () => store.addCredential({ userName, type, label, value }, ensureKey(store.dataDir), now);
+      const make = () => store.addCredential({ userName, type, label, value }, store.key.ensure(), now);
       if (replace === undefined) {
         io.out(`${make().id}\n`);
         return 0;
@@ -114,7 +113,7 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       const replace = one(p, "replace");
       return connect(
         store,
-        () => ensureKey(store.dataDir),
+        () => store.key.ensure(),
         { userName: one(p, "user", true), type: one(p, "type", true), ...(label === undefined ? {} : { label }), ...(replace === undefined ? {} : { replace }), ...(port === undefined ? {} : { port: Number(port) }), ...(timeout === undefined ? {} : { timeoutMs: waitOf(timeout) }) },
         io,
         io.now ?? Date.now,

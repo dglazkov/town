@@ -20,7 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Manifest } from "../src/manifest.js";
-import { run, type RunResult } from "../src/runtime.js";
+import { MAIN_BIN, run, type RunResult } from "../src/runtime.js";
 import { loadShop, testShop } from "../src/shoptest.js";
 import { openWall } from "../src/wall.js";
 import { FIXTURE_DOCUMENT, fakeAuthServer, fakeDocs, tokensFrom, type FakeAuth, type FakeDocs } from "./helpers/authserver.js";
@@ -111,7 +111,7 @@ describe("read", () => {
 
 it("sets no Authorization of its own: run directly against the fake, the request arrives unsigned and is refused", async () => {
   const r = await new Promise<{ exit: number; stderr: string }>((resolve) => {
-    const child = spawn(process.execPath, [path.join(SHOP, "main.mjs"), "read", "--doc-id", "fixture-doc", "--format", "text"], {
+    const child = spawn(process.execPath, [MAIN_BIN, path.join(SHOP, "main.mjs"), "read", "--doc-id", "fixture-doc", "--format", "text"], {
       cwd: SHOP,
       env: { PATH: process.env.PATH ?? "", TOWN_STATE: stateRoot, TOWN_USER: "u1", TOWN_CREDENTIAL_GOOGLE_OAUTH: docs.url },
       stdio: ["ignore", "pipe", "pipe"],

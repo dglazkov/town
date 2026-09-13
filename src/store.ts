@@ -1,21 +1,23 @@
-// The store: the town's tables over node:sqlite at <data>/town.db, and
-// every query the gate and the admin need. Nothing is cached: a pass is
-// resolved by its token's hash on every call, and a grant, a manifest,
-// and a revocation are read from the file each time, so `townd admin` in
-// another process is seen by the next call. A grant's liveness is one
-// query for what a grant decides alone, then a walk over the pass's
-// grants for its shop's dependencies, in src/liveness.ts. The tables and
-// their migrations are src/schema.ts; the grant queries are here, and the
-// rest are their nouns' files, called from here by name: users and
-// passes src/passes.ts, shops src/shops.ts, permits src/permits.ts,
-// credentials src/credentials.ts, and calls src/audit.ts.
-// Every open writes the hall's row from src/hall.ts, so a town is born
-// with its own shop and always holds this town's version of it.
+// The store: the town's tables over the sql seam, and every query the
+// gate and the admin need, positional throughout. A store is opened with
+// an Sql, a Shelf for the shops' files, and a source for the vault's key;
+// `openStore(dataDir)` makes the three from a laptop's data directory:
+// node:sqlite over <data>/town.db, <data>/shops, and <data>/vault.key.
+// Nothing is cached: a pass is resolved by its token's hash on every
+// call, and a grant, a manifest, and a revocation are read from the store
+// each time, so `townd admin` in another process is seen by the next
+// call. A grant's liveness is one query for what a grant decides alone,
+// then a walk over the pass's grants for its shop's dependencies, in
+// src/liveness.ts. The tables and their migrations are src/schema.ts; the
+// grant queries are here, and the rest are their nouns' files, called
+// from here by name: users and passes src/passes.ts, shops src/shops.ts,
+// permits src/permits.ts, credentials src/credentials.ts, and calls
+// src/audit.ts. Every open writes the hall's row from src/hall.ts, so a
+// town is born with its own shop and always holds this town's version of it.
 
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import type { DatabaseSync as Database } from "node:sqlite";
 import * as audit from "./audit.js";
 import type { CallRecord, CallRow, TreeRow } from "./audit.js";
 import type { Constraints } from "./constraints.js";
@@ -29,9 +31,12 @@ import * as passes from "./passes.js";
 import type { Pass, User } from "./passes.js";
 import * as permits from "./permits.js";
 import type { Permit } from "./permits.js";
-import { getMeta, openDatabase, setMeta } from "./schema.js";
+import { getMeta, openSchema, setMeta } from "./schema.js";
+import { diskShelf, type Shelf } from "./shelf.js";
 import * as shops from "./shops.js";
 import type { ShopRow } from "./shops.js";
+import { fileSql, type Sql } from "./sql.js";
+import { fileKey, type KeySource } from "./vault.js";
 
 export interface Grant {
   id: string;
@@ -57,18 +62,38 @@ export function newId(kind: string): string {
 
 type Row = Record<string, unknown>;
 
-export class Store {
-  readonly db: Database;
-  readonly dataDir: string;
+/** What a store is opened over: its SQL, its shelf, its key, and on a laptop the data directory they are under. */
+export interface StoreSeams {
+  sql: Sql;
+  shelf: Shelf;
+  key: KeySource;
+  /** The data directory; the state root is under it. */
+  dataDir: string;
+  /** Where a refusal says the store is: <data>/town.db on a laptop. */
+  where: string;
+  /** Closes what the seams hold open; nothing when omitted. */
+  close?: () => void;
+}
 
-  constructor(dataDir: string) {
-    this.dataDir = path.resolve(dataDir);
-    mkdirSync(this.dataDir, { recursive: true, mode: 0o700 });
-    this.db = openDatabase(this.dataDir);
+export class Store {
+  readonly sql: Sql;
+  readonly shelf: Shelf;
+  readonly key: KeySource;
+  readonly dataDir: string;
+  private readonly closeSeams: () => void;
+
+  /** The store over `seams`, its schema made or migrated and the hall's row written; the seams closed again when that fails. */
+  constructor(seams: StoreSeams) {
+    this.sql = seams.sql;
+    this.shelf = seams.shelf;
+    this.key = seams.key;
+    this.dataDir = seams.dataDir;
+    this.closeSeams = seams.close ?? (() => {});
     try {
+      openSchema(this.sql, seams.where);
       this.writeHall();
     } catch (err) {
-      this.db.close();
+      this.closeSeams();
       throw err;
     }
   }
@@ -80,17 +105,9 @@ export class Store {
     this.upsertShop(HALL, now);
   }
 
-  /** Runs `fn` under a write lock, all of it or none. */
+  /** Runs `fn` whole or not at all: the seam's transaction. */
   inTransaction<T>(fn: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const out = fn();
-      this.db.exec("COMMIT");
-      return out;
-    } catch (err) {
-      this.db.exec("ROLLBACK");
-      throw err;
-    }
+    return this.sql.transaction(fn);
   }
 
   get shopsDir(): string {
@@ -102,17 +119,17 @@ export class Store {
   }
 
   close(): void {
-    this.db.close();
+    this.closeSeams();
   }
 
   // meta
 
   setMeta(key: string, value: string): void {
-    setMeta(this.db, key, value);
+    setMeta(this.sql, key, value);
   }
 
   getMeta(key: string): string | null {
-    return getMeta(this.db, key);
+    return getMeta(this.sql, key);
   }
 
   // users and passes: src/passes.ts
@@ -163,14 +180,15 @@ export class Store {
     const held = this.grantsForPass(g.passId, now).find((x) => x.shop === g.shop);
     if (held) throw new StoreError(`pass ${g.passId} already holds grant ${held.id} at ${g.shop}; revoke it first, since a pass holds one grant per shop`);
     const id = newId("grant");
-    this.db
-      .prepare("INSERT INTO grants (id, pass_id, shop, commands, constraints, created_at, expires_at, credentials, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, g.passId, g.shop, JSON.stringify(g.commands), JSON.stringify(g.constraints), now, g.expiresAt, JSON.stringify(g.credentials ?? {}), g.source ?? null);
+    this.sql.run(
+      "INSERT INTO grants (id, pass_id, shop, commands, constraints, created_at, expires_at, credentials, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, g.passId, g.shop, JSON.stringify(g.commands), JSON.stringify(g.constraints), now, g.expiresAt, JSON.stringify(g.credentials ?? {}), g.source ?? null,
+    );
     return this.grantById(id)!;
   }
 
   grantById(id: string): Grant | null {
-    const row = this.db.prepare("SELECT * FROM grants WHERE id = ?").get(id) as Row | undefined;
+    const row = this.sql.get<Row>("SELECT * FROM grants WHERE id = ?", id);
     return row ? toGrant(row) : null;
   }
 
@@ -184,21 +202,22 @@ export class Store {
 
   /** One grant's state at `now`; null when there is no such grant. */
   grantState(id: string, now = Date.now()): GrantState | null {
-    const row = this.db.prepare("SELECT pass_id FROM grants WHERE id = ?").get(id) as Row | undefined;
+    const row = this.sql.get<Row>("SELECT pass_id FROM grants WHERE id = ?", id);
     if (!row) return null;
     return this.passGrants(String(row.pass_id), now).find((g) => g.id === id)!.state;
   }
 
   listGrants(passId?: string, now = Date.now()): Array<Grant & { lastUse: number | null; state: GrantState }> {
+    // GRANTS_WITH_STATE binds `now` first; the pass follows it.
     const sql = `SELECT g.*, (SELECT MAX(at) FROM calls c WHERE c.grant_id = g.id) AS last_use FROM (${GRANTS_WITH_STATE}) g
-      ${passId ? "WHERE g.pass_id = :pass" : ""} ORDER BY g.created_at, g.id`;
-    const rows = this.db.prepare(sql).all(passId ? { now, pass: passId } : { now }) as Row[];
+      ${passId ? "WHERE g.pass_id = ?" : ""} ORDER BY g.created_at, g.id`;
+    const rows = passId ? this.sql.all<Row>(sql, now, passId) : this.sql.all<Row>(sql, now);
     return withLiveness(rows, this.manifests()).map(({ row, state }) => ({ ...toGrant(row), lastUse: nullableNumber(row.last_use), state }));
   }
 
   /** Every grant of the pass, whatever its state, oldest first. */
   private passGrants(passId: string, now: number): Array<Grant & { state: GrantState }> {
-    const rows = this.db.prepare(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE pass_id = :pass ORDER BY created_at, id`).all({ now, pass: passId }) as Row[];
+    const rows = this.sql.all<Row>(`SELECT * FROM (${GRANTS_WITH_STATE}) WHERE pass_id = ? ORDER BY created_at, id`, now, passId);
     return withLiveness(rows, this.manifests()).map(({ row, state }) => ({ ...toGrant(row), state }));
   }
 
@@ -222,7 +241,7 @@ export class Store {
   revokeGrant(id: string, now = Date.now()): Grant {
     const grant = this.grantById(id);
     if (!grant) throw new StoreError(`grant ${id} does not exist; townd admin grant ls lists them`);
-    if (grant.revokedAt === null) this.db.prepare("UPDATE grants SET revoked_at = ? WHERE id = ?").run(now, id);
+    if (grant.revokedAt === null) this.sql.run("UPDATE grants SET revoked_at = ? WHERE id = ?", now, id);
     return this.grantById(id)!;
   }
 
@@ -367,8 +386,13 @@ export class Store {
   }
 }
 
+/** The store of a laptop's data directory, made when missing: node:sqlite over <data>/town.db, the shelf at <data>/shops, and the key at <data>/vault.key. */
 export function openStore(dataDir: string): Store {
-  return new Store(dataDir);
+  const dir = path.resolve(dataDir);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = path.join(dir, "town.db");
+  const sql = fileSql(file);
+  return new Store({ sql, shelf: diskShelf(path.join(dir, "shops")), key: fileKey(dir), dataDir: dir, where: file, close: () => sql.close() });
 }
 
 export function nullableNumber(v: unknown): number | null {

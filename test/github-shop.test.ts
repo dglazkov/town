@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Manifest } from "../src/manifest.js";
-import { run, type RunResult } from "../src/runtime.js";
+import { MAIN_BIN, run, type RunResult } from "../src/runtime.js";
 import { loadShop } from "../src/shoptest.js";
 import { openWall } from "../src/wall.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
@@ -218,10 +218,10 @@ describe("failures", () => {
 });
 
 describe("the shop's own side of the window", () => {
-  /** The entry run directly, its window pointed at `base`: what the shop sends before the town signs it. */
+  /** The entry run directly through its launcher, outside the town, its window pointed at `base`: what the shop sends before the town signs it. */
   function direct(base: string, ...argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, [path.join(SHOP, "main.mjs"), ...argv], {
+      const child = spawn(process.execPath, [MAIN_BIN, path.join(SHOP, "main.mjs"), ...argv], {
         cwd: SHOP,
         env: { PATH: process.env.PATH ?? "", TOWN_STATE: stateRoot, TOWN_USER: "u1", TOWN_CREDENTIAL_GITHUB_TOKEN: base },
         stdio: ["ignore", "pipe", "pipe"],

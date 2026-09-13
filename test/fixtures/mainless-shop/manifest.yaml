@@ -1,0 +1,14 @@
+name: test/mainless
+version: 0.0.1
+summary: A worker shop whose entry exports nothing, for the launcher's tests.
+runtime: worker
+entry: ./main.mjs
+commands:
+  - name: run
+    summary: Run the program its entry does not export.
+    effect: read
+    output: text
+tests:
+  - name: runs
+    run: run
+    expect: { exit: 1 }

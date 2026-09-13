@@ -37,23 +37,21 @@ export function newPermit(store: Store, p: { passId: string; shop: string; comma
   if (!store.getShop(p.shop)) throw new StoreError(`shop ${p.shop} is not in this town; townd admin shop ls lists them`);
   const id = `prm_${randomBytes(8).toString("hex")}`;
   store.inTransaction(() => {
-    store.db.prepare("DELETE FROM permits WHERE pass_id = ? AND shop = ? AND decision IS NULL").run(p.passId, p.shop);
-    store.db
-      .prepare("INSERT INTO permits (id, pass_id, shop, commands, constraints, why, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(id, p.passId, p.shop, JSON.stringify(p.commands), JSON.stringify(p.constraints), p.why, now);
+    store.sql.run("DELETE FROM permits WHERE pass_id = ? AND shop = ? AND decision IS NULL", p.passId, p.shop);
+    store.sql.run("INSERT INTO permits (id, pass_id, shop, commands, constraints, why, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", id, p.passId, p.shop, JSON.stringify(p.commands), JSON.stringify(p.constraints), p.why, now);
   });
   return permitById(store, id)!;
 }
 
 export function permitById(store: Store, id: string): Permit | null {
-  const row = store.db.prepare(`${PERMIT_SELECT} WHERE r.id = ?`).get(id) as Row | undefined;
+  const row = store.sql.get<Row>(`${PERMIT_SELECT} WHERE r.id = ?`, id);
   return row ? toPermit(row) : null;
 }
 
 /** Every permit, or one pass's, oldest first, decided ones included. */
 export function listPermits(store: Store, passId?: string): Permit[] {
   const order = "ORDER BY r.created_at, r.id";
-  const rows = (passId === undefined ? store.db.prepare(`${PERMIT_SELECT} ${order}`).all() : store.db.prepare(`${PERMIT_SELECT} WHERE r.pass_id = ? ${order}`).all(passId)) as Row[];
+  const rows = passId === undefined ? store.sql.all<Row>(`${PERMIT_SELECT} ${order}`) : store.sql.all<Row>(`${PERMIT_SELECT} WHERE r.pass_id = ? ${order}`, passId);
   return rows.map(toPermit);
 }
 
@@ -70,7 +68,7 @@ export function pendingPermit(store: Store, id: string): Permit {
 /** Records a person's decision on a pending permit, with the grant an approval made; a decided permit is refused. */
 export function decidePermit(store: Store, id: string, decision: "approved" | "denied", grantId: string | null, now = Date.now()): Permit {
   pendingPermit(store, id);
-  store.db.prepare("UPDATE permits SET decision = ?, decided_at = ?, grant_id = ? WHERE id = ? AND decision IS NULL").run(decision, now, grantId, id);
+  store.sql.run("UPDATE permits SET decision = ?, decided_at = ?, grant_id = ? WHERE id = ? AND decision IS NULL", decision, now, grantId, id);
   return permitById(store, id)!;
 }
 

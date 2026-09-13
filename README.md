@@ -14,6 +14,7 @@ node bin/townd.js serve                         # prints: town listening on http
 # every shop's process runs within the box's wall: its directory and its state, the call's windows, nothing else. A box without one (Linux) is refused;
 # --wall none, on serve or admin, runs shops with the box's authority: a shop can read the vault's key and the database, and reach anything the operator can.
 node bin/townd.js admin shop add shops/memory   # validates, runs the shop's tests, copies it in
+# the four shops under shops/ say runtime: worker: the entry exports main, run once per call under the town's own Node through bin/main.js, within the wall; runtime: subprocess runs the entry as its own process, on a laptop alone
 node bin/townd.js admin user add dimitri          # a user's name is a namespace, lowercase letters, digits, and "-": dimitri's agent publishes dimitri/<shop>
 printf '%s\n' "$TOKEN" | node bin/townd.js admin credential add --user dimitri --type github-token --label "dimitri's PAT"   # the secret on stdin, never an argument; the id on stdout
 node bin/townd.js admin shop add <dir> --user dimitri   # a shop that needs a credential type: its tests run through the town on dimitri's; a type its manifest defines and the town lacks is held in the same step, and with no credential of it yet the add is refused, the type staying held: credential add, then the same shop add

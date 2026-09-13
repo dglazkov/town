@@ -279,7 +279,7 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
     ["forget", "denied", "-", "command"],
   ]);
   for (const r of oldRows) expect(r.call).toMatch(/^call_[0-9a-f]{16}$/);
-  expect(dbColumn(vaultData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "6" }]);
+  expect(dbColumn(vaultData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "7" }]);
   // And it is a working town: memory added again, a new pass, a call, a new row after the old.
   addShop(vaultTown, MEMORY);
   const vaultPass = vaultTown.admin("pass", "new", "--user", "dimitri", "--label", "after the migration");

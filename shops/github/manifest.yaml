@@ -4,7 +4,7 @@ summary: Issues on a GitHub repository.
 guidance: |
   A repo is `owner/name`, and an issue is its number as GitHub shows
   it. A body is Markdown; a long one comes on stdin.
-runtime: subprocess
+runtime: worker
 entry: ./main.mjs
 credentials:
   - type: github-token

@@ -5,7 +5,7 @@ guidance: |
   Keys are paths, like `notes/lunch`, and a prefix such as `notes/`
   gathers the keys under it. A value is one line; a longer one comes on
   stdin.
-runtime: subprocess
+runtime: worker
 entry: ./main.mjs
 commands:
   - name: remember

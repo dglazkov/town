@@ -47,31 +47,28 @@ export interface TreeRow extends CallRow {
 type Row = Record<string, unknown>;
 
 export function recordCall(store: Store, c: CallRecord): number {
-  const r = store.db
-    .prepare(
-      `INSERT INTO calls (call_id, parent, at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials, wall)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      c.callId,
-      c.parent,
-      c.at,
-      c.passId,
-      c.grantId,
-      c.shop,
-      c.command,
-      c.argvHash,
-      c.result,
-      c.exit,
-      c.shopExit,
+  const r = store.sql.get<Row>(
+    `INSERT INTO calls (call_id, parent, at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials, wall)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    c.callId,
+    c.parent,
+    c.at,
+    c.passId,
+    c.grantId,
+    c.shop,
+    c.command,
+    c.argvHash,
+    c.result,
+    c.exit,
+    c.shopExit,
       Math.round(c.latencyMs),
       JSON.stringify(c.notices),
-      c.stderr,
-      c.detail,
+    c.stderr,
+    c.detail,
       JSON.stringify(c.credentials.map((x) => ({ type: x.type, requests: x.requests }))),
-      c.wall,
-    );
-  return Number(r.lastInsertRowid);
+    c.wall,
+  );
+  return Number(r!.id);
 }
 
 /** Audit rows, newest last. */
@@ -82,7 +79,7 @@ export function calls(store: Store, filter: { passId?: string; shop?: string; si
   if (filter.shop !== undefined) (where.push("shop = ?"), params.push(filter.shop));
   if (filter.since !== undefined) (where.push("at >= ?"), params.push(filter.since));
   const sql = `SELECT * FROM calls ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY at, id`;
-  return (store.db.prepare(sql).all(...params) as Row[]).map(toCall);
+  return store.sql.all<Row>(sql, ...params).map(toCall);
 }
 
 /**
@@ -91,16 +88,15 @@ export function calls(store: Store, filter: { passId?: string; shop?: string; si
  * Empty when there is no call with that id.
  */
 export function callTree(store: Store, callId: string): TreeRow[] {
-  const rows = store.db
-    .prepare(
-      `WITH RECURSIVE tree(call_id, depth) AS (
-         SELECT call_id, 0 FROM calls WHERE call_id = :id
-         UNION ALL
-         SELECT c.call_id, t.depth + 1 FROM calls c JOIN tree t ON c.parent = t.call_id
-       )
-       SELECT calls.*, tree.depth FROM tree JOIN calls ON calls.call_id = tree.call_id ORDER BY calls.at, calls.id`,
-    )
-    .all({ id: callId }) as Row[];
+  const rows = store.sql.all<Row>(
+    `WITH RECURSIVE tree(call_id, depth) AS (
+       SELECT call_id, 0 FROM calls WHERE call_id = ?
+       UNION ALL
+       SELECT c.call_id, t.depth + 1 FROM calls c JOIN tree t ON c.parent = t.call_id
+     )
+     SELECT calls.*, tree.depth FROM tree JOIN calls ON calls.call_id = tree.call_id ORDER BY calls.at, calls.id`,
+    callId,
+  );
   const all = rows.map((r) => ({ ...toCall(r), depth: Number(r.depth) }));
   const out: TreeRow[] = [];
   const visit = (row: TreeRow) => {

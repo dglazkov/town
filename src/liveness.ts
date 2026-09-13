@@ -30,14 +30,15 @@ type Row = Record<string, unknown>;
  * `expired`, `unmet`, or `live`, and `unmet` the first need of the shop's
  * current manifest with no binding of its type to an unrevoked credential
  * of the pass's user. A binding whose type the manifest does not name is
- * not read. Bound to `:now`. Every reader of a pass's grants reads this,
- * through `withLiveness`, which adds the fourth reason, dependencies.
+ * not read. Its one parameter, positional, is the time now. Every reader
+ * of a pass's grants reads this, through `withLiveness`, which adds the
+ * fourth reason, dependencies.
  */
 export const GRANTS_WITH_STATE = `
 SELECT x.*,
   CASE
     WHEN x.revoked_at IS NOT NULL THEN 'revoked'
-    WHEN x.expires_at IS NOT NULL AND x.expires_at <= :now THEN 'expired'
+    WHEN x.expires_at IS NOT NULL AND x.expires_at <= ? THEN 'expired'
     WHEN x.unmet IS NOT NULL THEN 'unmet'
     ELSE 'live'
   END AS state

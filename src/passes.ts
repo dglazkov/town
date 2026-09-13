@@ -41,17 +41,17 @@ export function addUser(store: Store, name: string, now = Date.now()): User {
   }
   if (userByName(store, name)) throw new StoreError(`user ${name} already exists`);
   const user = { id: newId("user"), name, createdAt: now };
-  store.db.prepare("INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)").run(user.id, name, now);
+  store.sql.run("INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)", user.id, name, now);
   return user;
 }
 
 export function userByName(store: Store, name: string): User | null {
-  const row = store.db.prepare("SELECT * FROM users WHERE name = ?").get(name) as Row | undefined;
+  const row = store.sql.get<Row>("SELECT * FROM users WHERE name = ?", name);
   return row ? toUser(row) : null;
 }
 
 export function listUsers(store: Store): User[] {
-  return (store.db.prepare("SELECT * FROM users ORDER BY created_at, name").all() as Row[]).map(toUser);
+  return store.sql.all<Row>("SELECT * FROM users ORDER BY created_at, name").map(toUser);
 }
 
 // passes
@@ -63,41 +63,33 @@ export function newPass(store: Store, userName: string, label: string, expiresAt
   if (label.trim() === "") throw new StoreError("a pass needs a --label saying what holds it");
   const token = randomBytes(32).toString("base64url");
   const id = newId("pass");
-  store.db
-    .prepare("INSERT INTO passes (id, user_id, label, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(id, user.id, label, hashToken(token), now, expiresAt);
+  store.sql.run("INSERT INTO passes (id, user_id, label, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)", id, user.id, label, hashToken(token), now, expiresAt);
   return { pass: passById(store, id)!, token };
 }
 
 /** The pass whose token hashes to `tokenHash`, whatever its state; read from the file every time. */
 export function passByTokenHash(store: Store, tokenHash: string): Pass | null {
-  const row = store.db
-    .prepare("SELECT p.*, u.name AS user_name FROM passes p JOIN users u ON u.id = p.user_id WHERE p.token_hash = ?")
-    .get(tokenHash) as Row | undefined;
+  const row = store.sql.get<Row>("SELECT p.*, u.name AS user_name FROM passes p JOIN users u ON u.id = p.user_id WHERE p.token_hash = ?", tokenHash);
   return row ? toPass(row) : null;
 }
 
 export function passById(store: Store, id: string): Pass | null {
-  const row = store.db
-    .prepare("SELECT p.*, u.name AS user_name FROM passes p JOIN users u ON u.id = p.user_id WHERE p.id = ?")
-    .get(id) as Row | undefined;
+  const row = store.sql.get<Row>("SELECT p.*, u.name AS user_name FROM passes p JOIN users u ON u.id = p.user_id WHERE p.id = ?", id);
   return row ? toPass(row) : null;
 }
 
 export function listPasses(store: Store): Array<Pass & { lastUse: number | null }> {
-  const rows = store.db
-    .prepare(
-      `SELECT p.*, u.name AS user_name, (SELECT MAX(at) FROM calls c WHERE c.pass_id = p.id) AS last_use
-       FROM passes p JOIN users u ON u.id = p.user_id ORDER BY p.created_at, p.id`,
-    )
-    .all() as Row[];
+  const rows = store.sql.all<Row>(
+    `SELECT p.*, u.name AS user_name, (SELECT MAX(at) FROM calls c WHERE c.pass_id = p.id) AS last_use
+     FROM passes p JOIN users u ON u.id = p.user_id ORDER BY p.created_at, p.id`,
+  );
   return rows.map((r) => ({ ...toPass(r), lastUse: nullableNumber(r.last_use) }));
 }
 
 export function revokePass(store: Store, id: string, now = Date.now()): Pass {
   const pass = passById(store, id);
   if (!pass) throw new StoreError(`pass ${id} does not exist; townd admin pass ls lists them`);
-  if (pass.revokedAt === null) store.db.prepare("UPDATE passes SET revoked_at = ? WHERE id = ?").run(now, id);
+  if (pass.revokedAt === null) store.sql.run("UPDATE passes SET revoked_at = ? WHERE id = ?", now, id);
   return passById(store, id)!;
 }
 

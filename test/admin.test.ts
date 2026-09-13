@@ -343,7 +343,7 @@ describe("the hall at the box", () => {
       writeFileSync(path.join(named, "manifest.yaml"), text.replace("name: town/memory", "name: town/hall"));
       const byName = await admin(["shop", "add", named]);
       expect(byName).toEqual({ exit: 1, stdout: "", stderr: "townd admin: shop add refused: town/hall is the town's own shop, in every town from its first open; name the shop under another namespace\n" });
-      writeFileSync(path.join(named, "manifest.yaml"), text.replace("runtime: subprocess", "runtime: town"));
+      writeFileSync(path.join(named, "manifest.yaml"), text.replace("runtime: worker", "runtime: town"));
       const byRuntime = await admin(["shop", "add", named]);
       expect(byRuntime.exit).toBe(1);
       expect(byRuntime.stderr).toBe("runtime: is town, the runtime of the town's own shop and no other; write runtime: subprocess instead (spec §2)\ntownd admin: shop add refused: the manifest has a mistake, above\n");

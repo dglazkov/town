@@ -14,7 +14,8 @@
 // wall it is given, the agent's the gate's own: a shop's tests are the
 // shop's code too. The operator's tree at a permit's approval is recorded:
 // each line's run a row under the approval's, and every call below it a
-// row under the line's.
+// row under the line's. The shop under test is handed to the runtime as
+// the shelf of its one directory, its own or the copy staged for it.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
@@ -22,7 +23,8 @@ import path from "node:path";
 import { canonicalArgv, parseArgs, splitWords } from "./args.js";
 import { answerFor, argvHash, newCallId, type Caller, type GateDeps, type TestTree } from "./gate.js";
 import { parseManifest, type Manifest, type ShopTest, type TownShop, type TownType } from "./manifest.js";
-import { run, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
+import { runShelved, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
+import { shopAt } from "./shelf.js";
 import type { Pass } from "./passes.js";
 import type { Grant, Store } from "./store.js";
 import type { Wall } from "./wall.js";
@@ -183,7 +185,7 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
         const deps: GateDeps = { store: opts.store, wall: opts.wall, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }), ...(opts.audit ? { decide: opts.audit.decide } : {}) };
         runOpts.town = { answer: answerFor(deps, { test, manifest, parent: opts.audit ? lineId : null, depth: 1 }) };
       }
-      const result = await (agent?.deps.runtime ?? run)(dir, manifest, command, parsed.values, runOpts);
+      const result = await (agent?.deps.runtime ?? runShelved)(shopAt(dir), manifest, command, parsed.values, runOpts);
       if (opts.audit) {
         opts.store!.recordCall({
           callId: lineId,

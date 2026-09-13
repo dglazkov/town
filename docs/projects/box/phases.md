@@ -38,9 +38,13 @@ never load it.
 
 ---
 
-**Where we are: planned, 13 September 2026.** No phase begun. Box
-phase 0 is next: the seams on the laptop, `runtime: worker`, and the
-four shops as worker shops, with nothing of the Worker built.
+**Where we are: box phase 0 closed, 13 September 2026.** Next is box
+phase 1, the isolate and the window in workerd and the `box` ring, which
+needs no account. The seams stand on the laptop: the store over `Sql`
+and positional throughout, the shelf, the key source, the window's
+rule, schema 7, `runtime: worker` in the manifest and spec §7,
+`bin/main.js`, and the four shops as worker shops, 602 tests green on
+both rings. Nothing waits on a person until box phase 3's ⚑ steps.
 
 The order is dependency order. Phase 0 is the seams, on the laptop
 alone: the store over `Sql`, the shelf, the key source, the window's
@@ -68,8 +72,7 @@ moved from a laptop; the OAuth relay; a Linux wall, never.
 **Closes:** journey 3 in full.
 
 **Work:** `src/sql.ts`: `Sql` and `fileSql` as the design writes them, a named
-parameter refused by the file driver,
-the `node:sqlite` load and its dropped warning moved here from
+parameter refused by the file driver, the `node:sqlite` load and its dropped warning moved here from
 `src/schema.ts`. `src/schema.ts`, `src/store.ts`, `src/credentials.ts`,
 `src/audit.ts`, `src/liveness.ts`: every query over `Sql`, positional
 throughout, `BEGIN IMMEDIATE` become `transaction`; schema 7, the
@@ -117,7 +120,41 @@ it null, and the store's tests that reach the query fail; `test/sql.test.ts`
 proves the refusal), and `runtime: worker` refused by the manifest
 (every `shop add` fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (38 files, 602 tests, both rings), and
+`pnpm typecheck` exit 0; the three mutations each failed their named
+tests, memory's `roundtrip`, 33 store tests, and all four `shop add`s.
+
+**Findings:**
+
+- **2026-09-13 — The phase took fifty minutes of wall clock.** One
+  split first, committed alone; one return to the builder, for two
+  files the conductor's own mutation revert had reset.
+- **2026-09-13 — `src/store.ts` split before the phase.** Users and
+  passes to `src/passes.ts`, shop rows to `src/shops.ts`, permits to
+  `src/permits.ts`, free functions its methods call; the store kept 391
+  lines, and grew to none past the wire after the seam.
+- **2026-09-13 — The file driver refuses a named parameter.** SQLite
+  binds an unbound one null and says nothing, so the laptop now proves
+  the box's positional rule; `?1` is accepted. `recordCall` takes its id
+  by `INSERT … RETURNING`, since `run` returns `changes` alone.
+- **2026-09-13 — `shop add` records no audit rows.** Only a permit's
+  approval records the operator's tree; journey 3 step 1 was reworded
+  to a call's row, which `test/box.test.ts` reads as `seatbelt`.
+- **2026-09-13 — Spec §7's paragraph left it at 298 of 300 lines.**
+  §3's example was folded and §9's second test dropped to fit; the next
+  line the spec gains costs a cut or a larger limit.
+- **2026-09-13 — The launcher exits when `main` settles.** A laptop
+  shop can no more leave work running after `main` than an isolate can;
+  a throw prints `Name: message`, no stack, so both boxes print alike.
+- **2026-09-13 — The teller's rule tests were copied, not moved.**
+  `test/window.test.ts` tests `src/window.ts` directly and
+  `test/teller.test.ts` keeps its wire tests unchanged, so the rule is
+  proved twice.
+- **2026-09-13 — The store still assumes a disk for box phase 2.**
+  `Store` keeps `dataDir`, `shopsDir`, and `stateRoot`, staging goes
+  under `shopsDir`, and the shelf holds files as UTF-8 text; the object
+  needs stand-ins for all of them.
 
 ## Phase 1: The isolate and the window
 

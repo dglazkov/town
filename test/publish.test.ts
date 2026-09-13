@@ -374,7 +374,7 @@ it("walks journey 2 steps 1 to 6: the hall at the box, a narrow hall grant, perm
   expect(db(composeData, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'permits'")).toEqual([{ name: "permits" }]);
   expect(db(composeData, "SELECT name FROM pragma_table_info('shops') WHERE name = 'owner'")).toEqual([{ name: "owner" }]);
   expect(db(composeData, "SELECT name FROM pragma_table_info('grants') WHERE name = 'source'")).toEqual([{ name: "source" }]);
-  expect(db(composeData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "6" }]);
+  expect(db(composeData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "7" }]);
   expect(composeTown.admin("grant", "ls").stdout).toMatch(/^grant_[0-9a-f]{16}\s+pass_e4dca651fb4453dc\s+town\/memory\s+\S+\s+-\s/m);
   await composeTown.stop();
 
@@ -388,7 +388,7 @@ it("walks journey 2 steps 1 to 6: the hall at the box, a narrow hall grant, perm
   const memoryText = readFileSync(path.join(named, "manifest.yaml"), "utf8");
   writeFileSync(path.join(named, "manifest.yaml"), memoryText.replace("name: town/memory", "name: town/hall"));
   expect(oneLine(admin("shop", "add", named))).toBe("townd admin: shop add refused: town/hall is the town's own shop, in every town from its first open; name the shop under another namespace");
-  writeFileSync(path.join(named, "manifest.yaml"), memoryText.replace("runtime: subprocess", "runtime: town"));
+  writeFileSync(path.join(named, "manifest.yaml"), memoryText.replace("runtime: worker", "runtime: town"));
   expect(admin("shop", "add", named).stderr).toContain("runtime: is town, the runtime of the town's own shop and no other; write runtime: subprocess instead (spec §2)\n");
 
   // Step 2: a hall grant at four commands: request is not available, and help lists the four.

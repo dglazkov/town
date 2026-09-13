@@ -10,7 +10,7 @@
 
 import { describe, isRecord, refusal, type Need, type TownType } from "./manifest.js";
 import { parseEndpoint } from "./oauth.js";
-import { parseHeaderTemplate, parseOrigin } from "./teller.js";
+import { parseHeaderTemplate, parseOrigin } from "./window.js";
 
 const NEED_FIELDS = ["type", "origin", "header", "oauth", "guidance"];
 const OAUTH_FIELDS = ["authorize", "token", "scopes"];

@@ -1,0 +1,28 @@
+name: test/worker
+version: 0.0.1
+summary: Ends each of the ways a worker shop's main can end, for the launcher's tests.
+runtime: worker
+entry: ./main.mjs
+commands:
+  - name: returns
+    summary: Return the code given as main's return.
+    effect: read
+    args:
+      - { name: code, type: int, required: true }
+    output: text
+  - name: throws
+    summary: Throw an error from main after printing a line.
+    effect: read
+    output: text
+  - name: exits
+    summary: Call process.exit with 2 from inside main.
+    effect: read
+    output: text
+  - name: echo
+    summary: Print argv, the environment's names, and stdin as JSON after a wait.
+    effect: read
+    output: json
+tests:
+  - name: returns zero
+    run: returns --code 0
+    expect: { exit: 0 }

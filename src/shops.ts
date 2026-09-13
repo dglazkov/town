@@ -1,7 +1,7 @@
 // Shops, as rows: the latest manifest of each shop in the town, who
 // published it, and when its tests last passed on its code. The store's
-// methods of these names call here; the files a shop runs from are
-// src/publish.ts's.
+// methods of these names call here; a shop's files are on the store's
+// shelf, src/shelf.ts, put there by src/publish.ts.
 
 import type { Manifest } from "./manifest.js";
 import { nullableNumber, type Store } from "./store.js";
@@ -29,30 +29,29 @@ const SHOP_SELECT = "SELECT s.*, u.name AS owner_name FROM shops s LEFT JOIN use
  * passed on this code, or null when they have not run on it.
  */
 export function upsertShop(store: Store, manifest: Manifest, now = Date.now(), owner: string | null = null, testedAt: number | null = now): void {
-  store.db
-    .prepare(
-      `INSERT INTO shops (name, version, manifest, added_at, owner, tested_at) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(name) DO UPDATE SET version = excluded.version, manifest = excluded.manifest, added_at = excluded.added_at, owner = excluded.owner, tested_at = excluded.tested_at`,
-    )
-    .run(manifest.name, manifest.version, JSON.stringify(manifest), now, owner, testedAt);
+  store.sql.run(
+    `INSERT INTO shops (name, version, manifest, added_at, owner, tested_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(name) DO UPDATE SET version = excluded.version, manifest = excluded.manifest, added_at = excluded.added_at, owner = excluded.owner, tested_at = excluded.tested_at`,
+    manifest.name, manifest.version, JSON.stringify(manifest), now, owner, testedAt,
+  );
 }
 
 /** Records that the shop's tests passed on its code at `now`. */
 export function markTested(store: Store, name: string, now = Date.now()): void {
-  store.db.prepare("UPDATE shops SET tested_at = ? WHERE name = ?").run(now, name);
+  store.sql.run("UPDATE shops SET tested_at = ? WHERE name = ?", now, name);
 }
 
 export function getShop(store: Store, name: string): ShopRow | null {
-  const row = store.db.prepare(`${SHOP_SELECT} WHERE s.name = ?`).get(name) as Row | undefined;
+  const row = store.sql.get<Row>(`${SHOP_SELECT} WHERE s.name = ?`, name);
   return row ? toShop(row) : null;
 }
 
 export function listShops(store: Store): ShopRow[] {
-  return (store.db.prepare(`${SHOP_SELECT} ORDER BY s.name`).all() as Row[]).map(toShop);
+  return store.sql.all<Row>(`${SHOP_SELECT} ORDER BY s.name`).map(toShop);
 }
 
 export function removeShop(store: Store, name: string): boolean {
-  return Number(store.db.prepare("DELETE FROM shops WHERE name = ?").run(name).changes) > 0;
+  return store.sql.run("DELETE FROM shops WHERE name = ?", name).changes > 0;
 }
 
 function toShop(r: Row): ShopRow {

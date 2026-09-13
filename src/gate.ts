@@ -8,6 +8,8 @@
 // binding's access token is refreshed there when it is within a minute of
 // expiry, before any teller or process, and its row sealed again; a
 // refresh the provider refuses revokes the credential and denies the call.
+// The runtime is handed the shop by name: the store's shelf, and the
+// manifest whose name it is; it asks the shelf for the files.
 //
 // A shop's own call comes from its clerk with a caller in place of a
 // bearer, and its grants are computed, not read: the agent's live grants
@@ -22,8 +24,7 @@
 // process, and the hall's answer (hall.ts) is the outcome.
 
 import { createHash, randomBytes } from "node:crypto";
-import path from "node:path";
-import { canonicalArgv, parseArgs } from "./args.js";
+import { canonicalArgv, parseArgs, type ArgValues } from "./args.js";
 import type { ResultClass } from "./audit.js";
 import { respond, type Answer } from "./clerk.js";
 import { firstMiss, splitTarget } from "./constraints.js";
@@ -34,7 +35,8 @@ import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
 import { due, parseValue, refresh, refreshed, type OAuthValue } from "./oauth.js";
 import type { Client, CredentialType } from "./credentials.js";
-import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
+import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, runShelved, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
+import type { Shelf } from "./shelf.js";
 import { hashToken, type Pass } from "./passes.js";
 import type { Grant, Store } from "./store.js";
 import { VaultError } from "./vault.js";
@@ -85,7 +87,8 @@ export interface TestTree {
 /** The words a shop test's help gives as the grant's label. */
 export const TEST_LABEL = "a shop test";
 
-export type Runtime = typeof run;
+/** A runtime, handed a shop by name: the shelf its files are on, and its manifest, whose name is the shop's. */
+export type Runtime = (shelf: Shelf, manifest: Manifest, command: string, args: ArgValues, opts: RunOptions) => Promise<RunResult>;
 
 /** Opens a credential's value for one call. The server's reads the store and the vault's key. */
 export interface Vault {
@@ -181,9 +184,11 @@ export function argvHash(argv: readonly string[]): string {
   return createHash("sha256").update(JSON.stringify(argv), "utf8").digest("hex");
 }
 
-/** The directory a shop's code is copied to under the data directory. */
+/** The directory the store's shelf keeps a shop's code in under the data directory. */
 export function shopDir(store: Store, shop: string): string {
-  return path.join(store.shopsDir, segment(shop));
+  const dir = store.shelf.dir?.(shop);
+  if (dir === undefined) throw new Error(`this town's shelf keeps no directory for ${shop}`);
+  return dir;
 }
 
 const STDERR_TAIL_LINES = 10;
@@ -362,12 +367,12 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     throw err;
   }
   const noted = (detail: string | null) => [note, detail].filter((x) => x !== null).join("; ") || null;
-  const runtime = deps.runtime ?? run;
+  const runtime = deps.runtime ?? runShelved;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const below = { manifest, parent: base.callId, depth: (caller?.depth ?? 0) + 1 };
   const scratch = caller && "passId" in caller ? caller.stateRoot : undefined;
   const deeper: Caller = test ? { test, ...below } : { passId: pass!.id, ...(scratch === undefined ? {} : { stateRoot: scratch }), ...below };
-  const r = await runtime(shopDir(store, manifest.name), manifest, command, parsed.values, {
+  const r = await runtime(store.shelf, manifest, command, parsed.values, {
     user: test ? test.user : pass!.userId,
     stateRoot: test ? test.stateRoot : (scratch ?? store.stateRoot),
     stdin: req.stdin,

@@ -17,7 +17,7 @@ import { denials } from "./denials.js";
 import { argvHash, gate, newCallId, storeVault, type CallRequest, type GateDeps, type Outcome } from "./gate.js";
 import { hashToken } from "./passes.js";
 import { openStore, type Store } from "./store.js";
-import { VaultError, readKey, requireKey } from "./vault.js";
+import { VaultError } from "./vault.js";
 import { openWall, type Wall, type WallKind } from "./wall.js";
 
 // The wire is the clerk's too, so it lives in clerk.ts; the server's names for it stay.
@@ -121,12 +121,12 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
   // opens a binding, and kept.
   let key: Buffer | null;
   try {
-    key = requireKey(store.dataDir, store.sealedRows());
+    key = store.key.require(store.sealedRows());
   } catch (err) {
     store.close();
     throw err;
   }
-  const vault = storeVault(store, () => (key ??= readKey(store.dataDir)));
+  const vault = storeVault(store, () => (key ??= store.key.read()));
   let wall: Wall;
   try {
     wall = openWall(opts.wall, { data: store.dataDir });

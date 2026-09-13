@@ -7,7 +7,8 @@
 // EPERM on its line, and passes it under --wall none; the audit's wall
 // column in the table and in a tree, seatbelt where a process ran and -
 // where none did; a store hall made printing - on every row; and a data
-// directory given through the link /tmp, as AGENTS.md writes it. Then
+// directory given through the link /tmp, as AGENTS.md writes it, where
+// memory is a worker shop and its calls' rows say seatbelt. Then
 // gate's journey 2, the operator's box, steps 1 to 7 as one walk against a
 // town on a free port with a data directory made and deleted here; the
 // agent's calls of journey 1 inside step 5; and journey 4 step 5, the
@@ -202,6 +203,8 @@ it("serves a data directory given through the link /tmp, as AGENTS.md writes it,
   expect([added.exit, added.stderr]).toEqual([0, ""]);
   expect(added.stdout).toMatch(/^ok roundtrip$/m);
   expect(added.stdout).toMatch(/^added town\/memory 0\.1\.0$/m);
+  // Memory is a worker shop (box's journey 3): its calls below run through bin/main.js, within the same seatbelt.
+  expect(readFileSync(path.join(data, "shops", "town%2Fmemory", "manifest.yaml"), "utf8")).toMatch(/^runtime: worker$/m);
   const town = await serve(data);
   towns.push(town);
   expect(town.line).toBe(`town listening on ${town.url}, shops walled by seatbelt`);

@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-13
 see: box
-note: "written 13 Sep 2026, the day consent closed: the town's box, where the town leaves the laptop as one Cloudflare Worker with the store in a Durable Object, a shop run in an isolate whose only way out is the window the town opened for the call, the operator's verbs over the wire with a token of their own, and a consent landing at the town's own address; `runtime: worker` beside `runtime: subprocess`, and the four shops made worker shops that run on both boxes. Measured in docs/spikes/box before a word was written. No phase begun."
+note: "written 13 Sep 2026, the day consent closed: the town's box, where the town leaves the laptop as one Cloudflare Worker with the store in a Durable Object, a shop run in an isolate whose only way out is the window the town opened for the call, the operator's verbs over the wire with a token of their own, and a consent landing at the town's own address; `runtime: worker` beside `runtime: subprocess`, and the four shops made worker shops that run on both boxes. Measured in docs/spikes/box before a word was written. Box phase 0 closed journey 3 the same day: the store over a `Sql` seam and positional throughout, the shelf, the key source, the window's rule, schema 7, `runtime: worker` in spec §7, and the four shops as worker shops run through `bin/main.js` within the seatbelt, every earlier test green."
 ---
 
 # Box — the journeys

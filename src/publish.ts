@@ -1,7 +1,7 @@
 // Publishing, with two front doors. The operator's: `shop test` runs a
-// shop's tests from its directory, and `shop add` copies the directory
-// into the town, tests the copy with the operator's tree, and puts it in
-// place with no owner. The hall's: `sendShop` writes a bundle's files to
+// shop's tests from its directory, and `shop add` reads the directory's
+// files, stages them as a copy, tests the copy with the operator's tree,
+// and puts the files on the store's shelf by the shop's name with no owner. The hall's: `sendShop` writes a bundle's files to
 // the same staging, tests the copy with the agent's tree, and, for a
 // publish, puts it in place with the agent's user as owner. Both refuse a
 // copy holding anything but plain files, and every shop in the town has
@@ -23,7 +23,7 @@
 // with other words beside the same definition, writes them onto the type,
 // and the door's line says so.
 
-import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Io } from "./admin.js";
@@ -37,8 +37,9 @@ import { definesType } from "./needs.js";
 import type { RunCredential } from "./runtime.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
 import type { Pass } from "./passes.js";
+import { ShelfError, readTree, shopAt } from "./shelf.js";
 import { StoreError, type Store } from "./store.js";
-import { VaultError, ensureKey, readKey } from "./vault.js";
+import { VaultError } from "./vault.js";
 import type { Wall } from "./wall.js";
 
 /** `shop add`'s words for a manifest named as the town's own shop; `runtime: town` is the validator's refusal. */
@@ -225,7 +226,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
       return refuse(`${manifest.name} defines ${oauth.type}, an oauth type this town lacks, and holding it takes its registration; write --client-id <id>, with the client secret on stdin`);
     }
     if (!oauth && picked.client?.id !== undefined) return refuse(`${manifest.name} defines no oauth type this town lacks, so --client-id registers nothing; leave it out`);
-    const registration = oauth ? { client: await picked.client!.read(picked.client!.id!), key: ensureKey(store.dataDir) } : undefined;
+    const registration = oauth ? { client: await picked.client!.read(picked.client!.id!), key: store.key.ensure() } : undefined;
     for (const n of lacking) {
       const held = store.proposeType(definition(n), manifest.name, true, now, n.oauth ? registration : undefined);
       if (!held) continue;
@@ -244,7 +245,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
       return refuse(`user ${owner.name} holds no ${unmet.type} credential; ${unmet.type} stays held, as ${manifest.name} defines it, so ${verb}, then shop add again`);
     }
     needs = treeOf(manifest, store).needs;
-    const met = await meetNeeds(store, key ?? readKey(store.dataDir), manifest.name, needs, picked.user(), picked.credentials, now);
+    const met = await meetNeeds(store, key ?? store.key.read(), manifest.name, needs, picked.user(), picked.credentials, now);
     if (typeof met === "string") return refuse(met);
     credentials = met;
   } catch (err) {
@@ -257,15 +258,15 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
 
   const staging = await newStaging(store);
   try {
-    await cp(src, staging, {
-      recursive: true,
-      verbatimSymlinks: true,
-      filter: async (from) => {
-        const s = await lstat(from);
-        if (!s.isDirectory() && !s.isFile()) throw new StoreError(`${from} became something other than a plain file while it was copied`);
-        return true;
-      },
-    });
+    let files: Map<string, BundleFile>;
+    try {
+      files = readTree(src) ?? new Map();
+    } catch (err) {
+      if (err instanceof ShelfError) throw new StoreError(`${err.path} became something other than a plain file while it was copied`);
+      throw err;
+    }
+    // The copy tested is these files, staged; the same files are put on the town's shelf once they pass.
+    shopAt(staging).put("", files);
     const manifest = await checkCopy(store, staging, types, shops);
     if (typeof manifest === "string") return refuse(manifest);
     if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
@@ -276,7 +277,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
       return refuse(`${manifest.name}'s test${failing.length === 1 ? "" : "s"} ${failing.map((r) => `'${r.name}'`).join(", ")} failed; fix the shop and add it again`);
     }
     // A type held above is the town's already, so this holds nothing twice.
-    const { stopped, revised } = await putInPlace(store, staging, manifest, { owner: null, testedAt: now, held: true }, now);
+    const { stopped, revised } = await putInPlace(store, files, manifest, { owner: null, testedAt: now, held: true }, now);
     io.out(`added ${manifest.name} ${manifest.version}${revisedClause(manifest, revised)}\n`);
     for (const line of stopped) io.out(`${line}\n`);
     return 0;
@@ -313,21 +314,17 @@ export function revisedClause(manifest: Manifest, revised: readonly string[]): s
 }
 
 /**
- * The copy put in place, both doors': the shop's directory moved aside,
- * the copy moved in, the types the manifest defines that the town lacks
+ * The copy put in place, both doors': the files put on the store's shelf
+ * by the shop's name, whole, what was there gone, the types the manifest defines that the town lacks
  * written, proposed or `held`, the guidance of each it proposed and defines
  * with other words written onto it, and the row upserted with `owner` and
- * `testedAt`, in one write, the old directory removed. Then the grants at
+ * `testedAt`, in one write. Then the grants at
  * the shop live before and not after, one line each, and a line on what to
  * do when one binds no credential; and the types whose guidance it wrote.
  */
-async function putInPlace(store: Store, staging: string, manifest: Manifest, row: { owner: string | null; testedAt: number | null; held: boolean }, now: number): Promise<{ stopped: string[]; revised: string[] }> {
-  const final = shopDir(store, manifest.name);
-  const old = `${staging}-old`;
-  const had = await lstat(final).then(() => true, () => false);
+async function putInPlace(store: Store, files: ReadonlyMap<string, BundleFile>, manifest: Manifest, row: { owner: string | null; testedAt: number | null; held: boolean }, now: number): Promise<{ stopped: string[]; revised: string[] }> {
   const liveBefore = store.liveGrantsAt(manifest.name, now).map((g) => g.id);
-  if (had) await rename(final, old);
-  await rename(staging, final);
+  store.shelf.put(manifest.name, files);
   const revised: string[] = [];
   store.inTransaction(() => {
     for (const n of (manifest.credentials ?? []).filter(definesType)) {
@@ -338,7 +335,6 @@ async function putInPlace(store: Store, staging: string, manifest: Manifest, row
     }
     store.upsertShop(manifest, now, row.owner, row.testedAt);
   });
-  if (had) await rm(old, { recursive: true, force: true });
   const stillLive = store.liveOf(liveBefore, now);
   const states = liveBefore.filter((id) => !stillLive.includes(id)).map((id) => ({ id, state: store.grantState(id, now)! }));
   const lines = states.map(({ id, state }) => {
@@ -376,12 +372,11 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
   const shops = townShops(store);
   const staging = await newStaging(store);
   try {
-    for (const [rel, file] of req.files) {
-      const to = path.resolve(staging, rel);
-      if (!to.startsWith(staging + path.sep)) return { refused: [`${JSON.stringify(rel)}: is outside the shop in the copy`] };
-      await mkdir(path.dirname(to), { recursive: true, mode: 0o700 });
-      await writeFile(to, file.content, { mode: file.mode & 0o100 ? 0o700 : 0o600, flag: "wx" });
+    for (const rel of req.files.keys()) {
+      if (!path.resolve(staging, rel).startsWith(staging + path.sep)) return { refused: [`${JSON.stringify(rel)}: is outside the shop in the copy`] };
     }
+    // The copy tested is the bundle's files, staged; the same files are put on the town's shelf once they pass.
+    shopAt(staging).put("", req.files);
     let manifest: Manifest | string;
     try {
       manifest = await checkCopy(store, staging, types, shops);
@@ -394,7 +389,7 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
     const timeout = deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs };
     const results = waits.length ? [] : await testShop(staging, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
     if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, waits, kept: false, stopped: [], revised: [] };
-    const { stopped, revised } = await putInPlace(store, staging, manifest, { owner: req.pass.userId, testedAt: waits.length ? null : now, held: false }, now);
+    const { stopped, revised } = await putInPlace(store, req.files, manifest, { owner: req.pass.userId, testedAt: waits.length ? null : now, held: false }, now);
     return { manifest, results, waits, kept: true, stopped, revised };
   } finally {
     await rm(staging, { recursive: true, force: true });

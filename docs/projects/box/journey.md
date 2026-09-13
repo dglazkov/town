@@ -187,8 +187,9 @@ and its four shops.
    around the program it had, its imports kept; the same for github,
    watch, and gdocs. `townd admin shop add shops/memory` runs its five
    tests as it did, each as a process under the town's own Node through
-   `bin/main.js`, within the box's seatbelt; `townd admin audit` says
-   `seatbelt` for each. Every `command` test of gate, vault, compose,
+   `bin/main.js`, within the box's seatbelt; a call to it under a grant
+   runs the same way, and `townd admin audit` says `seatbelt` on its
+   row. Every `command` test of gate, vault, compose,
    hall, wall, and consent passes unchanged in what it asserts.
 2. `townd spec` §7 has one paragraph more: `runtime: worker`, the
    program as a function, what it may not do at the top level, and what

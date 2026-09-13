@@ -54,6 +54,19 @@ by the conductor, recorded, committed whole.
 - **Node 24 and nothing native.** The database is `node:sqlite`; the
   server is `node:http`. A dependency that compiles is a finding, not a
   choice.
+- **A file is one noun, and a phase may split one.** `src/` is flat
+  because each file is a noun of the design, gate, vault, teller,
+  clerk, and a reader of a design doc finds it by name; a directory
+  comes when there is a second thing of one kind, never before. The
+  trip wire is six hundred lines: `test/shape.test.ts` fails when a
+  file under `src/` is over it, unless the file is named in the test's
+  ratchet with the count it had, which may only shrink. A phase whose
+  work would grow a file past the wire splits it first, along its
+  nouns, behavior unchanged and the suite green, and the split is
+  committed on its own before the phase's work. The builder may do
+  this to any file the phase touches and the files that import it,
+  whatever the brief named; the conductor records the split as a
+  finding.
 - **Nothing outside this box without a token the user provided.** Steps
   marked ⚑ provision in a `phases.md` create a cloud resource, spend
   money, or need a login, and are asked out loud first.

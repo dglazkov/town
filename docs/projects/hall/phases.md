@@ -166,7 +166,7 @@ contract by a real agent, which is hall phase 2's.
 writes it, each refusal one line naming what was found and the `tar`
 command. `src/publish.ts`: the staging, the checks against dependents,
 the copy, the tests, the move, the row, and the naming of grants that
-stop being live, moved out of `src/admin.ts` with two front doors: the
+stop being live, already there since the split, given two front doors: the
 operator's from a directory with the operator's tree and owner none,
 the hall's from a bundle with the agent's tree and the agent's user as
 owner; `shop add` unchanged in what it prints. `src/gate.ts`: the pass
@@ -179,7 +179,8 @@ the design's Publishing section writes them, steps 1 to 9, with the
 answers, exits, results, and details it names; the publish grant made,
 remade, and left alone over a person's. `src/cli.ts`: stdin read as
 bytes and refused when not UTF-8, with `denials.stdinNotText`.
-`src/spec.ts`: the four lines, still under three hundred.
+`src/spec.ts`: the four statements, still under three hundred lines by
+the manifest test's count.
 `scripts/walk.mjs`: `--shop hall`, the memory shop, a pass with the
 hall whole and memory at `remember`, `recall`, and `list`, no token;
 `--status` counting the hall's rows by command and detail: validates

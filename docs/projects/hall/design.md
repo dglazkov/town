@@ -352,9 +352,9 @@ is `test`'s answer, staging removed, and the shop already in the town,
 if one was, untouched.
 
 The staging, the checks against dependents, the copy, the move, and the
-naming of grants that stop being live are `shop add`'s today, in
-`src/admin.ts`; this project moves them to `src/publish.ts` with two
-front doors, the operator's from a directory with the operator's tree
+naming of grants that stop being live are `shop add`'s, in
+`src/publish.ts` since the split before hall phase 0; this project gives
+them two front doors, the operator's from a directory with the operator's tree
 and owner none, and the hall's from a bundle with the agent's tree and
 the agent's user as owner. The rule that a shop is copied whole and
 holds only plain files is one code path for both.
@@ -432,7 +432,8 @@ files`, exit 1, from `denials.ts`. The binary still names no shop: the
 guard's forbidden words gain `hall`, `publish`, and `permit`, and the
 line names no command.
 
-The spec gains four lines and stays under three hundred: §2's `runtime`
+The spec says four things more and stays under three hundred lines by
+`test/manifest.test.ts`'s count, which counts one more than `wc -l`: §2's `runtime`
 says `subprocess` is the only value an author writes, §7's stdin says
 text, §8's `depends` says never `town/hall`, and §1 says a shop is text
 files. How a shop reaches the town is the hall's help, not the spec's:

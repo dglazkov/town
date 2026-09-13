@@ -12,8 +12,9 @@
 // own wall, where it has one, the contract holds as it did without.
 
 import { spawnSync } from "node:child_process";
+import { lstatSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -668,6 +669,30 @@ describe("the wall", () => {
     expect(unwalled.env.TOWN_STATE).toBe(stateDir(stateRoot, manifest.name, "same"));
   });
 
+  it.skipIf(!boxWall || !existsLink("/tmp"))(`runs a shop and its state given through the link /tmp under the box's wall, TOWN_STATE the path as given, and a round trip of its state (${needsBox})`, async () => {
+    // Not os.tmpdir(): a directory made under /tmp itself, so every path the runtime is handed goes through the link.
+    const root = await mkdtemp("/tmp/town-runtime-link-");
+    try {
+      const memory = path.join(root, "data", "shops", "town%2Fmemory");
+      const echo = path.join(root, "data", "shops", "test%2Fecho");
+      await cp(path.resolve(import.meta.dirname, "../shops/memory"), memory, { recursive: true });
+      await cp(ECHO, echo, { recursive: true });
+      const linked = path.join(root, "data", "state");
+      const walled = openWall(BOX!, { data: path.join(root, "data") });
+      const remembered = await run(memory, await loadShop(memory), "remember", { key: "notes/a", value: "through the link" }, { user: "u1", stateRoot: linked, wall: walled });
+      expect([remembered.exit, remembered.stderr, remembered.wall]).toEqual([0, "", BOX]);
+      const recalled = await run(memory, await loadShop(memory), "recall", { key: "notes/a" }, { user: "u1", stateRoot: linked, wall: walled });
+      expect([recalled.exit, recalled.stdout, recalled.stderr]).toEqual([0, "through the link\n", ""]);
+      const echoed = await run(echo, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot: linked, wall: walled });
+      expect(echoed.exit, echoed.stderr).toBe(0);
+      const env = (JSON.parse(echoed.stdout) as Echo).env;
+      expect(env.TOWN_STATE).toBe(stateDir(linked, manifest.name, "u1"));
+      expect(env.TOWN_STATE!.startsWith("/tmp/")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(!boxWall)(`kills a sleeping entry at the limit under the box's wall, with nothing left in its group (${needsBox})`, async () => {
     const user = "walled-sleeper";
     const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot, timeoutMs: 1500, wall: boxWall! });
@@ -697,6 +722,15 @@ function refusedAt(url: string): Promise<boolean> {
     });
     req.on("error", (e: NodeJS.ErrnoException) => resolve(e.code === "ECONNREFUSED"));
   });
+}
+
+/** Whether `p` is a symbolic link on this box, as /tmp is on a Mac. */
+function existsLink(p: string): boolean {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 async function realPath(p: string): Promise<string> {

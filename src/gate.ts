@@ -32,7 +32,7 @@ import { noticesFor, type Notice } from "./notices.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
 import { hashToken, type Grant, type Pass, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
-import type { Wall } from "./wall.js";
+import type { Wall, WallKind } from "./wall.js";
 
 export interface CallRequest {
   /** The bearer token; null when the request carried none. */
@@ -131,6 +131,8 @@ export interface Outcome {
   detail: string | null;
   /** Per need, how many requests its teller forwarded; empty when the shop did not run. */
   credentials: Array<{ type: string; requests: number }>;
+  /** The kind of wall the shop's process ran within, from the run's result; null when no process ran. */
+  wall: WallKind | null;
 }
 
 /** SHA-256 of an argv, as the audit keeps it. */
@@ -205,6 +207,7 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     shopStderr: null,
     detail: null,
     credentials: [],
+    wall: null,
   };
 
   // 1. The bearer, or the caller, to a pass and its grants. A shop test's
@@ -318,7 +321,7 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     ...((manifest.depends ?? []).length ? { town: { answer: answerFor(deps, deeper) } } : {}),
     ...(signal ? { signal } : {}),
   });
-  const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr, credentials: r.credentials };
+  const ran: Outcome = { ...atArgs, stdout: r.stdout, shopExit: r.exit, shopStderr: r.stderr, credentials: r.credentials, wall: r.wall };
   if (r.aborted) {
     return { ...ran, error: denials.townFailed(), exit: 1, result: "town-error", detail: "aborted" };
   }

@@ -24,11 +24,13 @@ Gate's, vault's, compose's, and hall's rules still hold, and
 
 ---
 
-**Where we are: wall phase 0 closed, 12 September 2026.** The wall
-around a process stands: `src/wall.ts`, `run` requiring a wall, and
-journey 2 steps 1 to 5 proved through `run` under Seatbelt on this Mac.
-The town still runs every shop with `none`. Next is wall phase 1, the
-town's walls; nothing waits on a person. Two
+**Where we are: wall phase 1 closed, 12 September 2026.** Next is
+wall phase 2, the walk. `townd
+serve` and `admin` wall every shop by the box's Seatbelt unless `--wall
+none` is written, and refuse a box without one; the audit has its
+`wall` column; the `command` ring runs walled; and the exfil test reads
+`EPERM` for the key walled and the key under `none`. The walk is one
+local model session, no token, nothing asked. Two
 facts were measured before the docs were written and shape them: Docker
 Desktop on this box cannot give a container the call's windows, a unix
 socket in a bind mount being refused and a container with no network
@@ -168,7 +170,11 @@ in a tree. `test/publish.test.ts` grown: the prying entry sent as a
 bundle, published, and called, printing journey 2's refusals; a bundle
 whose test reads beside the data directory failing at `test` and at
 `publish`. `test/store.test.ts`: the migration. Every earlier `command`
-test passing unchanged under the wall is the ring's own proof.
+test passing under the wall is the ring's own proof: a shop's behavior
+asserted as before, and only a test's own probe that reached past the
+contract (a marker outside the state, a read of the data directory, a
+connect to the town) moved inside it or turned around, as the exfil
+test is.
 
 **Not this phase:** No real agent. No Linux wall: the box without one
 is reached only through the environment name.
@@ -188,7 +194,38 @@ user, a pass, a grant, a call at `remember` and `recall`, and `audit`
 showing `seatbelt` on both rows; then `townd serve --wall none` and
 the line saying so.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held: 468 tests, both
+rings, typecheck clean; the exfil log said the key was `EPERM` walled
+by seatbelt and `ok` under `--wall none`; the spec 298 lines with §7's
+paragraph; the three mutations failed their lines; by hand, with
+`--data` under `/tmp`, `remember` and `recall` audited `seatbelt`.
+
+**Findings:**
+
+- **2026-09-12 — The phase took about forty-five minutes of wall
+  clock.** The builder went back twice: for nine earlier tests' probes,
+  and for a data directory through a link.
+- **2026-09-12 — Nine earlier `command` tests failed walled, and no
+  shop did.** Each probe reached past the contract (a marker outside
+  the state, a read of the data directory, a connect to the town) and
+  moved inside it or turned around.
+- **2026-09-12 — A data directory under `/tmp` failed every walled
+  shop:** `/tmp` is a link inside a hidden subpath. The ancestors of each
+  path as given are stat'able now; `/var` is a link in no deny.
+- **2026-09-12 — Seatbelt answers `ENOENT` for a missing file under a
+  hidden directory,** so a walled shop learns whether `vault.key` exists.
+- **2026-09-12 — A test line that crashes on `EPERM` prints `got ""`,**
+  its stderr unseen at `shop add` and at the hall; a shop must print
+  the code to be understood.
+- **2026-09-12 — `townd admin` resolves the wall before every verb:** on
+  a box without one, `audit` needs `--wall none` too.
+- **2026-09-12 — The column follows the process, not the result:** a
+  relay whose dependency was denied is `denied` and `seatbelt`.
+- **2026-09-12 — A denied dependency in a publish's tests leaves no
+  trace but the audit's `-`:** the hall's scratch state is deleted and
+  the wall refuses every other write.
+- **2026-09-12 — `test/fixtures/hall-store.sql` is a dump of a store**
+  the binaries made at 4a8e89c, its key a fixture's.
 
 ---
 

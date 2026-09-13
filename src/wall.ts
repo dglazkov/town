@@ -5,7 +5,8 @@
 // /usr/bin/sandbox-exec with a profile made for the one call: the box
 // allowed, then the network, signals, and every write denied, then the
 // home, the temporary directories, the volumes, and the data directory
-// hidden, then each ancestor of an allowed path allowed a stat, and the
+// hidden, then each ancestor of an allowed path allowed a stat, as given
+// and made real, so a path through a link such as /tmp resolves, and the
 // enclosure's paths allowed back by name. Seatbelt's last match wins, so
 // an allow below a deny opens a subpath inside a hidden one. Every path
 // in the profile is absolute and real, since Seatbelt matches the path a
@@ -71,14 +72,16 @@ export function seatbeltProfile(within: Enclosure, data: string | null): string 
   }
   const reads = within.reads.map(realPath);
   const writes = within.writes.map(realPath);
+  // Each allowed path as the runtime was given it, for its ancestors: a link on the way, /tmp to /private/tmp, is looked up by its own name.
+  const given = [...within.reads, ...within.writes].map((p) => path.resolve(p));
   // The operator's home from the password database, not $HOME, which the town's own environment may have moved.
   const home = realPath(os.userInfo().homedir);
   const hidden = [home, "/tmp", "/private/tmp", "/private/var/folders", "/Volumes", ...(data === null ? [] : [data])];
-  for (const p of [...reads, ...writes, ...hidden]) checkPath(p);
+  for (const p of [...reads, ...writes, ...given, ...hidden]) checkPath(p);
   const sub = (p: string) => `(subpath "${p}")`;
 
   const ancestors: string[] = [];
-  for (const p of [...reads, ...writes]) {
+  for (const p of [...reads, ...writes, ...given]) {
     for (let d = path.dirname(p); ; d = path.dirname(d)) {
       if (!ancestors.includes(d)) ancestors.push(d);
       if (path.dirname(d) === d) break;

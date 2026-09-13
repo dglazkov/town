@@ -27,8 +27,8 @@ function loadSqlite(): typeof import("node:sqlite") {
   }
 }
 
-/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3. */
-export const SCHEMA_VERSION = 4;
+/** The schema this code writes to `meta.schema`. Gate's store wrote none; vault's wrote 2; compose's 3; hall's 4. */
+export const SCHEMA_VERSION = 5;
 
 /** The type every store is made with. */
 export const SEEDED_TYPES: ReadonlyArray<Omit<CredentialType, "addedAt">> = [
@@ -166,12 +166,14 @@ export function openDatabase(dataDir: string): Database {
 }
 
 /**
- * Brings an older store to schema 4, a step at a time. From gate's (no
+ * Brings an older store to schema 5, a step at a time. From gate's (no
  * `meta.schema`) to 2: the two tables, the two columns, the seeded type.
  * From vault's 2 to 3: `calls.call_id`, each old row given one, and
  * `calls.parent`, null for every old row. From compose's 3 to 4: the
  * permits table, `shops.owner` and `grants.source`, null for every old
- * row: an operator's shop and an operator's grant. Done under a write
+ * row: an operator's shop and an operator's grant. From hall's 4 to 5:
+ * `calls.wall`, the kind of wall a call's process ran within, null for
+ * every old row, as for a call that ran no process. Done under a write
  * lock, so a second process opening the same file at the same moment
  * finds the work done.
  */
@@ -208,6 +210,10 @@ function migrate(db: Database, dataDir: string, now = Date.now()): void {
       addColumn("shops", "owner", "TEXT");
       addColumn("grants", "source", "TEXT");
       setMeta(db, "schema", "4");
+    }
+    if (version() < 5) {
+      addColumn("calls", "wall", "TEXT");
+      setMeta(db, "schema", "5");
     }
     db.exec("COMMIT");
   } catch (err) {

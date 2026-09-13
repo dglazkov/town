@@ -1,9 +1,12 @@
 // ring: command
 // What command tests share: the built binaries, a town started on a free
 // port over a data directory the test makes and deletes, and the agent's
-// `town` run from a scratch directory with a grant file. Nothing here
-// imports src/: the binaries run dist/, and a dist older than src fails
-// loudly instead of testing yesterday's build.
+// `town` run from a scratch directory with a grant file. `serve` passes no
+// --wall, so on a Mac the whole ring runs within the box's seatbelt; a
+// test that wants the box without a wall sets NO_WALL_ENV in the
+// environment it hands a binary. Nothing here imports src/: the binaries
+// run dist/, and a dist older than src fails loudly instead of testing
+// yesterday's build.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -14,6 +17,9 @@ export const ROOT = path.resolve(import.meta.dirname, "../..");
 export const TOWN = path.join(ROOT, "bin/town.js");
 export const TOWND = path.join(ROOT, "bin/townd.js");
 export const MEMORY = path.join(ROOT, "shops/memory");
+
+/** The environment name by which a test tells townd this box has no wall: src/wall.ts's NO_WALL_ENV, read there alone. */
+export const NO_WALL_ENV = "TOWN_TEST_NO_WALL";
 
 /** Throws when any src/*.ts is newer than its dist/*.js, or dist is missing. */
 export function assertBuilt(): void {
@@ -96,6 +102,10 @@ export function agent(): Agent {
 
 export interface Town {
   url: string;
+  /** The line serve printed first: its address and the wall its shops run within. */
+  line: string;
+  /** The town's process id. */
+  pid: number;
   dataDir: string;
   env: NodeJS.ProcessEnv;
   admin(...args: string[]): Ran;
@@ -104,23 +114,27 @@ export interface Town {
   stop(): Promise<void>;
 }
 
-/** `townd serve --data <dataDir> --port 0`, resolved once it prints its address. */
-export async function serve(dataDir: string): Promise<Town> {
-  const env = cleanEnv(tmp("operator-home"));
-  const child: ChildProcess = spawn(process.execPath, [TOWND, "serve", "--data", dataDir, "--port", "0"], {
+/**
+ * `townd serve --data <dataDir> --port 0`, resolved once it prints its
+ * address. No --wall unless a test names one in `flags`; `env` is added to
+ * the operator's environment, serve's and admin's alike.
+ */
+export async function serve(dataDir: string, opts: { flags?: string[]; env?: Record<string, string> } = {}): Promise<Town> {
+  const env = cleanEnv(tmp("operator-home"), opts.env);
+  const child: ChildProcess = spawn(process.execPath, [TOWND, "serve", "--data", dataDir, "--port", "0", ...(opts.flags ?? [])], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const url = await new Promise<string>((resolve, reject) => {
+  const [line, url] = await new Promise<[string, string]>((resolve, reject) => {
     let out = "";
     let err = "";
     const timer = setTimeout(() => reject(new Error(`townd serve did not start: ${err}`)), 10_000);
     child.stdout!.on("data", (b: Buffer) => {
       out += b.toString("utf8");
-      const m = /town listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+      const m = /^(town listening on (http:\/\/127\.0\.0\.1:\d+)[^\n]*)\n/m.exec(out);
       if (m) {
         clearTimeout(timer);
-        resolve(m[1]!);
+        resolve([m[1]!, m[2]!]);
       }
     });
     child.stderr!.on("data", (b: Buffer) => (err += b.toString("utf8")));
@@ -131,6 +145,8 @@ export async function serve(dataDir: string): Promise<Town> {
   });
   return {
     url,
+    line,
+    pid: child.pid!,
     dataDir,
     env,
     admin: (...args) => townd(["admin", "--data", dataDir, ...args], env),

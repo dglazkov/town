@@ -4,8 +4,9 @@
 // { stdout, stderr, exit }. In json mode stdout is the envelope and
 // stderr is empty. Each call's id is minted before the gate runs, and a
 // shop's own calls, answered at its clerk, are decided and recorded by the
-// same path with their parent's id. Until wall phase 1, every shop runs
-// within the wall `none`, as before the wall existed.
+// same path with their parent's id. Every shop's process runs within the
+// wall of the kind the server is given, hiding its data directory: a kind
+// it must be given, so nothing is served unwalled by omission.
 
 import { existsSync, realpathSync } from "node:fs";
 import http from "node:http";
@@ -16,7 +17,7 @@ import { denials } from "./denials.js";
 import { KEY_MISSING, argvHash, gate, newCallId, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
 import { hashToken, openStore, type Store } from "./store.js";
 import { VaultError, readKey, requireKey } from "./vault.js";
-import { openWall } from "./wall.js";
+import { openWall, type Wall, type WallKind } from "./wall.js";
 
 // The wire is the clerk's too, so it lives in clerk.ts; the server's names for it stay.
 export { BODY_LIMIT_BYTES, respond, type WireResponse };
@@ -61,6 +62,7 @@ export async function decideAndRecord(deps: GateDeps, req: CallRequest, signal?:
     stderr: outcome.shopStderr,
     detail: outcome.detail,
     credentials: outcome.credentials,
+    wall: outcome.wall,
   });
   return outcome;
 }
@@ -86,11 +88,14 @@ function failed(store: Store, req: CallRequest, error: string, result: "town-err
     shopStderr: null,
     detail,
     credentials: [],
+    wall: null,
   };
 }
 
 export interface ServerOptions {
   dataDir: string;
+  /** What encloses every shop's process; required, `none` included, and resolved by the caller before any listen. */
+  wall: WallKind;
   port?: number;
   runtime?: GateDeps["runtime"];
   timeoutMs?: number;
@@ -98,6 +103,8 @@ export interface ServerOptions {
 
 export interface TownServer {
   url: string;
+  /** The kind of wall every shop's process runs within. */
+  wall: WallKind;
   store: Store;
   close(): Promise<void>;
 }
@@ -123,7 +130,14 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
       return store.openCredential(credentialId, key);
     },
   };
-  const deps: GateDeps = { store, vault, wall: openWall("none", { data: store.dataDir }), decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
+  let wall: Wall;
+  try {
+    wall = openWall(opts.wall, { data: store.dataDir });
+  } catch (err) {
+    store.close();
+    throw err;
+  }
+  const deps: GateDeps = { store, vault, wall, decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
 
   const server = http.createServer((req, res) => {
     const send = (status: number, type: string, body: string) => {
@@ -170,6 +184,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
             stderr: null,
             detail: o.detail,
             credentials: [],
+            wall: null,
           });
           wire = respond(o, false);
         }
@@ -190,6 +205,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
 
   return {
     url,
+    wall: wall.kind,
     store,
     close: () =>
       new Promise<void>((resolve) => {

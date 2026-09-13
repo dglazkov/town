@@ -10,8 +10,10 @@
 // src/publish.ts; `grant new`'s checks are src/grants.ts, and `permit
 // approve` makes an agent's proposed grant through them. The hall is the
 // town's own shop: `shop rm` refuses it, as `shop add` refuses its name.
-// `shop test` and `shop add` run the shop's tests within the wall `main`
-// is given.
+// Before any verb, `main` resolves the wall through the chooser it is
+// given, `--wall <kind>` or the box's, and a refusal ends it there; `shop
+// test` and `shop add` run the shop's tests within that wall, hiding the
+// data directory when there is one.
 
 import { rm } from "node:fs/promises";
 import type { CallRow } from "./audit.js";
@@ -37,7 +39,14 @@ export interface Io {
 /** The most `credential add` reads from stdin. */
 export const SECRET_LIMIT_BYTES = 64 * 1024;
 
-const USAGE = `usage: townd admin [--data <dir>] <verb>
+/**
+ * Resolves `--wall <kind>`, or the box's wall when absent, to a way to open
+ * that wall once the data directory is known, or to a refusal's words:
+ * townd's `chooseWall`, or a test's.
+ */
+export type WallChooser = (flag: string | undefined) => { open: (opts: { data?: string }) => Wall } | { refused: string };
+
+const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb>
   user add <name> | user ls
   pass new --user <name> --label <text> [--expires <duration>] | pass ls | pass revoke <id>
   grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>] [--credential <id>]...
@@ -47,7 +56,7 @@ const USAGE = `usage: townd admin [--data <dir>] <verb>
   type add <name> --origin <url> --header '<Name>: <value with {token}>' | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] (the secret on stdin) | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
-durations: <n>d, <n>h, <n>m. --data defaults to $TOWN_DATA.`;
+durations: <n>d, <n>h, <n>m. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
 
 class UsageError extends Error {}
 
@@ -56,7 +65,7 @@ interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call"];
+const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];
@@ -102,7 +111,7 @@ export function parseDuration(text: string): number {
   return Number(m[1]) * unit;
 }
 
-export async function main(argv: readonly string[], io: Io, wall: Wall): Promise<number> {
+export async function main(argv: readonly string[], io: Io, chooseWall: WallChooser): Promise<number> {
   const now = io.now ?? Date.now;
   let p: Parsed;
   try {
@@ -111,21 +120,30 @@ export async function main(argv: readonly string[], io: Io, wall: Wall): Promise
     io.err(`townd admin: ${(err as Error).message}\n${USAGE}\n`);
     return 1;
   }
-  const [noun, verb, ...args] = p.words;
-  if (!noun) return usage(io, "no verb given");
 
+  // The wall first: no verb runs on a box refused one.
+  let chosen: ReturnType<WallChooser>;
   let data: string | undefined;
   try {
+    chosen = chooseWall(one(p, "wall"));
     data = one(p, "data") ?? io.env.TOWN_DATA;
   } catch (err) {
     return usage(io, (err as Error).message);
   }
+  if ("refused" in chosen) {
+    io.err(`townd admin: ${chosen.refused}\n`);
+    return 1;
+  }
+  const { open } = chosen;
+
+  const [noun, verb, ...args] = p.words;
+  if (!noun) return usage(io, "no verb given");
 
   if (noun === "shop" && verb === "test") {
     if (args.length !== 1) return usage(io, "shop test takes one directory");
     if (data === undefined) {
       if (p.opts.has("user")) return usage(io, "shop test --user needs --data <dir>, or $TOWN_DATA, where the user's credentials are");
-      return shopTest(null, args[0]!, picked(p), io, wall);
+      return shopTest(null, args[0]!, picked(p), io, open({}));
     }
   }
   if (!data) return usage(io, "needs --data <dir>, or $TOWN_DATA");
@@ -133,6 +151,13 @@ export async function main(argv: readonly string[], io: Io, wall: Wall): Promise
   let store: Store | null = null;
   try {
     store = openStore(data);
+    let wall: Wall;
+    try {
+      wall = open({ data: store.dataDir });
+    } catch (err) {
+      io.err(`townd admin: ${(err as Error).message}\n`);
+      return 1;
+    }
     const key = requireKey(store.dataDir, store.sealedRows());
     if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p), io, wall);
     return await dispatch(store, key, noun, verb, args, p, io, now(), wall);
@@ -387,7 +412,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
   throw new UsageError(`${key} is not a verb`);
 }
 
-const AUDIT_HEADER = ["at", "pass", "shop", "command", "argv sha256", "result", "exit", "shop exit", "ms", "notices", "credentials", "call", "parent", "detail"];
+const AUDIT_HEADER = ["at", "pass", "shop", "command", "argv sha256", "result", "exit", "shop exit", "ms", "notices", "credentials", "call", "parent", "wall", "detail"];
 
 /** One audit row's cells, in AUDIT_HEADER's order. */
 function auditRow(c: CallRow): string[] {
@@ -405,6 +430,7 @@ function auditRow(c: CallRow): string[] {
     c.credentials.length ? c.credentials.map((x) => `${x.type}:${x.requests}`).join(",") : "-",
     c.callId,
     c.parent ?? "-",
+    c.wall ?? "-",
     c.detail ?? "-",
   ];
 }

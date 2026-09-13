@@ -39,7 +39,7 @@ const SECRET = "wall-test-not-a-token-5b2e90d1";
 describe("the profile", () => {
   const home = () => realpathSync(os.userInfo().homedir);
 
-  it.skipIf(!SEATBELT)(`is the design's text for a given enclosure, every path real, one line per port, ancestor, read, and write (${NEEDS})`, () => {
+  it.skipIf(!SEATBELT)(`is the design's text for a given enclosure, every path real, one line per port, ancestor (of the path as given and as real), read, and write (${NEEDS})`, () => {
     const within: Enclosure = { reads: ["/tmp/town-wall-profile/shop"], writes: ["/tmp/town-wall-profile/state/x"], ports: [4100, 4101] };
     const walled = openWall("seatbelt", { data: "/tmp/town-wall-profile" }).enclose("/usr/bin/true", ["one", "two words"], within);
     expect(walled.file).toBe(SANDBOX_EXEC);
@@ -65,6 +65,10 @@ describe("the profile", () => {
         '(allow file-read-metadata (literal "/private"))',
         '(allow file-read-metadata (literal "/"))',
         '(allow file-read-metadata (literal "/private/tmp/town-wall-profile/state"))',
+        // The ancestors of each path as given, through the link /tmp, so its lookup by that name resolves within the wall.
+        '(allow file-read-metadata (literal "/tmp/town-wall-profile"))',
+        '(allow file-read-metadata (literal "/tmp"))',
+        '(allow file-read-metadata (literal "/tmp/town-wall-profile/state"))',
         '(allow file-read* (subpath "/private/tmp/town-wall-profile/shop"))',
         '(allow file-read* file-write* (subpath "/private/tmp/town-wall-profile/state/x"))',
         "",

@@ -124,6 +124,6 @@ describe("the missing key", () => {
   it("stops townd serve from starting", async () => {
     storeWithOneCredential();
     unlinkSync(keyPath(dir));
-    await expect(startServer({ dataDir: dir, port: 0 })).rejects.toThrow(/vault\.key is missing, and the credentials table has 1 row/);
+    await expect(startServer({ dataDir: dir, port: 0, wall: "none" })).rejects.toThrow(/vault\.key is missing, and the credentials table has 1 row/);
   });
 });

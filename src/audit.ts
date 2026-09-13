@@ -3,6 +3,7 @@
 // `audit` verb makes of it. The store's methods of these names call here.
 
 import { nullableNumber, type Store } from "./store.js";
+import type { WallKind } from "./wall.js";
 
 export type ResultClass = "ok" | "denied" | "invalid-pass" | "usage" | "shop-error" | "timeout" | "town-error";
 
@@ -30,6 +31,8 @@ export interface CallRecord {
   detail: string | null;
   /** Per need the call's tellers served, how many requests each forwarded; empty when the shop did not run. */
   credentials: Array<{ type: string; requests: number }>;
+  /** The kind of wall the call's process ran within; null when no process ran: denied, refused, the hall's own, or a row made before wall. */
+  wall: WallKind | null;
 }
 
 export interface CallRow extends CallRecord {
@@ -46,8 +49,8 @@ type Row = Record<string, unknown>;
 export function recordCall(store: Store, c: CallRecord): number {
   const r = store.db
     .prepare(
-      `INSERT INTO calls (call_id, parent, at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO calls (call_id, parent, at, pass_id, grant_id, shop, command, argv_hash, result, exit, shop_exit, latency_ms, notices, stderr, detail, credentials, wall)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       c.callId,
@@ -66,6 +69,7 @@ export function recordCall(store: Store, c: CallRecord): number {
       c.stderr,
       c.detail,
       JSON.stringify(c.credentials.map((x) => ({ type: x.type, requests: x.requests }))),
+      c.wall,
     );
   return Number(r.lastInsertRowid);
 }
@@ -127,5 +131,6 @@ function toCall(r: Row): CallRow {
     stderr: r.stderr === null ? null : String(r.stderr),
     detail: r.detail === null ? null : String(r.detail),
     credentials: JSON.parse(String(r.credentials ?? "[]")) as Array<{ type: string; requests: number }>,
+    wall: r.wall === null || r.wall === undefined ? null : (String(r.wall) as WallKind),
   };
 }

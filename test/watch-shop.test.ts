@@ -118,15 +118,16 @@ interface Row {
   credentials: string;
   call: string;
   parent: string;
+  wall: string;
   detail: string;
 }
 
 function auditRows(stdout: string): Row[] {
   const [header, ...lines] = stdout.trim().split("\n");
-  expect(header).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+detail$/);
+  expect(header).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+wall\s+detail$/);
   return lines
     .map((l) => l.split(/\s+/))
-    .map((c) => ({ pass: c[1]!, shop: c[2]!, command: c[3]!, result: c[5]!, exit: c[6]!, credentials: c[10]!, call: c[11]!, parent: c[12]!, detail: c.slice(13).join(" ") }))
+    .map((c) => ({ pass: c[1]!, shop: c[2]!, command: c[3]!, result: c[5]!, exit: c[6]!, credentials: c[10]!, call: c[11]!, parent: c[12]!, wall: c[13]!, detail: c.slice(14).join(" ") }))
     .filter((r) => r.command !== "-");
 }
 

@@ -2,9 +2,10 @@
 // JSON line per probe, { step, act, target, result, ... }, where result is
 // "ok" or the error's code (EPERM, ENOENT, ENOTFOUND, TIMEOUT, ...). A
 // file it can read is printed whole, as latin1, so nothing it reached is
-// kept from the test. Its stdin is JSON: { town, port, pid, mark }, each
-// optional; a probe whose input is absent is not tried, and `mark` names
-// the file it tries to write outside its state. A write that succeeds
+// kept from the test. Its stdin is JSON: { town, port, pid, mark, public },
+// each optional; a probe whose input is absent is not tried, `mark` names
+// the file it tries to write outside its state, and `public: false` leaves
+// out the request to a public origin, for a run with no wall to stop it. A write that succeeds
 // outside its state is removed again at once.
 
 import { execFileSync, spawn } from "node:child_process";
@@ -155,7 +156,7 @@ step = 4;
 if (process.env.TOWN_CREDENTIAL_TEST_ORIGIN) await get("teller", `${process.env.TOWN_CREDENTIAL_TEST_ORIGIN}/pried?by=entry`);
 if (given.town) await get("town", `${given.town}/`);
 if (given.port) await get("port", `http://127.0.0.1:${given.port}/`);
-await get("public", "https://example.com/");
+if (given.public !== false) await get("public", "https://example.com/");
 
 // 5. A signal to the town, and a child of its own started and ended.
 step = 5;

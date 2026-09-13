@@ -69,16 +69,17 @@ interface AuditRow {
   credentials: string;
   call: string;
   parent: string;
+  wall: string;
   detail: string;
 }
 
 /** `townd admin audit`'s rows, by column; the detail is the rest of the line. */
 function auditRows(stdout: string): AuditRow[] {
   const [header, ...lines] = stdout.trim().split("\n");
-  expect(header).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+detail$/);
+  expect(header).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+wall\s+detail$/);
   return lines.map((l) => {
     const c = l.split(/\s+/);
-    return { pass: c[1]!, shop: c[2]!, command: c[3]!, result: c[5]!, exit: c[6]!, shopExit: c[7]!, credentials: c[10]!, call: c[11]!, parent: c[12]!, detail: c.slice(13).join(" ") };
+    return { pass: c[1]!, shop: c[2]!, command: c[3]!, result: c[5]!, exit: c[6]!, shopExit: c[7]!, credentials: c[10]!, call: c[11]!, parent: c[12]!, wall: c[13]!, detail: c.slice(14).join(" ") };
   });
 }
 
@@ -219,7 +220,7 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
   const tree = admin("audit", "--call", outer.call);
   expect(tree.exit, tree.stderr).toBe(0);
   const treeLines = tree.stdout.trimEnd().split("\n");
-  expect(treeLines[0]).toMatch(/^call\s+at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+parent\s+detail$/);
+  expect(treeLines[0]).toMatch(/^call\s+at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+parent\s+wall\s+detail$/);
   expect(treeLines.slice(1).map((l) => /^( *)(call_[0-9a-f]{16})\s+\S+\s+\S+\s+(\S+)\s+(\S+)/.exec(l)!.slice(1))).toEqual([
     ["", outer.call, "test/pair", "mark"],
     ["  ", inner[0]!.call, "test/teller", "get"],
@@ -278,7 +279,7 @@ it("walks journey 2 steps 1 to 7: shop add, shop ls, grant new, liveness, the au
     ["forget", "denied", "-", "command"],
   ]);
   for (const r of oldRows) expect(r.call).toMatch(/^call_[0-9a-f]{16}$/);
-  expect(dbColumn(vaultData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "4" }]);
+  expect(dbColumn(vaultData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "5" }]);
   // And it is a working town: memory added again, a new pass, a call, a new row after the old.
   addShop(vaultTown, MEMORY);
   const vaultPass = vaultTown.admin("pass", "new", "--user", "dimitri", "--label", "after the migration");

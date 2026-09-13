@@ -7,10 +7,14 @@
 // 1 to 7 and its criteria; journey 2 steps 1 to 6 with a copy of a
 // compose-era store; journey 3 steps 1 to 8 with a fixture that prints
 // everything it can reach and a dependency that counts its own runs; and
-// the sources of every grant after each. No token and no network.
+// the sources of every grant after each. And wall's journey 2 step 7: the
+// prying fixture sent as a bundle, tested and published within the wall,
+// and called, printing journey 2's refusals, and a bundle whose test reads
+// beside the data directory failing at test and at publish; the audit's
+// wall column on a publish's tree. No token and no network.
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -66,18 +70,20 @@ interface AuditRow {
   command: string;
   result: string;
   exit: string;
+  shopExit: string;
   call: string;
   parent: string;
+  wall: string;
   detail: string;
 }
 
 /** `townd admin audit`'s rows, by column; the detail is the rest of the line. */
 function auditRows(stdout: string): AuditRow[] {
   const [header, ...lines] = stdout.trim().split("\n");
-  expect(header).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+detail$/);
+  expect(header).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+wall\s+detail$/);
   return lines.map((l) => {
     const c = l.split(/\s+/);
-    return { pass: c[1]!, shop: c[2]!, command: c[3]!, result: c[5]!, exit: c[6]!, call: c[11]!, parent: c[12]!, detail: c.slice(13).join(" ") };
+    return { pass: c[1]!, shop: c[2]!, command: c[3]!, result: c[5]!, exit: c[6]!, shopExit: c[7]!, call: c[11]!, parent: c[12]!, wall: c[13]!, detail: c.slice(14).join(" ") };
   });
 }
 
@@ -331,10 +337,12 @@ it("walks journey 1 steps 1 to 7: help, search and show, spec, validate, test, p
   const all = auditRows(town.admin("audit").stdout);
   for (const hallCall of rows.filter((r) => ["test", "publish"].includes(r.command))) {
     const inner = all.filter((r) => r.parent === hallCall.call);
-    expect(inner.map((r) => [r.pass, r.shop, r.command, r.result])).toEqual([
-      [passId, "town/memory", "remember", "ok"],
-      [passId, "town/memory", "list", "ok"],
+    expect(inner.map((r) => [r.pass, r.shop, r.command, r.result, r.wall])).toEqual([
+      [passId, "town/memory", "remember", "ok", "seatbelt"],
+      [passId, "town/memory", "list", "ok", "seatbelt"],
     ]);
+    // The hall's own row ran no process of a shop's.
+    expect(hallCall.wall).toBe("-");
   }
   expectSourcesPersonOrPublish(data);
   expect(stagings(data)).toEqual([]);
@@ -360,11 +368,12 @@ it("walks journey 2 steps 1 to 6: the hall at the box, a narrow hall grant, perm
   expect(rowOf(composeShops, "town/memory")).toMatch(/^town\/memory\s+0\.1\.0\s+-\s/);
   expect(db(composeData, "SELECT * FROM users")).toEqual(before.users);
   expect(db(composeData, "SELECT * FROM passes")).toEqual(before.passes);
-  expect(db(composeData, "SELECT * FROM calls")).toEqual(before.calls);
+  // Wall's column on every old row, null: printed as -, a row made before any process was walled.
+  expect(db(composeData, "SELECT * FROM calls")).toEqual(before.calls.map((r) => ({ ...r, wall: null })));
   expect(db(composeData, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'permits'")).toEqual([{ name: "permits" }]);
   expect(db(composeData, "SELECT name FROM pragma_table_info('shops') WHERE name = 'owner'")).toEqual([{ name: "owner" }]);
   expect(db(composeData, "SELECT name FROM pragma_table_info('grants') WHERE name = 'source'")).toEqual([{ name: "source" }]);
-  expect(db(composeData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "4" }]);
+  expect(db(composeData, "SELECT value FROM meta WHERE key = 'schema'")).toEqual([{ value: "5" }]);
   expect(composeTown.admin("grant", "ls").stdout).toMatch(/^grant_[0-9a-f]{16}\s+pass_e4dca651fb4453dc\s+town\/memory\s+\S+\s+-\s/m);
   await composeTown.stop();
 
@@ -509,12 +518,10 @@ it("walks journey 3 steps 1 to 8: the hall is a shop, and never more than the ag
   mkdirSync(count);
   writeFileSync(
     path.join(count, "manifest.yaml"),
-    "name: test/count\nversion: 0.0.1\nsummary: Keeps a tally in its own directory, for the hall's tests.\nruntime: subprocess\nentry: ./main.mjs\ncommands:\n  - name: tick\n    summary: Add a line to the tally.\n    effect: write\n    args:\n      - { name: tag, type: string, required: true, constrainable: [prefix] }\n    output: text\ntests:\n  - name: it counts\n    run: tick --tag mine/a\n    expect: { contains: ticked }\n",
+    "name: test/count\nversion: 0.0.1\nsummary: Keeps a tally in its state, for the hall's tests.\nruntime: subprocess\nentry: ./main.mjs\ncommands:\n  - name: tick\n    summary: Add a line to the tally.\n    effect: write\n    args:\n      - { name: tag, type: string, required: true, constrainable: [prefix] }\n    output: text\ntests:\n  - name: it counts\n    run: tick --tag mine/a\n    expect: { contains: ticked }\n",
   );
-  writeFileSync(path.join(count, "main.mjs"), 'import { appendFileSync } from "node:fs";\nappendFileSync(new URL("./runs.log", import.meta.url), "tick\\n");\nprocess.stdout.write("ticked\\n");\n');
+  writeFileSync(path.join(count, "main.mjs"), 'import { appendFileSync } from "node:fs";\nimport path from "node:path";\nappendFileSync(path.join(process.env.TOWN_STATE, "runs.log"), "tick\\n");\nprocess.stdout.write("ticked\\n");\n');
   expect(admin("shop", "add", count).exit).toBe(0);
-  const runsLog = path.join(data, "shops", "test%2Fcount", "runs.log");
-  const runs = () => (existsSync(runsLog) ? readFileSync(runsLog, "utf8").split("\n").filter(Boolean).length : 0);
   const ticker = TODO_MANIFEST.replace("name: dimitri/todo", "name: dimitri/ticker")
     .replace("shop: town/memory\n    commands: [remember, list]", "shop: test/count\n    commands: [tick]")
     .replace(/commands:\n  - name: add[\s\S]*?(?=tests:)/, "commands:\n  - name: go\n    summary: Tick once, under a tag of someone else's.\n    effect: write\n    output: text\n")
@@ -529,13 +536,12 @@ it("walks journey 3 steps 1 to 8: the hall is a shop, and never more than the ag
   const listOnly = admin("grant", "new", "--pass", passId, "--shop", "town/memory", "--commands", "remember,list").stdout.trim();
   writeShop(a, "lacking", lacking, TODO_ENTRY);
   expect(sendTar(a, "lacking", "validate").stdout).toBe("depends[0]: this grant's town/memory lacks recall, which dimitri/todo calls; ask for it\n");
-  const ranBefore = runs();
   const constrained = sendTar(a, "ticker", "publish");
   expect(constrained).toEqual({ stdout: 'not ok it goes: expected stdout to contain "ticked", got "": error: --tag must start with \'mine/\' under this grant\n', stderr: "", exit: 1 });
-  expect(runs(), "the dependency ran a process for a denied call").toBe(ranBefore);
   const tickerCall = auditRows(admin("audit", "--shop", "town/hall").stdout).at(-1)!;
   expect(tickerCall).toMatchObject({ command: "publish", result: "shop-error", detail: "tests 0/1" });
-  expect(auditRows(admin("audit", "--pass", passId).stdout).filter((r) => r.parent === tickerCall.call).map((r) => [r.shop, r.command, r.result, r.detail])).toEqual([["test/count", "tick", "denied", "constraint tick.tag prefix"]]);
+  // The dependency ran no process for the denied call. Its tally is in the test's scratch state, which the hall deletes, so the audit is the witness here: no shop exit, no wall.
+  expect(auditRows(admin("audit", "--pass", passId).stdout).filter((r) => r.parent === tickerCall.call).map((r) => [r.shop, r.command, r.result, r.shopExit, r.wall, r.detail])).toEqual([["test/count", "tick", "denied", "-", "-", "constraint tick.tag prefix"]]);
   expect(admin("shop", "ls").stdout).not.toContain("dimitri/ticker");
 
   // Step 4: a bundle holding a .., an absolute path, a link, a pax or GNU header, or no manifest at its root, refused naming the tar command; no staging after any.
@@ -673,3 +679,88 @@ process.stdout.write(JSON.stringify({ env: process.env, argv: process.argv.slice
   expectSourcesPersonOrPublish(data);
   expect(stagings(data)).toEqual([]);
 }, 240_000);
+
+it("walks wall's journey 2 step 7: a prying shop sent as a bundle runs its tests and its calls within the wall, and a test that reads beside the data directory fails at test and at publish", async () => {
+  const root = tmp("hall-wall");
+  made.push(root);
+  const { town, data, a, passId } = await hallTown(root);
+  expect(town.line).toBe(`town listening on ${town.url}, shops walled by seatbelt`);
+  const listener = await originProcess();
+  try {
+    // The prying fixture as the agent would send it: its own name, and no credential, which a sent shop may not hold.
+    const prying = readFileSync(path.join(ROOT, "test/fixtures/prying/manifest.yaml"), "utf8").replace("name: test/prying", "name: dimitri/prying").replace("credentials:\n  - type: test-origin\n", "");
+    writeShop(a, "prying", prying, readFileSync(path.join(ROOT, "test/fixtures/prying/main.mjs"), "utf8"));
+    expect(sendTar(a, "prying", "test")).toEqual({ stdout: "ok it reports\n", stderr: "", exit: 0 });
+    expect(sendTar(a, "prying", "publish")).toEqual({ stdout: "ok it reports\npublished dimitri/prying 0.0.1; town prying --help says what it does\n", stderr: "", exit: 0 });
+
+    // A sealed credential of dimitri's, so the vault's key is on disk to be refused: a missing file under a hidden directory is ENOENT, not EPERM.
+    expect(town.adminPiped("hall-wall-not-a-token\n", "credential", "add", "--user", "dimitri", "--type", "github-token").exit).toBe(0);
+    expect(existsSync(path.join(data, "vault.key"))).toBe(true);
+    const mark = `town-hall-prying-${process.pid}.txt`;
+    const input = JSON.stringify({ town: town.url, port: Number(new URL(listener.url).port), pid: town.pid, mark });
+    const called = typed(a, `printf %s '${input}' | town prying pry`);
+    expect([called.exit, called.stderr]).toEqual([0, ""]);
+    const lines = called.stdout.trim().split("\n").map((l) => JSON.parse(l) as { act: string; target: string; result: string; path?: string });
+    const result = (act: string, target: string) => lines.find((l) => l.act === act && l.target === target)?.result ?? `no ${act} of ${target}`;
+    const d = realpathSync(data);
+    const shop = path.join(d, "shops", "dimitri%2Fprying");
+    const home = os.userInfo().homedir;
+    expect(lines.find((l) => l.act === "computed" && l.target === "data")?.path).toBe(d);
+    const refusals = Object.fromEntries(
+      [
+        ["read", path.join(shop, "main.mjs")],
+        ["write", path.join(shop, "beside-the-entry.txt")],
+        ["read", path.join(d, "vault.key")],
+        ["read", path.join(d, "town.db")],
+        ["list", d],
+        ["list", path.join(d, "shops")],
+        ["list", path.join(d, "shops", "town%2Fmemory")],
+        ["list", home],
+        ["list", "/tmp"],
+        ["read", "/etc/hosts"],
+        ["write", path.join("/Users/Shared", mark)],
+        ["connect", "town"],
+        ["connect", "port"],
+        ["kill-0", "town"],
+        ["child", "/bin/sleep"],
+      ].map(([act, target]) => [`${act} ${target}`, result(act!, target!)]),
+    );
+    expect(refusals).toEqual({
+      [`read ${path.join(shop, "main.mjs")}`]: "ok",
+      [`write ${path.join(shop, "beside-the-entry.txt")}`]: "EPERM",
+      [`read ${path.join(d, "vault.key")}`]: "EPERM",
+      [`read ${path.join(d, "town.db")}`]: "EPERM",
+      [`list ${d}`]: "EPERM",
+      [`list ${path.join(d, "shops")}`]: "EPERM",
+      [`list ${path.join(d, "shops", "town%2Fmemory")}`]: "EPERM",
+      [`list ${home}`]: "EPERM",
+      ["list /tmp"]: "EPERM",
+      ["read /etc/hosts"]: "ok",
+      [`write ${path.join("/Users/Shared", mark)}`]: "EPERM",
+      ["connect town"]: "EPERM",
+      ["connect port"]: "EPERM",
+      ["kill-0 town"]: "EPERM",
+      ["child /bin/sleep"]: "ok",
+    });
+    expect(["EPERM", "ENOTFOUND"]).toContain(result("connect", "public"));
+    expect(lines.filter((l) => l.act === "write" && l.result === "ok").map((l) => path.basename(l.target))).toEqual(["pried.txt"]);
+    expect(listener.seen()).toEqual([]);
+    expect(existsSync(path.join("/Users/Shared", mark))).toBe(false);
+    const rows = auditRows(town.admin("audit", "--pass", passId).stdout);
+    expect(rows.filter((r) => r.shop === "dimitri/prying").map((r) => [r.command, r.result, r.wall])).toEqual([["pry", "ok", "seatbelt"]]);
+    expect(rows.filter((r) => r.shop === "town/hall").map((r) => [r.command, r.wall])).toEqual([["test", "-"], ["publish", "-"]]);
+
+    // A test that reads beside the data directory fails at test and at publish, the entry's EPERM on its line; nothing is published.
+    writeFileSync(path.join(root, "the-operators-note.txt"), "the operator's note\n");
+    const beside = "name: dimitri/beside\nversion: 0.0.1\nsummary: Reads a file beside the data directory.\nruntime: subprocess\nentry: ./main.mjs\ncommands:\n  - name: peek\n    summary: Print the note beside the data directory, or the error's code.\n    effect: read\n    output: text\ntests:\n  - name: reads the note beside the data directory\n    run: peek\n    expect: { contains: \"the operator's note\" }\n";
+    const peek = 'import { readFileSync } from "node:fs";\nimport path from "node:path";\nconst data = path.dirname(path.dirname(import.meta.dirname));\ntry { process.stdout.write(readFileSync(path.join(path.dirname(data), "the-operators-note.txt"), "utf8")); } catch (e) { process.stdout.write(`${e.code}\\n`); }\n';
+    writeShop(a, "beside", beside, peek);
+    const failed = 'not ok reads the note beside the data directory: expected stdout to contain "the operator\'s note", got "EPERM\\n"\n';
+    expect(sendTar(a, "beside", "test")).toEqual({ stdout: failed, stderr: "", exit: 1 });
+    expect(sendTar(a, "beside", "publish")).toEqual({ stdout: failed, stderr: "", exit: 1 });
+    expect(town.admin("shop", "ls").stdout).not.toContain("dimitri/beside");
+    expect(stagings(data)).toEqual([]);
+  } finally {
+    await listener.stop();
+  }
+}, 120_000);

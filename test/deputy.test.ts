@@ -3,17 +3,21 @@
 // more than its caller. After `shop add`, the recipe test/pair's entry under
 // the data directory is swapped for one that does what its --path says: print
 // its environment, argv, stdin, its grant file, its call directory, and every
-// file it can read under TOWN_STATE and the data directory; send its call
-// token to the town's own port; call a command it did not declare, a shop it
-// did not declare, and a value outside the agent's constraint; or start a
-// call and hang. The agent's token is in none of what it reads, the call
-// token is an invalid pass at the town and refused at the socket after, each
+// file it can read under TOWN_STATE and the data directory; hand its call
+// token to the test through its state and try the town's own port; call a
+// command it did not declare, a shop it did not declare, and a value outside
+// the agent's constraint; or start a call and hang. Walled, it reads nothing
+// under the data directory but its own shop's files, and the agent's token is
+// in none of what it reads nor in any file there, as the test walks it; the
+// call token, posted by the test while the call is held open, is an invalid
+// pass at the town, the entry's own connect to the town is refused, and the
+// token is refused at the socket after, each
 // reach past the caller is exit 2 with nothing sent to the fake origin and no
 // dependency process, a depth-two tree is cut from the agent's own grants,
 // and a tree cut by the outer call's limit leaves no process, counted by pid.
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ROOT, TOWN, agent, assertBuilt, cleanEnv, cleanup, originProcess, serve, tmp, type Agent, type OriginProcess, type Ran, type Town } from "./helpers/town.js";
@@ -65,8 +69,8 @@ const grantFile = process.env.TOWN_GRANT;
 const grant = JSON.parse(readFileSync(grantFile, "utf8"));
 
 if (probe === "/dump") {
-  let data = process.cwd();
-  while (!existsSync(path.join(data, "town.db")) && path.dirname(data) !== data) data = path.dirname(data);
+  // The data directory, computed from its own: <data>/shops/<shop>. A walk up by town.db would not find it, since the wall refuses its stat.
+  const data = path.dirname(path.dirname(process.cwd()));
   const callDir = path.dirname(grantFile);
   process.stdout.write(JSON.stringify({
     env: { ...process.env },
@@ -80,8 +84,17 @@ if (probe === "/dump") {
     data: walk(data),
   }));
 } else if (probe === "/token-at-town") {
-  const res = await fetch(stdin + "/call", { method: "POST", headers: { authorization: "Bearer " + grant.token, "content-type": "application/json" }, body: JSON.stringify({ argv: ["--help"] }) });
-  process.stdout.write(JSON.stringify(await res.json()));
+  // The call token handed to the test through the state; the town's own address, from stdin, tried from inside; then held open until the test says go.
+  writeFileSync(path.join(process.env.TOWN_STATE, "call-token"), grant.token);
+  const connect = await fetch(stdin + "/").then((r) => "answered " + r.status, (e) => e.cause?.code ?? e.message);
+  const go = path.join(process.env.TOWN_STATE, "go");
+  for (const end = Date.now() + 10000; !existsSync(go); await new Promise((r) => setTimeout(r, 50))) {
+    if (Date.now() > end) {
+      process.stderr.write("the test never said go\\n");
+      process.exit(1);
+    }
+  }
+  process.stdout.write(JSON.stringify({ connect }));
 } else if (probe === "/keep") {
   process.stdout.write(JSON.stringify({ grantFile, grant }));
 } else if (probe === "/help") {
@@ -165,12 +178,12 @@ function lastRows(n: number): string[][] {
   const lines = town.admin("audit").stdout.trim().split("\n").slice(1).slice(-n);
   return lines.map((l) => {
     const c = l.split(/\s+/);
-    return [c[2]!, c[3]!, c[5]!, c[7]!, c[11]!, c[12]!, c.slice(13).join(" ")];
+    return [c[2]!, c[3]!, c[5]!, c[7]!, c[11]!, c[12]!, c.slice(14).join(" ")];
   });
 }
 
 describe("step 8: the agent's token reaches no shop", () => {
-  it("is in none of the entry's environment, argv, stdin, grant file, call directory, state, or anything it reads under the data directory", () => {
+  it("is in none of the entry's environment, argv, stdin, grant file, call directory, or state; the entry reads nothing under the data directory but its own shop's files, and the token is in no file there", () => {
     const r = spawnSync("/bin/sh", ["-c", 'printf %s "$TOWN_TEST_INPUT" | "$0" "$@"', process.execPath, TOWN, "pair", "mark", "--path", "/dump"], {
       cwd: a.dir,
       env: { ...cleanEnv(a.home), TOWN_TEST_INPUT: "the agent's stdin" },
@@ -213,10 +226,18 @@ describe("step 8: the agent's token reaches no shop", () => {
     for (const [label, text] of [["env", JSON.stringify(dump.env)], ["argv", JSON.stringify(dump.argv)], ["stdin", dump.stdin], ["grant file", dump.grant], ["call directory", JSON.stringify(dump.callDir)], ["state", JSON.stringify(dump.state)]] as const) {
       expect(Buffer.from(text, "latin1").includes(needle), label).toBe(false);
     }
+    // Walled, what it read under the data directory is its own shop's files at most: not the database, not the key.
+    expect(dump.dataDir).toBe(realpathSync(data));
     const names = Object.keys(dump.data).map((f) => path.relative(dump.dataDir, f));
-    expect(names).toContain("town.db");
-    expect(names).toContain(path.join("shops", "test%2Fpair", "main.mjs"));
+    expect(names).not.toContain("town.db");
+    expect(names).not.toContain("vault.key");
+    for (const name of names) expect(name.startsWith(path.join("shops", "test%2Fpair") + path.sep), name).toBe(true);
     for (const [file, bytes] of Object.entries(dump.data)) expect(Buffer.from(bytes, "latin1").includes(needle), file).toBe(false);
+    // The test, unwalled, walks the data directory itself: the agent's token is in no file there.
+    for (const e of readdirSync(data, { recursive: true, withFileTypes: true }).filter((x) => x.isFile())) {
+      const file = path.join(e.parentPath, e.name);
+      expect(readFileSync(file).includes(needle), file).toBe(false);
+    }
 
     // After the call: the call directory is gone, and the call's token opens nothing.
     expect(existsSync(path.dirname(dump.grantFile))).toBe(false);
@@ -235,10 +256,37 @@ async function refusedAfter(grant: { town: string; token: string }): Promise<voi
 }
 
 describe("step 5: the call's token is good at its clerk alone, for its call alone", () => {
-  it("is an invalid pass at the town's own port, exit 3, during the call", () => {
-    const r = a.townPiped(town.url, "pair", "mark", "--path", "/token-at-town");
-    expect(r.exit, r.stderr).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual({ stdout: "", stderr: "error: this pass is not valid: its token is unknown, revoked, or expired\n", exit: 3 });
+  it("is an invalid pass at the town's own port while its call is held open, posted by the test; the entry's own connect to the town is refused", async () => {
+    const state = path.join(data, "state", "test%2Fpair", userId);
+    rmSync(path.join(state, "call-token"), { force: true });
+    rmSync(path.join(state, "go"), { force: true });
+    const call = spawn("/bin/sh", ["-c", 'printf %s "$TOWN_TEST_INPUT" | "$0" "$@"', process.execPath, TOWN, "pair", "mark", "--path", "/token-at-town"], {
+      cwd: a.dir,
+      env: { ...cleanEnv(a.home), TOWN_TEST_INPUT: town.url },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    call.stdout!.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+    call.stderr!.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+    const exited = new Promise<number>((resolve) => call.on("exit", (code) => resolve(code ?? -1)));
+    try {
+      const tokenFile = path.join(state, "call-token");
+      for (const end = Date.now() + 15_000; !existsSync(tokenFile); await new Promise((r) => setTimeout(r, 50))) {
+        if (Date.now() > end) throw new Error(`the entry never wrote its call token: ${stderr}`);
+      }
+      // Held open: the call has no row yet, and its token, posted by the test, is not a pass.
+      const token = readFileSync(tokenFile, "utf8");
+      expect(token).not.toBe(passToken);
+      const atTown = await fetch(`${town.url}/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ argv: ["--help"] }) });
+      expect(await atTown.json()).toEqual({ stdout: "", stderr: "error: this pass is not valid: its token is unknown, revoked, or expired\n", exit: 3 });
+      expect(call.exitCode).toBeNull();
+      writeFileSync(path.join(state, "go"), "go\n");
+      expect([await exited, stderr]).toEqual([0, ""]);
+    } finally {
+      if (call.exitCode === null) call.kill("SIGKILL");
+    }
+    expect(JSON.parse(stdout)).toEqual({ connect: "EPERM" });
     expect(lastRows(2).map((x) => [x[0], x[1], x[2], x[6]])).toEqual([
       ["test/pair", "mark", "ok", "-"],
       ["-", "-", "invalid-pass", "unknown"],

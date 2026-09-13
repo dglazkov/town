@@ -1,6 +1,6 @@
 # Wall — the design
 
-**12 September 2026.** Wall phase 0 closed. The project's status lives
+**12 September 2026.** Wall phases 0 and 1 closed. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §13 in
@@ -170,7 +170,12 @@ back by name. Each directory above a read or a write may be stat'ed,
 not listed or read: Node finds its entry by `realpath`, which `lstat`s
 every ancestor, and under the deny alone an entry anywhere below the
 home or `/tmp` fails to start, `EPERM` on the ancestor, measured before
-wall phase 0 began. Every path in the profile is absolute and real
+wall phase 0 began. The ancestors are those of each path as the runtime
+was given it as well as of its real path, so a path through a link,
+`--data /tmp/town-data` with `/tmp` a link to `/private/tmp`, resolves
+within the wall; measured in wall phase 1, where a memory shop added to
+such a data directory failed every test until the link could be
+stat'ed. Every path in the profile is absolute and real
 (`realpath`), since Seatbelt matches the path a process opens, and
 `/tmp` on this box is `/private/tmp`. A path or a port that would break
 the profile's text, a quote or a newline, is refused before any process

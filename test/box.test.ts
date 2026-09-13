@@ -1,13 +1,24 @@
 // ring: command
-// Journey 2, the operator's box, steps 1 to 7 as one walk against a
+// Wall's journey 1, the operator's box has walls, steps 1 to 3: serve with
+// no flag names the box's seatbelt and --wall none names none; a box
+// without a wall, told so through the environment name the test alone
+// sets, refuses serve and admin before any listen or verb in the design's
+// words; shop add fails a test that reads beside the data directory,
+// EPERM on its line, and passes it under --wall none; the audit's wall
+// column in the table and in a tree, seatbelt where a process ran and -
+// where none did; a store hall made printing - on every row; and a data
+// directory given through the link /tmp, as AGENTS.md writes it. Then
+// gate's journey 2, the operator's box, steps 1 to 7 as one walk against a
 // town on a free port with a data directory made and deleted here; the
 // agent's calls of journey 1 inside step 5; and journey 4 step 5, the
 // same shop added to a second town and working there unchanged.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { MEMORY, agent, assertBuilt, cleanup, cleanEnv, serve, tmp, townd, type Agent, type Ran, type Town } from "./helpers/town.js";
+import { MEMORY, NO_WALL_ENV, ROOT, agent, assertBuilt, cleanup, cleanEnv, serve, tmp, townd, type Agent, type Ran, type Town } from "./helpers/town.js";
 
 const made: string[] = [];
 const towns: Town[] = [];
@@ -42,6 +53,171 @@ function allBytes(dir: string): Buffer {
   walk(dir);
   return Buffer.concat(parts);
 }
+
+const NO_WALL = "this box has no wall; a shop would run with the box's authority. Write --wall none to run it anyway.";
+
+/** The audit's rows as [shop, command, result, wall], the table's or a tree's, read under its header. */
+function walls(table: string): string[][] {
+  const [header, ...rows] = table.trimEnd().split("\n");
+  const names = header!.split(/\s{2,}/);
+  expect(names).toContain("wall");
+  return rows.map((r) => {
+    const c = r.trim().split(/\s+/);
+    const at = (n: string) => c[names.indexOf(n)]!;
+    return [at("shop"), at("command"), at("result"), at("wall")];
+  });
+}
+
+it("walls the operator's box, wall's journey 1 steps 1 to 3: serve names its wall, a box without one is refused, a test reading beside the data directory fails walled, and the audit's wall column", async () => {
+  const root = track(tmp("walls"));
+  const data = path.join(root, "town");
+
+  // Step 1: serve with no flag is walled by the box's seatbelt, and says so first.
+  const town = await serve(data);
+  towns.push(town);
+  expect(town.line).toBe(`town listening on ${town.url}, shops walled by seatbelt`);
+  expect(town.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+  // A box without a wall, told so through the environment name: serve and admin refused, before any listen or verb.
+  const noWall = cleanEnv(town.env.HOME!, { [NO_WALL_ENV]: "1" });
+  const elsewhere = path.join(root, "never-served");
+  expect(townd(["serve", "--data", elsewhere, "--port", "0"], noWall)).toEqual({ stdout: "", stderr: `townd serve: ${NO_WALL}\n`, exit: 1 });
+  expect(townd(["serve", "--data", elsewhere, "--port", "0", "--wall", "seatbelt"], noWall)).toEqual({
+    stdout: "",
+    stderr: `townd serve: --wall seatbelt: this box, ${os.hostname()}, has no seatbelt wall; a shop would run with the box's authority. Write --wall none to run it anyway.\n`,
+    exit: 1,
+  });
+  expect(townd(["serve", "--data", elsewhere, "--port", "0", "--wall", "gvisor"], cleanEnv(root))).toEqual({ stdout: "", stderr: "townd serve: --wall gvisor is not a wall; write seatbelt or none\n", exit: 1 });
+  expect(existsSync(elsewhere), "a refused serve made its data directory").toBe(false);
+  expect(townd(["admin", "--data", data, "shop", "add", MEMORY], noWall)).toEqual({ stdout: "", stderr: `townd admin: ${NO_WALL}\n`, exit: 1 });
+  expect(townd(["admin", "--data", data, "--wall", "seatbelt", "user", "ls"], noWall).stderr).toMatch(/^townd admin: --wall seatbelt: this box, .+, has no seatbelt wall;/);
+  expect(town.admin("shop", "ls").stdout).not.toContain("town/memory");
+  // --wall none, said out loud, serves on such a box, and names none.
+  const unwalled = await serve(path.join(root, "unwalled"), { flags: ["--wall", "none"], env: { [NO_WALL_ENV]: "1" } });
+  towns.push(unwalled);
+  expect(unwalled.line).toBe(`town listening on ${unwalled.url}, shops walled by none`);
+
+  // Step 2: a shop whose test reads a file beside the data directory fails that test walled, EPERM on its line, and passes it under --wall none.
+  writeFileSync(path.join(root, "the-operators-note.txt"), "the operator's note\n");
+  const beside = track(tmp("beside-shop"));
+  writeFileSync(
+    path.join(beside, "manifest.yaml"),
+    "name: test/beside\nversion: 0.0.1\nsummary: Reads a file beside the data directory, for the wall's tests.\nruntime: subprocess\nentry: ./main.mjs\ncommands:\n  - name: peek\n    summary: Print the note beside the data directory, or the error's code.\n    effect: read\n    output: text\ntests:\n  - name: reads the note beside the data directory\n    run: peek\n    expect: { contains: \"the operator's note\" }\n",
+  );
+  // Its copy is tested at <data>/shops/<staging>/, so the data directory is two up and the note beside it.
+  writeFileSync(
+    path.join(beside, "main.mjs"),
+    'import { readFileSync } from "node:fs";\nimport path from "node:path";\nconst data = path.dirname(path.dirname(import.meta.dirname));\ntry { process.stdout.write(readFileSync(path.join(path.dirname(data), "the-operators-note.txt"), "utf8")); } catch (e) { process.stdout.write(`${e.code}\\n`); }\n',
+  );
+  const walledAdd = town.admin("shop", "add", beside);
+  expect([walledAdd.exit, walledAdd.stdout]).toEqual([1, 'not ok reads the note beside the data directory: expected stdout to contain "the operator\'s note", got "EPERM\\n"\n']);
+  expect(walledAdd.stderr).toBe("townd admin: shop add refused: test/beside's test 'reads the note beside the data directory' failed; fix the shop and add it again\n");
+  expect(town.admin("shop", "ls").stdout).not.toContain("test/beside");
+  const unwalledAdd = town.admin("--wall", "none", "shop", "add", beside);
+  expect([unwalledAdd.exit, unwalledAdd.stdout], unwalledAdd.stderr).toEqual([0, "ok reads the note beside the data directory\nadded test/beside 0.0.1\n"]);
+  expect(town.admin("shop", "rm", "test/beside").exit).toBe(0);
+
+  // Step 3: the wall column. Calls whose process ran say seatbelt, a relay denied one level down included; a denied call, a refused one, a help, and the hall's own say -.
+  for (const dir of ["test/fixtures/echo-shop", "test/fixtures/recipe-shop"]) expect(town.admin("shop", "add", path.join(ROOT, dir)).exit).toBe(0);
+  expect(town.admin("user", "add", "dimitri").exit).toBe(0);
+  const pass = town.admin("pass", "new", "--user", "dimitri", "--label", "walled");
+  const passId = pass.stderr.trim();
+  for (const [shop, commands] of [["test/echo", "echo"], ["test/recipe", "relay"], ["town/hall", "spec"]] as const) {
+    expect(town.admin("grant", "new", "--pass", passId, "--shop", shop, "--commands", commands).exit).toBe(0);
+  }
+  const a = agent();
+  made.push(a.dir, a.home);
+  a.writeGrant(pass.stdout);
+  expect(a.town("recipe", "relay", "--words", "echo echo --zeta z").exit).toBe(0);
+  expect(a.town("recipe", "relay", "--words", "echo sleep").exit).toBe(2);
+  expect(a.town("echo", "fail").exit).toBe(2);
+  expect(a.town("echo", "echo").exit).toBe(1);
+  expect(a.town("hall", "spec").exit).toBe(0);
+  expect(a.town("--help").exit).toBe(0);
+  const audit = town.admin("audit", "--pass", passId);
+  expect(audit.stdout.split("\n")[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+wall\s+detail$/);
+  // The tree of the relay denied one level down: its process ran, its dependency's did not.
+  const deniedRelay = audit.stdout.split("\n").find((l) => /\srelay\s.*\sdenied\s/.test(l))!.split(/\s+/)[11]!;
+  const tree = town.admin("audit", "--call", deniedRelay);
+  expect(tree.stdout.split("\n")[0]).toMatch(/^call\s+at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+parent\s+wall\s+detail$/);
+  expect(walls(tree.stdout)).toEqual([
+    ["test/recipe", "relay", "denied", "seatbelt"],
+    ["test/echo", "sleep", "denied", "-"],
+  ]);
+  // And the whole table: the rows a tree does not reach say the same.
+  expect(walls(audit.stdout)).toEqual([
+    ["test/recipe", "relay", "ok", "seatbelt"],
+    ["test/echo", "echo", "ok", "seatbelt"],
+    ["test/recipe", "relay", "denied", "seatbelt"],
+    ["test/echo", "sleep", "denied", "-"],
+    ["test/echo", "fail", "denied", "-"],
+    ["test/echo", "echo", "usage", "-"],
+    ["town/hall", "spec", "ok", "-"],
+    ["-", "-", "ok", "-"],
+  ]);
+  // Under --wall none, on the box told it has no wall, admin too: a call whose process ran says none.
+  const admin2 = (...args: string[]) => unwalled.admin("--wall", "none", ...args);
+  expect(unwalled.admin("user", "ls")).toMatchObject({ exit: 1, stderr: `townd admin: ${NO_WALL}\n` });
+  expect(admin2("shop", "add", path.join(ROOT, "test/fixtures/echo-shop")).exit).toBe(0);
+  expect(admin2("user", "add", "dimitri").exit).toBe(0);
+  const pass2 = admin2("pass", "new", "--user", "dimitri", "--label", "unwalled");
+  expect(admin2("grant", "new", "--pass", pass2.stderr.trim(), "--shop", "test/echo").exit).toBe(0);
+  a.writeGrant(pass2.stdout);
+  expect(a.town("echo", "echo", "--zeta", "z").exit).toBe(0);
+  expect(walls(admin2("audit").stdout)).toEqual([["test/echo", "echo", "ok", "none"]]);
+
+  // A store hall made opens under wall with every row, the column - on each, in the table and in a tree.
+  const hallData = path.join(root, "hall-town");
+  mkdirSync(hallData, { mode: 0o700 });
+  const fixture = readFileSync(path.join(ROOT, "test/fixtures/hall-store.sql"), "utf8");
+  const load = spawnSync(process.execPath, ["--no-warnings", "-e", 'const { DatabaseSync } = require("node:sqlite"); new DatabaseSync(process.argv[1]).exec(require("node:fs").readFileSync(process.argv[2], "utf8"));', path.join(hallData, "town.db"), path.join(ROOT, "test/fixtures/hall-store.sql")], { encoding: "utf8" });
+  expect(load.status, load.stderr).toBe(0);
+  writeFileSync(path.join(hallData, "vault.key"), Buffer.from(/^-- vault\.key: ([0-9a-f]{64})$/m.exec(fixture)![1]!, "hex"), { mode: 0o600 });
+  const hallAudit = townd(["admin", "--data", hallData, "audit"], cleanEnv(root));
+  expect(hallAudit.exit, hallAudit.stderr).toBe(0);
+  expect(walls(hallAudit.stdout).map((r) => r.join(" "))).toEqual([
+    "town/memory remember ok -",
+    "town/memory recall ok -",
+    "town/memory forget denied -",
+    "town/memory remember ok -",
+    "town/memory list ok -",
+    "town/hall publish ok -",
+    "dimitri/todo add ok -",
+    "town/memory remember ok -",
+    "town/hall request ok -",
+  ]);
+  expect(walls(townd(["admin", "--data", hallData, "audit", "--call", "call_870c75345727b30e"], cleanEnv(root)).stdout)).toEqual([
+    ["town/hall", "publish", "ok", "-"],
+    ["town/memory", "remember", "ok", "-"],
+    ["town/memory", "list", "ok", "-"],
+  ]);
+}, 120_000);
+
+it("serves a data directory given through the link /tmp, as AGENTS.md writes it, walled: memory added, its tests passing, and a call at it", async () => {
+  // Not tmp(), which is os.tmpdir(): a directory made under /tmp itself, so the data directory's path goes through the link.
+  const root = track(mkdtempSync("/tmp/town-box-link-"));
+  const data = path.join(root, "data");
+  const env = cleanEnv(root);
+  const added = townd(["admin", "--data", data, "shop", "add", MEMORY], env);
+  expect([added.exit, added.stderr]).toEqual([0, ""]);
+  expect(added.stdout).toMatch(/^ok roundtrip$/m);
+  expect(added.stdout).toMatch(/^added town\/memory 0\.1\.0$/m);
+  const town = await serve(data);
+  towns.push(town);
+  expect(town.line).toBe(`town listening on ${town.url}, shops walled by seatbelt`);
+  expect(town.admin("user", "add", "dimitri").exit).toBe(0);
+  const pass = town.admin("pass", "new", "--user", "dimitri", "--label", "through the link");
+  expect(town.admin("grant", "new", "--pass", pass.stderr.trim(), "--shop", "town/memory").exit).toBe(0);
+  const a = agent();
+  made.push(a.dir, a.home);
+  a.writeGrant(pass.stdout);
+  expect(a.town("memory", "remember", "--key", "notes/link", "--value", "through /tmp")).toEqual({ stdout: "", stderr: "", exit: 0 });
+  expect(a.town("memory", "recall", "--key", "notes/link")).toEqual({ stdout: "through /tmp\n", stderr: "", exit: 0 });
+  expect(walls(town.admin("audit").stdout)).toEqual([
+    ["town/memory", "remember", "ok", "seatbelt"],
+    ["town/memory", "recall", "ok", "seatbelt"],
+  ]);
+}, 60_000);
 
 it("walks the operator's box, journey 2 steps 1 to 7", async () => {
   const root = track(tmp("box"));
@@ -151,7 +327,7 @@ it("walks the operator's box, journey 2 steps 1 to 7", async () => {
   const audit = admin("audit", "--pass", passId);
   expect(audit.exit).toBe(0);
   const rows = audit.stdout.trim().split("\n");
-  expect(rows[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+detail$/);
+  expect(rows[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+wall\s+detail$/);
   const body = rows.slice(1);
   expect(body.map((r) => r.split(/\s+/)[5])).toEqual(["ok", "ok", "ok", "ok", "denied", "ok", "ok", "ok", "usage", "usage", "usage"]);
   expect(body[4]).toMatch(/town\/memory\s+forget\s+[0-9a-f]{64}\s+denied\s+2\s+-/);

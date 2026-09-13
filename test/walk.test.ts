@@ -10,7 +10,8 @@
 // planted value in a file named as the database's WAL, and none in a
 // clean directory, and never prints it. `--shop hall` sets the hall's
 // stage with no token, and `--status` counts the hall's rows by command
-// and detail and the pass's grants by source.
+// and detail and the pass's grants by source. `--status` counts the rows
+// by wall, and the stage names the wall the town's shops run within.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -73,6 +74,8 @@ it("sets the stage, reports the audit, and strikes it", () => {
   expect(up.stdout).toContain(w.sentence);
   expect(up.stdout).toContain(`export PATH="${w.shim}:$PATH"`);
   expect(up.stdout).toContain(`export TOWN_DATA=${w.data}`);
+  expect(up.stdout).toMatch(/^the town: {4}http:\/\/127\.0\.0\.1:\d+ \(pid \d+\), pass pass_[0-9a-f]+, shops walled by seatbelt$/m);
+  expect(w.wall).toBe("seatbelt");
 
   // The agent's side: data outside the agent's directory, `town` alone in the shim.
   expect(readdirSync(w.shim)).toEqual(["town"]);
@@ -90,6 +93,8 @@ it("sets the stage, reports the audit, and strikes it", () => {
   const status = walk("--status", root);
   expect(status.exit, status.stderr).toBe(0);
   expect(status.stdout).toMatch(/^rows: 4; ok 3, denied 1$/m);
+  // The town the walk starts passes no --wall, so on a Mac every call whose process ran is walled; the denied one ran none.
+  expect(status.stdout).toMatch(/^rows by wall: seatbelt 2, - 2$/m);
   expect(status.stdout).toMatch(/^credentials: none served$/m);
   expect(status.stdout).toMatch(/^rows for town\/memory with no credential served: 3; ok 2, denied 1$/m);
 

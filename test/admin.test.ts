@@ -47,7 +47,7 @@ async function admin(args: string[], stdin?: Io["stdin"], withData = true): Prom
   let stdout = "";
   let stderr = "";
   const io: Io = { out: (s) => void (stdout += s), err: (s) => void (stderr += s), env: {}, ...(stdin ? { stdin } : {}) };
-  const exit = await main(withData ? ["--data", data, ...args] : args, io, openWall("none"));
+  const exit = await main(withData ? ["--data", data, ...args] : args, io, () => ({ open: (opts) => openWall("none", opts) }));
   return { exit, stdout, stderr };
 }
 

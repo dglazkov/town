@@ -68,8 +68,8 @@ export interface RunResult {
   calls: number;
   /** The first denial among those calls, or null. */
   denied: string | null;
-  /** The kind of wall the process ran within, or would have. */
-  wall: WallKind;
+  /** The kind of wall the process ran within; null when no process was started, as for a call aborted before one. */
+  wall: WallKind | null;
 }
 
 /** The environment name a credential type's teller URL is handed in: `TOWN_CREDENTIAL_<TYPE>`, "-" as "_". */
@@ -146,10 +146,10 @@ export async function run(
     const counts = credentials.map((c, i) => ({ type: c.type, requests: tellers[i]?.requests ?? 0 }));
     await Promise.all([...tellers.map((t) => t.close()), clerk?.close()]);
     if (callDir) await rm(callDir, { recursive: true, force: true });
-    return { credentials: counts, calls: clerk?.calls ?? 0, denied: clerk?.denied ?? null, wall: wall.kind };
+    return { credentials: counts, calls: clerk?.calls ?? 0, denied: clerk?.denied ?? null };
   };
   if (opts.signal?.aborted) {
-    return { stdout: "", stderr: "", exit: 1, timedOut: false, aborted: true, ...(await finish()) };
+    return { stdout: "", stderr: "", exit: 1, timedOut: false, aborted: true, wall: null, ...(await finish()) };
   }
   try {
     for (const c of credentials) tellers.push(await openTeller({ origin: c.origin, header: c.header, token: c.token }));
@@ -197,7 +197,7 @@ export async function run(
       });
     } catch (e) {
       void finish().then((done) =>
-        resolve({ stdout: "", stderr: `town: could not start ${manifest.entry}: ${(e as Error).message}\n`, exit: 1, timedOut: false, aborted: false, ...done }),
+        resolve({ stdout: "", stderr: `town: could not start ${manifest.entry}: ${(e as Error).message}\n`, exit: 1, timedOut: false, aborted: false, wall: null, ...done }),
       );
       return;
     }
@@ -251,7 +251,9 @@ export async function run(
         exit = 1;
       }
       if (timedOut || aborted) exit = 1;
-      void finish().then((done) => resolve({ stdout: Buffer.concat(out).toString("utf8"), stderr, exit, timedOut, aborted, ...done }));
+      // A process that never got a pid never ran, within the wall or at all.
+      const walled = child.pid === undefined ? null : wall.kind;
+      void finish().then((done) => resolve({ stdout: Buffer.concat(out).toString("utf8"), stderr, exit, timedOut, aborted, wall: walled, ...done }));
     });
 
     child.stdin!.end(stdin);

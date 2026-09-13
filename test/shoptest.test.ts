@@ -115,12 +115,12 @@ describe("a shop with dependencies", () => {
     let stdout = "";
     let stderr = "";
     const io: Io = { out: (s) => void (stdout += s), err: (s) => void (stderr += s), env: {} };
-    expect(await admin(["shop", "test", RECIPE], io, wall)).toBe(1);
+    expect(await admin(["shop", "test", RECIPE], io, () => ({ open: () => wall }))).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toBe("depends[0].shop: 'test/echo' cannot be checked with no data directory at hand; write the verb again with --data <dir>, so the town's shops are read, instead (spec §8)\n");
     stderr = "";
     store.close();
-    const code = await admin(["shop", "test", RECIPE, "--data", data], io, wall);
+    const code = await admin(["shop", "test", RECIPE, "--data", data], io, () => ({ open: () => wall }));
     store = openStore(data);
     expect([code, stderr]).toEqual([0, ""]);
     expect(stdout).toBe("ok a declared command answers through the town\nok an undeclared command is not available\n");
@@ -167,10 +167,10 @@ describe("the wall", () => {
 
       const byAdmin = recordingWall();
       const io: Io = { out: () => {}, err: () => {}, env: {} };
-      expect(await admin(["shop", "test", RECIPE, "--data", data], io, byAdmin)).toBe(0);
+      expect(await admin(["shop", "test", RECIPE, "--data", data], io, () => ({ open: () => byAdmin }))).toBe(0);
       expect(byAdmin.seen.map((e) => e.within.reads[0])).toEqual(expect.arrayContaining([RECIPE, echoDir]));
       const alone = recordingWall();
-      expect(await admin(["shop", "test", MEMORY], io, alone)).toBe(0);
+      expect(await admin(["shop", "test", MEMORY], io, () => ({ open: () => alone }))).toBe(0);
       expect(alone.seen.length).toBeGreaterThan(0);
       expect(alone.seen.every((e) => e.within.reads[0] === MEMORY)).toBe(true);
     } finally {

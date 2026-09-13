@@ -190,7 +190,7 @@ it("walks journey 2 steps 1 to 8: a type, a credential, a shop tested on it, a g
   const audit = admin("audit", "--shop", "test/teller");
   expect(audit.exit).toBe(0);
   const lines = audit.stdout.trim().split("\n");
-  expect(lines[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+detail$/);
+  expect(lines[0]).toMatch(/^at\s+pass\s+shop\s+command\s+argv sha256\s+result\s+exit\s+shop exit\s+ms\s+notices\s+credentials\s+call\s+parent\s+wall\s+detail$/);
   const cols = lines.slice(1).map((l) => l.split(/\s+/));
   expect(cols.map((c) => [c[3], c[5], c[10]])).toEqual([
     ["-", "ok", "-"], // town teller --help

@@ -206,10 +206,10 @@ no byte of the data directory or its copy.
 - **2026-09-12 — The phase took twenty-five minutes of wall clock.** Two
   doc fixes before the brief, the server's key and the audit column,
   and one after, the Proof's mutation wording; no return to the builder.
-- **2026-09-12 — Open: on one box a shop can unseal every credential.**
-  `test/exfil.test.ts`'s swapped entry reads `vault.key` and `town.db`
-  from its own directory and the test unseals the value from what it
-  printed. Waits on the containers project or a key held off the box.
+- **2026-09-12 — On one box a shop could unseal every credential,**
+  reading `vault.key` and `town.db` from its own directory. Closed on a
+  Mac by wall phase 1: the exfil test reads `EPERM` walled, and the key
+  only under `--wall none`.
 - **2026-09-12 — `credential rm` ends grants without revoking them.**
   They are dead by the liveness query alone; `grant ls` says `not live:
   <id> removed`, and a new grant at the shop is not blocked by the dead

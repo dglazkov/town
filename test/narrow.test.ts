@@ -1,7 +1,9 @@
 // ring: command
 // Journey 3, the narrow grant, against a real town: after `shop add`, each
 // shop's entry under the data directory is swapped for one that writes a
-// marker file, so every denied, malformed, and invalid-pass call can be
+// marker file in its TOWN_STATE, inside the wall, which the test finds
+// under the data directory's state, so every denied, malformed, and
+// invalid-pass call can be
 // checked for a process that should not have existed, and every allowed
 // call for one that should. Also journey 1 step 6's notice, a day from
 // expiry, in both forms. And vault's: the teller shop, added on a
@@ -9,7 +11,7 @@
 // denied, malformed, or dead-pass call.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MEMORY, ROOT, agent, assertBuilt, cleanup, originProcess, serve, tmp, type Agent, type OriginProcess, type Ran, type Town } from "./helpers/town.js";
@@ -20,12 +22,27 @@ let origin: OriginProcess;
 
 let town: Town;
 let data: string;
-let marker: string;
+
+/** Every marker a swapped entry wrote: a file named marker in any shop's state for any user, under the data directory. */
+function markers(): string[] {
+  const state = path.join(data, "state");
+  if (!existsSync(state)) return [];
+  return readdirSync(state, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && e.name === "marker")
+    .map((e) => path.join(e.parentPath, e.name));
+}
+
+/** Removes the one marker a call wrote; throws, as rmSync of a missing file does, when there is none. */
+function takeMarker(): void {
+  const [one, ...more] = markers();
+  if (!one || more.length) throw new Error(`expected one marker under ${path.join(data, "state")}, found ${more.length + (one ? 1 : 0)}`);
+  rmSync(one);
+}
 const made: string[] = [];
 
 function swapEntry(shopDirName: string): void {
   const entry = path.join(data, "shops", shopDirName, "main.mjs");
-  writeFileSync(entry, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(" "));\nprocess.stdout.write("ran\\n");\n`);
+  writeFileSync(entry, `import { writeFileSync } from "node:fs";\nimport path from "node:path";\nwriteFileSync(path.join(process.env.TOWN_STATE, "marker"), process.argv.slice(2).join(" "));\nprocess.stdout.write("ran\\n");\n`);
 }
 
 function newAgent(user: string, label: string, grantArgs: string[]): { a: Agent; passId: string; grant: Ran } {
@@ -42,15 +59,15 @@ function newAgent(user: string, label: string, grantArgs: string[]): { a: Agent;
 /** The call ran no shop: nothing wrote the marker. */
 function notRun(r: Ran, exit: number): Ran {
   expect(r.exit, `${r.stdout}${r.stderr}`).toBe(exit);
-  expect(existsSync(marker), "the shop ran on a call it should not have").toBe(false);
+  expect(markers().length > 0, "the shop ran on a call it should not have").toBe(false);
   return r;
 }
 
 /** The call ran the shop: the marker is there, and is removed for the next check. */
 function ran(r: Ran): Ran {
   expect(r.exit, r.stderr).toBe(0);
-  expect(existsSync(marker), "the shop did not run on an allowed call").toBe(true);
-  rmSync(marker);
+  expect(markers().length > 0, "the shop did not run on an allowed call").toBe(true);
+  takeMarker();
   return r;
 }
 
@@ -65,7 +82,6 @@ beforeAll(async () => {
   const root = tmp("narrow");
   made.push(root);
   data = path.join(root, "town");
-  marker = path.join(root, "marker");
   town = await serve(data);
   expect(town.admin("shop", "add", MEMORY).exit).toBe(0);
   expect(town.admin("shop", "add", ECHO).exit).toBe(0);
@@ -163,7 +179,7 @@ describe("journey 3", () => {
     }
     const rows = town.admin("audit", "--pass", passId).stdout.trim().split("\n").slice(1);
     expect(rows).toHaveLength(4);
-    for (const row of rows.slice(1)) expect(row).toMatch(/\binvalid-pass\s+3\s+-\s+\d+\s+-\s+-\s+call_[0-9a-f]{16}\s+-\s+expired$/);
+    for (const row of rows.slice(1)) expect(row).toMatch(/\binvalid-pass\s+3\s+-\s+\d+\s+-\s+-\s+call_[0-9a-f]{16}\s+-\s+-\s+expired$/);
   });
 
   it("a shop the pass holds no grant for and a shop the town does not have are the same line", () => {
@@ -206,7 +222,7 @@ describe("journey 1 step 6: a grant a day from expiry", () => {
     const { a, grant } = newAgent("ana", "a day left", ["--shop", "town/memory", "--commands", "recall", "--expires", "1d"]);
     expect(grant.exit, grant.stderr).toBe(0);
     const json = a.town("memory", "recall", "--key", "k", "--json");
-    rmSync(marker);
+    takeMarker();
     expect(json.stderr).toBe("");
     const envelope = JSON.parse(json.stdout);
     expect(Object.keys(envelope)).toEqual(["ok", "output", "notices", "exit"]);
@@ -225,6 +241,6 @@ describe("journey 1 step 6: a grant a day from expiry", () => {
       exit: 2,
       error: "error: command 'remember' is not available to this grant",
     });
-    expect(existsSync(marker)).toBe(false);
+    expect(markers().length > 0).toBe(false);
   });
 });

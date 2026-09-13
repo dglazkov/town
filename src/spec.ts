@@ -181,9 +181,8 @@ per call:
 - argv: the command, then its arguments in canonical form (§4). The
   arguments are already checked; parse "--name value" pairs and nothing
   more clever. The command is argv's first word after the entry.
-- entry: a .mjs or .js entry runs under the town's own Node, so
-  process.argv.slice(2) is the canonical argv. Any other file must be
-  executable, and is executed directly with the canonical argv.
+- entry: a .mjs or .js entry runs under the town's own Node, argv as
+  process.argv.slice(2); any other file must be executable, run directly.
 - environment: exactly three names, plus one per need, plus TOWN_GRANT
   when the shop has dependencies (§8), and nothing else:
     TOWN_STATE  a directory made before the call, private to this shop
@@ -205,6 +204,10 @@ per call:
 - exit code: 0 is success; anything else fails, and the agent sees exit 1.
 - time: thirty seconds. Then the entry and every process it started
   are killed, and the call fails.
+
+The town walls the entry and all it starts. It reads only its directory,
+TOWN_STATE, and the box's system files; writes only TOWN_STATE; reaches
+only the addresses above; signals only what it started. The rest is refused.
 
 ## 8. Credentials and dependencies
 

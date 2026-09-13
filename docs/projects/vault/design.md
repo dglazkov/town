@@ -85,7 +85,8 @@ of `town.db` hold nothing, and keeps the copy in gate's journey 2 step 7
 whole, since the key travels with the directory. It is not a boundary:
 whoever reads the directory reads the key, and on one box that includes
 a shop, whose directory is under it; vault phase 1's exfil test unseals a
-credential from what a swapped entry could read. The boundary is the hosted
+credential from what a swapped entry could read, until wall phase 1
+walled the entry off the key on a Mac. The boundary is the hosted
 box's, where the key leaves the disk for a service that holds it, and
 per-user keys come with users who are not the operator.
 

@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-12
 see: wall
-note: "written 12 Sep 2026, the day hall closed: the town's wall, where a shop's process is enclosed. Wall phase 0 closed the same day: `src/wall.ts` and `run` requiring a wall, journey 2 steps 1 to 5 proved through `run` under Seatbelt on a Mac, the profile denying every write but the state's. Still planned: the town's calls walled, the audit's column, and vault's exfil test turned around (wall phase 1); and a real agent's shop finding it can see nothing but its own (wall phase 2)."
+note: "written 12 Sep 2026, the day hall closed: the town's wall, where a shop's process is enclosed. Wall phase 0 closed the same day: `src/wall.ts` and `run` requiring a wall, journey 2 steps 1 to 5 proved through `run` under Seatbelt on a Mac, the profile denying every write but the state's. Wall phase 1 closed it too: `serve` and `admin` walled by default and refusing a box without a wall, the audit's `wall` column, the command ring walled, and vault's exfil test turned around, journeys 1 and 2 done. Still planned: a real agent's shop finding it can see nothing but its own (wall phase 2)."
 ---
 
 # Wall — the journeys

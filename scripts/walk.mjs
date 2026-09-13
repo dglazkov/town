@@ -7,7 +7,7 @@
 //   node scripts/walk.mjs --shop watch --repo <owner/name> < <token file>
 //                                            github, memory, and watch over them, three grants, on the token read from stdin
 //   node scripts/walk.mjs --shop hall        the memory shop, a pass with the hall whole and memory at three commands; no token
-//   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result, credentials served,
+//   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result and by wall, credentials served,
 //                                            and the hall's rows by command and detail with the grants' sources
 //   node scripts/walk.mjs --search <root> [<path>...] < <token file>
 //                                            files under the root and the paths holding the token's bytes
@@ -220,8 +220,8 @@ async function startTown(root, data) {
   child.on("exit", (code, signal) => (exited = code ?? signal));
   child.unref();
   for (const end = Date.now() + 15_000; Date.now() < end; await pause(50)) {
-    const m = /town listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(readFileSync(log, "utf8"));
-    if (m) return { pid: child.pid, address: m[1] };
+    const m = /town listening on (http:\/\/127\.0\.0\.1:\d+), shops walled by (\S+)\n/.exec(readFileSync(log, "utf8"));
+    if (m) return { pid: child.pid, address: m[1], wall: m[2] };
     if (exited !== null) throw new Error(`townd serve exited ${exited}:\n${readFileSync(log, "utf8")}`);
   }
   process.kill(child.pid, "SIGTERM");
@@ -264,7 +264,7 @@ async function setUp(plan) {
     const grantId = grants[plan.shop];
     if (grantAbove(data)) throw new Error(`the data directory ${data} is under a grant file; the walk root is laid out wrong`);
 
-    const walk = { root, data, agent, shim, grantFile, address: town.address, pid: town.pid, passId, grantId, grants, sentence: said, shop: plan.shop, ...(plan.repo ? { repo: plan.repo } : {}) };
+    const walk = { root, data, agent, shim, grantFile, address: town.address, wall: town.wall, pid: town.pid, passId, grantId, grants, sentence: said, shop: plan.shop, ...(plan.repo ? { repo: plan.repo } : {}) };
     writeFileSync(path.join(root, "walk.json"), `${JSON.stringify(walk, null, 2)}\n`);
     const quote = (w) => (/^[A-Za-z0-9_./:,=-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
     const n = plan.narrowed;
@@ -284,7 +284,7 @@ async function setUp(plan) {
       [
         `walk ready: ${root}`,
         ``,
-        `the town:    ${town.address} (pid ${town.pid}), pass ${passId}`,
+        `the town:    ${town.address} (pid ${town.pid}), pass ${passId}, shops walled by ${town.wall}`,
         ...plan.grants.map((g, i) => `${(i === 0 ? "the grants:" : "").padEnd(13)}${grants[g.shop]} ${g.shop} ${g.commands}; ${g.constraints.length ? g.constraints.join("; ") : "no constraints"}; expires ${plan.expires}`),
         ``,
         `start the agent in:`,
@@ -346,6 +346,10 @@ function status(root) {
   for (const r of column(audit.stdout, "result")) counts.set(r, (counts.get(r) ?? 0) + 1);
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows: ${total}; ${[...counts].map(([k, v]) => `${k} ${v}`).join(", ")}\n`);
+  // The wall column: the kind a call's process ran within, `-` when none ran (denied, refused, the hall's own).
+  const walls = new Map([["seatbelt", 0], ["none", 0], ["-", 0]]);
+  for (const w of column(audit.stdout, "wall")) walls.set(w, (walls.get(w) ?? 0) + 1);
+  process.stdout.write(`rows by wall: ${[...walls].filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}\n`);
 
   // The credentials column: `<type>:<requests>` comma-separated, or `-` when none was served.
   const shop = walk.shop ?? "town/memory";

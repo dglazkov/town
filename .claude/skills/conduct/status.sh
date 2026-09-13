@@ -45,6 +45,15 @@ open=$(grep -n -E '^- \*\*20[0-9]{2}-[0-9]{2}-[0-9]{2} — Open' "$PH" | sed 's/
 echo
 echo "== lint"
 n=0
+# every phase has a Status line, and its word is one of the four
+words=$(awk '
+  function check() { if (t != "" && !seen) printf "   %s has no **Status:** line\n", t }
+  /^## Phase / { check(); t=$0; sub(/^## /,"",t); seen=0 }
+  /^\*\*Status: / { seen=1; s=$0; sub(/^\*\*Status: /,"",s); sub(/[.*].*$/,"",s)
+    if (s !~ /^(NOT STARTED|PART-DONE|CLOSED|WITHDRAWN)$/) printf "   %s: Status \"%s\" is not one of NOT STARTED, PART-DONE, CLOSED, WITHDRAWN\n", t, s }
+  END { check() }
+' "$PH")
+[ -n "$words" ] && { echo "$words"; n=$((n+1)); }
 # bare phase citations in prose (the rule: "<project> phase N", never "phase N")
 hits=$(grep -n -E '(^|[^a-zA-Z] )[Pp]hases? [0-9]' "$D/design.md" "$J" 2>/dev/null | grep -v -E '(lamb|pen|[a-z]+) phases? [0-9]' | grep -v -E '^[^:]+:[0-9]+:note:')
 [ -n "$hits" ] && { echo "   bare phase citations outside phases.md (name the project):"; echo "$hits" | sed 's/^/     /'; n=$((n+1)); }

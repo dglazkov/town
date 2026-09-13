@@ -9,6 +9,14 @@ it.
 **Where each project stands lives in its own primary doc**, in front
 matter, so this table cannot be more right than the thing it describes.
 
+**Each phase has a `**Status:**` line, and its word is one of four:**
+`NOT STARTED`, `PART-DONE`, `CLOSED`, or `WITHDRAWN`, followed by the date
+it last moved and one sentence of what holds. A newly planned project's
+phases are all `**Status: NOT STARTED.**`; never `OPEN`, which the
+conductor's status script does not know. The words are defined in
+[`/conduct`](../../.claude/skills/conduct/SKILL.md), and
+`.claude/skills/conduct/status.sh <project>` lints them.
+
 **A project is short.** It holds one body of work with an end: a journey
 that can be walked, phases that close, a last phase after which nothing
 in it waits on work. A project that turns out to be long-lived was cut at

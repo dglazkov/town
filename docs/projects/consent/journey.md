@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-13
 see: consent
-note: "written 13 Sep 2026, the day after wall closed: the town's consent, where a credential the town has never seen is proposed by an agent's manifest, shown to a person with its origin, and connected by that person at their own terminal, pasted once or consented to in a browser; the grant that binds it is a permit, and the town refreshes what expires. Consent phase 0 closed 13 Sep 2026: a token type proposed with the shop, the permit in the publish grant's place, and permit show's checklist typed as printed to a grant with the tests run at approval. Consent phase 1 part-done the same day: the oauth kind, connect on loopback, the refresh and the revocation, and town/gdocs, against fakes; the by-hand proof against Google waits on a registration."
+note: "written 13 Sep 2026, the day after wall closed: the town's consent, where a credential the town has never seen is proposed by an agent's manifest, shown to a person with its origin, and connected by that person at their own terminal, pasted once or consented to in a browser; the grant that binds it is a permit, and the town refreshes what expires. Consent phase 0 closed 13 Sep 2026: a token type proposed with the shop, the permit in the publish grant's place, and permit show's checklist typed as printed to a grant with the tests run at approval. Consent phase 1 closed the same day: the oauth kind, connect on loopback, the refresh and the revocation, and town/gdocs, proved against fakes and by hand against Google. The walk waits."
 ---
 
 # Consent — the journeys

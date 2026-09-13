@@ -30,16 +30,16 @@ untouched, and `src/cli.ts` learns nothing here, not `consent`, not
 
 ---
 
-**Where we are: 13 September 2026.** Consent phase 0 is closed and
-consent phase 1 is PART-DONE: its code and both rings hold, and its
-by-hand proof waits on a Google OAuth client and a document from the
-shepherd (⚑). Consent phase 2, the walk, waits on that and on a
-provider token (⚑). What holds: a manifest proposes a type with
-guidance, a publish of a shop with needs asks for a permit, `permit
+**Where we are: 13 September 2026.** Consent phases 0 and 1 are
+closed, and consent phase 2, the walk, is next: it waits on a personal
+token from a provider the town has no type for, named by the shepherd
+(⚑), and uses the town at `~/town-consent`, which holds the Google
+registration and credential. What holds: a manifest proposes a type
+with guidance, a publish of a shop with needs asks for a permit, `permit
 show`'s checklist typed as printed ends at a grant with the tests run at
-approval, `credential connect` catches a consent on loopback, and the
-gate refreshes an `oauth` credential before a call and revokes it on
-`invalid_grant`, all against fakes.
+approval, `credential connect` caught a real Google consent on loopback,
+and the gate refreshes an `oauth` credential before a call and revokes
+it on `invalid_grant`.
 
 The order is dependency order. Phase 0 is the type with the shop: the
 manifest's need grown, guidance included, proposed and held types, the
@@ -257,42 +257,38 @@ text; `credential ls` showing scopes and no value; `strings town.db`
 holding none of the tokens. The registration and the credential kept
 for phase 2.
 
-**Status: PART-DONE.** 13 Sep 2026. Both rings and typecheck green at
-554 tests, `src/teller.ts` unchanged since wall, and the three mutations
-each failed their named tests; the by-hand proof against Google waits
-on the ⚑ registration.
+**Status: CLOSED.** 13 Sep 2026. Both rings and typecheck green at 554
+tests, `src/teller.ts` unchanged since wall, the three mutations each
+failed their named tests, and by hand Google consented, `town/gdocs`
+read a document, and a refresh went through.
 
 **Findings:**
 
-- **2026-09-13 — The build took about forty minutes of wall clock.**
-  One doc fix first (3e75d83: loopback `http:` endpoints, the rings'
-  gdocs a copy over fakes); no return to the builder.
+- **2026-09-13 — The phase took about two hours of wall clock,** forty
+  minutes of it the build; one doc fix first (3e75d83), no return to
+  the builder, the rest waiting on the registration.
 - **2026-09-13 — `src/admin.ts` split before the phase's work,** the
-  type and credential verbs to `src/secrets.ts` (2b7b016); 518 lines
-  would have crossed six hundred.
-- **2026-09-13 — The revocation's clause is the gate's, not
-  `denials.ts`'s:** the CLI guard forbids `credential` and `connect`
-  there, so `notAvailableSince(subject, why)` takes it.
-- **2026-09-13 — A shop's command name changed an agent sentence.**
-  gdocs's `read` tripped the guard on `badCall`'s "could not read this
-  call", which now says "parse".
-- **2026-09-13 — The test clock is `TOWN_TEST_CLOCK_OFFSET_MS`,** read
-  by `townd serve` alone, warned on stderr; the ring serves the same
-  data directory again to move it.
+  type and credential verbs to `src/secrets.ts` (2b7b016).
+- **2026-09-13 — By hand, on Google:** `shop add` held the type and was
+  refused naming `connect`; consent took 73 s; the read served
+  `google-oauth:1`; `strings` found no `ya29.`, `1//0`, or `GOCSPX-`
+  and no client secret in `town.db` or its WAL.
+- **2026-09-13 — gcloud cannot make a Desktop OAuth client.** The
+  conductor made project `town-consent-0913-0502` and enabled the Docs
+  API; the consent screen and client were the shepherd's, in the
+  Console.
+- **2026-09-13 — A clock moved forward seals a future expiry:** after
+  the by-hand refresh under `TOWN_TEST_CLOCK_OFFSET_MS`, an unshifted
+  town trusts that access token an hour past Google's, and a call then
+  is `shop-error`.
+- **2026-09-13 — The revocation's clause is the gate's:** the CLI guard
+  forbids `credential` and `connect` in `denials.ts`; gdocs's `read`
+  also turned `badCall`'s "could not read" into "parse".
 - **2026-09-13 — A refresh that loses a race to a rotation does not
-  revoke:** on `invalid_grant` with a newer, undue token in the row, the
-  gate uses it. The design did not name the race.
-- **2026-09-13 — A zero refresh margin is caught in checkout alone;**
-  the ring's clock jumps past expiry. The re-seal and `invalid_grant`
-  mutations fail in both rings.
-- **2026-09-13 — An oauth checklist line reads `$CLIENT_ID` and
-  `$CLIENT_SECRET`,** as `$TOKEN`, and `connect` prints guidance and
-  URL on stderr, the id on stdout.
+  revoke;** the gate uses the row's newer token. A zero margin is caught
+  in checkout alone, since the ring's clock jumps past expiry.
 - **2026-09-13 — gdocs's one test passes with no Google,** a teller's
-  502 is exit 1; the rings check the fake docs origin saw it signed.
-- **2026-09-13 — Open: the by-hand proof against Google.** A Desktop
-  OAuth client with the Docs API enabled and one document, from the
-  shepherd (⚑); the registration and credential kept for consent phase 2.
+  502 is exit 1; the rings check the fake saw it signed.
 
 ---
 

@@ -17,6 +17,9 @@
 // the agent's line and no dependency process; the publish grant made,
 // remade, and not made over a person's; the staging gone on every path;
 // the grants that stop being live named; and the owner, both doors.
+// Wall phase 0: the wall in the gate's deps reaching a sent shop's tests
+// and the dependency calls below them, and `shop add`'s, by a fake wall's
+// record.
 
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -36,6 +39,8 @@ import { decideAndRecord } from "../src/server.js";
 import { SPEC } from "../src/spec.js";
 import { loadShop } from "../src/shoptest.js";
 import { openStore, type Pass, type Store } from "../src/store.js";
+import { openWall } from "../src/wall.js";
+import { recordingWall, type RecordingWall } from "./helpers/wall.js";
 
 const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
 const MEMORY = path.resolve(import.meta.dirname, "../shops/memory");
@@ -47,7 +52,7 @@ let deps: GateDeps;
 
 const fakeRuntime: Runtime = async (_dir, manifest, command) => {
   runs.push(`${manifest.name} ${command}`);
-  return { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null };
+  return { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null, wall: "none" };
 };
 
 beforeEach(async () => {
@@ -55,7 +60,7 @@ beforeEach(async () => {
   store = openStore(dir);
   store.upsertShop(await loadShop(MEMORY), NOW);
   runs = [];
-  deps = { store, runtime: fakeRuntime, now: () => NOW };
+  deps = { store, wall: openWall("none"), runtime: fakeRuntime, now: () => NOW };
 });
 
 afterEach(() => {
@@ -94,7 +99,7 @@ describe("the hall's manifest", () => {
       const [command, ...words] = (split as { words: string[] }).words;
       const parsed = parseArgs(HALL, command!, words);
       expect(parsed.ok, test.name).toBe(true);
-      const out = await runHall({ store, now: () => NOW }, { pass, grant, command: command!, values: (parsed as { values: Record<string, string> }).values, stdin: null, callId: "call_test" });
+      const out = await runHall({ store, wall: openWall("none"), now: () => NOW }, { pass, grant, command: command!, values: (parsed as { values: Record<string, string> }).values, stdin: null, callId: "call_test" });
       expect(out.exit, test.name).toBe(0);
       expect(out.stdout, test.name).toContain((test.expect as { contains: string }).contains);
     }
@@ -414,6 +419,7 @@ describe("validate, test, and publish: the checks before any test", () => {
 describe("validate, test, and publish: the tests, as the agent", () => {
   let real: GateDeps;
   let processes: string[];
+  let walled: RecordingWall;
 
   /** A shop the operator adds for the test: its manifest in the row and its files in the town. */
   function addFixture(name: string, manifest: string, entry: string): void {
@@ -432,7 +438,8 @@ describe("validate, test, and publish: the tests, as the agent", () => {
       processes.push(`${manifest.name} ${command}`);
       return run(shop, manifest, command, values, opts);
     };
-    real = { store, runtime: counted, now: () => NOW, decide: decideAndRecord };
+    walled = recordingWall();
+    real = { store, wall: walled, runtime: counted, now: () => NOW, decide: decideAndRecord };
   });
 
   it("runs the tests with the agent's pass as the caller and the test's scratch root as the state, every inner call a row under the hall's", async () => {
@@ -493,6 +500,10 @@ describe("validate, test, and publish: the tests, as the agent", () => {
       [pass.id, "town/memory", "list"],
     ]);
     expect(existsSync(store.stateRoot)).toBe(false);
+    // The wall reached the sent shop's tests, at the staging copy, and the dependency's process each of them called.
+    const enclosedAt = walled.seen.map((e) => e.within.reads[0]!);
+    expect(enclosedAt.map((d) => (path.basename(d).startsWith(".staging-") ? "staging" : path.relative(store.shopsDir, d)))).toEqual(["staging", "town%2Fmemory", "staging", "town%2Fmemory"]);
+    expect(path.dirname(enclosedAt[0]!)).toBe(store.shopsDir);
     const added = await decideAndRecord(real, { token, argv: ["todo", "add", "--item", "milk"], stdin: null, json: false });
     expect(added).toMatchObject({ exit: 0, result: "ok" });
     expect((await decideAndRecord(real, { token, argv: ["todo", "list"], stdin: null, json: false })).stdout).toBe("todo/milk\n");
@@ -592,7 +603,9 @@ describe("the publish grant, the staging, and the owner", () => {
       const io: Io = { out: (x) => void (out += x), err: (x) => void (out += x), env: {} };
       // The operator's tree runs the shop's tests with the real runtime; memory's code is in the town for it.
       cpSync(MEMORY, shopDir(store, "town/memory"), { recursive: true });
-      expect(await shopAdd(store, null, at, { user: () => undefined, credentials: [] }, io, NOW), out).toBe(0);
+      const byOperator = recordingWall();
+      expect(await shopAdd(store, null, at, { user: () => undefined, credentials: [] }, io, NOW, byOperator), out).toBe(0);
+      expect(byOperator.seen.map((e) => path.basename(e.within.reads[0]!).replace(/^\.staging-[0-9a-f]+$/, "staging"))).toEqual(["staging", "town%2Fmemory"]);
       expect(store.getShop("dimitri/todo")).toMatchObject({ owner: null, ownerName: null });
       expect((await send(token, "publish", todo(exitZero()))).exit).toBe(0);
       expect(store.getShop("dimitri/todo")).toMatchObject({ owner: pass.userId });

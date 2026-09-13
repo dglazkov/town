@@ -10,6 +10,8 @@
 // src/publish.ts; `grant new`'s checks are src/grants.ts, and `permit
 // approve` makes an agent's proposed grant through them. The hall is the
 // town's own shop: `shop rm` refuses it, as `shop add` refuses its name.
+// `shop test` and `shop add` run the shop's tests within the wall `main`
+// is given.
 
 import { rm } from "node:fs/promises";
 import type { CallRow } from "./audit.js";
@@ -21,6 +23,7 @@ import { isoTime } from "./notices.js";
 import { dependentsOf, shopAdd, shopTest, type Picked } from "./publish.js";
 import { StoreError, openStore, type Store } from "./store.js";
 import { VaultError, ensureKey, requireKey } from "./vault.js";
+import type { Wall } from "./wall.js";
 
 export interface Io {
   out: (s: string) => void;
@@ -99,7 +102,7 @@ export function parseDuration(text: string): number {
   return Number(m[1]) * unit;
 }
 
-export async function main(argv: readonly string[], io: Io): Promise<number> {
+export async function main(argv: readonly string[], io: Io, wall: Wall): Promise<number> {
   const now = io.now ?? Date.now;
   let p: Parsed;
   try {
@@ -122,7 +125,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     if (args.length !== 1) return usage(io, "shop test takes one directory");
     if (data === undefined) {
       if (p.opts.has("user")) return usage(io, "shop test --user needs --data <dir>, or $TOWN_DATA, where the user's credentials are");
-      return shopTest(null, args[0]!, picked(p), io);
+      return shopTest(null, args[0]!, picked(p), io, wall);
     }
   }
   if (!data) return usage(io, "needs --data <dir>, or $TOWN_DATA");
@@ -131,8 +134,8 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
   try {
     store = openStore(data);
     const key = requireKey(store.dataDir, store.sealedRows());
-    if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p), io);
-    return await dispatch(store, key, noun, verb, args, p, io, now());
+    if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p), io, wall);
+    return await dispatch(store, key, noun, verb, args, p, io, now(), wall);
   } catch (err) {
     if (err instanceof UsageError) return usage(io, err.message);
     if (err instanceof StoreError || err instanceof VaultError) {
@@ -154,7 +157,7 @@ function noExtra(args: readonly string[], n: number, what: string): void {
   if (args.length !== n) throw new UsageError(`${what} takes ${n === 0 ? "no words" : n === 1 ? "one word" : `${n} words`}, not ${args.length}`);
 }
 
-async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io, now: number): Promise<number> {
+async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io, now: number, wall: Wall): Promise<number> {
   const key = `${noun} ${verb ?? ""}`.trim();
   switch (key) {
     case "user add": {
@@ -235,7 +238,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
 
     case "shop add":
       noExtra(args, 1, "shop add");
-      return shopAdd(store, vaultKey, args[0]!, picked(p), io, now);
+      return shopAdd(store, vaultKey, args[0]!, picked(p), io, now, wall);
     case "shop ls":
       noExtra(args, 0, "shop ls");
       io.out(

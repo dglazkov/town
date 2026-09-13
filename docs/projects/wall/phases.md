@@ -24,8 +24,11 @@ Gate's, vault's, compose's, and hall's rules still hold, and
 
 ---
 
-**Where we are: planned, 12 September 2026.** No phase begun; next is
-wall phase 0. Two
+**Where we are: wall phase 0 closed, 12 September 2026.** The wall
+around a process stands: `src/wall.ts`, `run` requiring a wall, and
+journey 2 steps 1 to 5 proved through `run` under Seatbelt on this Mac.
+The town still runs every shop with `none`. Next is wall phase 1, the
+town's walls; nothing waits on a person. Two
 facts were measured before the docs were written and shape them: Docker
 Desktop on this box cannot give a container the call's windows, a unix
 socket in a bind mount being refused and a container with no network
@@ -72,9 +75,9 @@ journey 2 writes it, taking the town's address, a port, and a process
 id on stdin as JSON.
 
 Tests, `checkout`: `test/wall.test.ts`, on a box with Seatbelt: the
-prying fixture run under `openWall("seatbelt", { data })` with an
-enclosure the test builds, and journey 2 steps 1 to 5 asserted line by
-line; the profile's text for a given enclosure; a quote in a path and a
+prying fixture run through `run` under `openWall("seatbelt", { data })`,
+the enclosure the runtime's own, and journey 2 steps 1 to 5 asserted
+line by line; the profile's text for a given enclosure; a quote in a path and a
 port out of range refused; `openWall("seatbelt")` refused where
 `wallOnThisBox()` is null, made so through the environment name the
 design's box test uses. On a box without Seatbelt these say what they
@@ -92,7 +95,7 @@ change to the `command` ring, no exfil test change. `townd serve` runs
 every shop with `none`.
 
 **Proof:** `pnpm build && pnpm test && pnpm typecheck` exit 0. On this
-Mac, `pnpm test -- test/wall.test.ts` runs, not skips, and its output
+Mac, `pnpm test test/wall.test.ts` runs, not skips, and its output
 names each refusal by errno. Falsified by at least one mutation: the
 profile's deny of the data directory removed (the key line fails), the
 deny of every write removed (the `/Users/Shared` line fails), the
@@ -101,7 +104,35 @@ port allow made `localhost:*` (the other-port line fails), and
 fails). Then by hand: a one-line script that opens the box's wall
 around `node -e` reading `~/.zshrc`, printing `EPERM`.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. The proof held: 462 tests, typecheck
+clean, `pnpm test test/wall.test.ts` ten run and none skipped, each
+refusal logged by errno; all four mutations failed their lines; the
+one-liner printed `EPERM`.
+
+**Findings:**
+
+- **2026-09-12 — The phase took about fifty minutes of wall clock.**
+  Two profile faults were measured and fixed in the design first
+  (62500d3); the builder went back once, to run journey 2 through
+  `run` rather than an enclosure the test copied.
+- **2026-09-12 — A walled public request fails `ENOTFOUND`, not
+  `EPERM`:** `(deny network*)` refuses the resolver before any connect.
+- **2026-09-12 — The home is read from the password database, not
+  `$HOME`,** since the `command` ring serves with a temporary `HOME` and
+  hiding that would leave the real home readable.
+- **2026-09-12 — `/private/var/tmp` is in no deny.** A walled shop reads
+  what the operator keeps there; `test/wall.test.ts` puts its data
+  directory there so the data directory's own deny is proved alone.
+- **2026-09-12 — Node's directory is readable whole.** Under nvm it is
+  `~/.nvm/versions/node/<v>`, global packages included, and it is the
+  only reason any shop starts on this Mac.
+- **2026-09-12 — The town's install is readable by every shop:** in a
+  checkout, the whole repo, `.git` included. Nothing refuses a data
+  directory placed under it.
+- **2026-09-12 — `admin.ts` takes the wall too,** as `main`'s third
+  argument, to reach `shop add` and `shop test`; `RunResult.wall` is set
+  even for a call aborted before its process, so the audit must not
+  read it alone.
 
 ---
 

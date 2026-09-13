@@ -10,7 +10,9 @@
 // hall: its calls are the agent's pass with the test's scratch root, so at
 // every dependency the gate cuts the agent's own grants by the manifest,
 // and records each call under the hall's. A line that fails after a call
-// of its was denied says the denial's line.
+// of its was denied says the denial's line. Every line runs within the
+// wall it is given, the agent's the gate's own: a shop's tests are the
+// shop's code too.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
@@ -20,6 +22,7 @@ import { answerFor, type Caller, type GateDeps, type TestTree } from "./gate.js"
 import { parseManifest, type Manifest, type ShopTest, type TownShop } from "./manifest.js";
 import { run, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
 import type { Grant, Pass, Store } from "./store.js";
+import type { Wall } from "./wall.js";
 
 export interface TestResult {
   name: string;
@@ -37,6 +40,8 @@ export class ManifestRefused extends Error {
 }
 
 export interface TestShopOptions {
+  /** What encloses each line's process, and every dependency's below it; the agent's tree uses its gate's, which must be this one. */
+  wall: Wall;
   /** The limit each line runs under; the runtime's thirty seconds when omitted. */
   timeoutMs?: number;
   /** The credential types the town holds; omitted when no store is at hand, and then a need is refused. */
@@ -118,7 +123,8 @@ export async function loadShop(dir: string, types?: readonly string[], shops?: r
 }
 
 /** Runs every test in the shop's manifest; one result per test, in order. */
-export async function testShop(dir: string, opts: TestShopOptions = {}): Promise<TestResult[]> {
+export async function testShop(dir: string, opts: TestShopOptions): Promise<TestResult[]> {
+  if (opts.agent && opts.agent.deps.wall !== opts.wall) throw new Error("a shop's tests were given one wall and its gate another");
   const manifest = await loadShop(dir, opts.types, opts.shops);
   const composed = (manifest.depends ?? []).length > 0;
   if (composed && !opts.store && !opts.agent) throw new Error(`${manifest.name}'s tests call its dependencies, and were given no town to call them in`);
@@ -153,6 +159,7 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
         user: agent ? agent.pass.userId : TEST_USER,
         stateRoot,
         stdin: "",
+        wall: opts.wall,
         ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
         ...(own.length ? { credentials: own } : {}),
       };
@@ -161,7 +168,7 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
         runOpts.town = { answer: answerFor(agent.deps, caller) };
       } else if (opts.store && (manifest.depends ?? []).length) {
         const test: TestTree = { grants: treeOf(manifest, opts.store).grants, user: TEST_USER, stateRoot, credentials: opts.credentials ?? [] };
-        const deps = { store: opts.store, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) };
+        const deps: GateDeps = { store: opts.store, wall: opts.wall, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) };
         runOpts.town = { answer: answerFor(deps, { test, manifest, parent: null, depth: 1 }) };
       }
       const result = await (agent?.deps.runtime ?? run)(dir, manifest, command, parsed.values, runOpts);

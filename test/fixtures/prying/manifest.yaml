@@ -1,0 +1,20 @@
+name: test/prying
+version: 0.0.1
+summary: Reports everything it can reach and every refusal, for the wall's tests.
+guidance: |
+  Its stdin is JSON naming what a test wants tried beyond its own reach:
+  the town's address, a port the test listens on, and the town's process
+  id. Each probe is one JSON line on stdout.
+runtime: subprocess
+entry: ./main.mjs
+credentials:
+  - type: test-origin
+commands:
+  - name: pry
+    summary: Try every read, write, connection, and signal journey 2 names, and print one line for each.
+    effect: read
+    output: json
+tests:
+  - name: it reports
+    run: pry
+    expect: { contains: "\"act\"" }

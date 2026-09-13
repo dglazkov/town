@@ -6,7 +6,10 @@
 // A shop with dependencies gets TOWN_GRANT and `town` first on PATH, from
 // a call directory holding those two alone, over a clerk that answers
 // with the fake answer the test gives; both are gone after, and an abort
-// or the limit ends every call the clerk was answering.
+// or the limit ends every call the clerk was answering. The process runs
+// within the wall it is given, which is required: the enclosure the
+// runtime builds is read from a fake wall's record, and under the box's
+// own wall, where it has one, the contract holds as it did without.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -19,12 +22,22 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { loadShop } from "../src/shoptest.js";
 import type { Manifest } from "../src/manifest.js";
 import type { Answer, ClerkCall } from "../src/clerk.js";
-import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, credentialEnvName, run, stateDir, type RunCredential } from "../src/runtime.js";
+import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, TOWN_BIN, credentialEnvName, run, stateDir, type RunCredential } from "../src/runtime.js";
+import { openWall, wallOnThisBox } from "../src/wall.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
+import { recordingWall } from "./helpers/wall.js";
 
 const ECHO = path.resolve(import.meta.dirname, "fixtures/echo-shop");
 const SH = path.resolve(import.meta.dirname, "fixtures/sh-shop");
 const TELLER = path.resolve(import.meta.dirname, "fixtures/teller-shop");
+const wall = openWall("none");
+/** The box's own wall, or null on a box without one; the tests that need it say so and skip. */
+const BOX = wallOnThisBox();
+const boxWall = BOX ? openWall(BOX) : null;
+const needsBox = BOX ? `walled by ${BOX}` : "needs a box with a wall; this box has none, so it skips";
+/** Node's own directory and the town's install, as the runtime reads them. */
+const NODE_DIR = path.dirname(path.dirname(process.execPath));
+const INSTALL = path.resolve(import.meta.dirname, "..");
 
 interface Echo {
   argv: string[];
@@ -54,6 +67,7 @@ async function echo(args: Record<string, string | number | boolean>, opts: { use
   const r = await run(ECHO, opts.m ?? manifest, "echo", args, {
     user: opts.user ?? "u1",
     stateRoot,
+    wall,
     ...(opts.stdin === undefined ? {} : { stdin: opts.stdin }),
   });
   expect(r.exit, r.stderr).toBe(0);
@@ -97,7 +111,7 @@ describe("argv", () => {
   });
 
   it("refuses values that are not canonical before a process exists", async () => {
-    const opts = { user: "u1", stateRoot };
+    const opts = { user: "u1", stateRoot, wall };
     await expect(run(ECHO, manifest, "echo", {}, opts)).rejects.toThrow(/--zeta is required/);
     await expect(run(ECHO, manifest, "echo", { zeta: "z", stray: "x" }, opts)).rejects.toThrow(/not an argument/);
     await expect(run(ECHO, manifest, "echo", { zeta: "z", mode: "medium" }, opts)).rejects.toThrow(/wrong type/);
@@ -110,7 +124,7 @@ describe("argv", () => {
 
   it("executes a non-JavaScript entry directly", async () => {
     const m = await loadShop(SH);
-    const r = await run(SH, m, "args", { word: "two words" }, { user: "u1", stateRoot });
+    const r = await run(SH, m, "args", { word: "two words" }, { user: "u1", stateRoot, wall });
     expect(r).toMatchObject({ exit: 0, timedOut: false, stdout: "args\n--word\ntwo words\n" });
   });
 });
@@ -182,14 +196,14 @@ describe("stdin", () => {
     const mb = Buffer.alloc(STDIN_LIMIT_BYTES, "a");
     expect((await echo({ zeta: "z" }, { stdin: mb })).stdin).toHaveLength(STDIN_LIMIT_BYTES);
     const over = Buffer.alloc(STDIN_LIMIT_BYTES + 1, "a");
-    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, stdin: over })).rejects.toThrow(RangeError);
+    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, stdin: over })).rejects.toThrow(RangeError);
   });
 });
 
 describe("stdout, stderr, exit", () => {
   it("returns stderr and a nonzero exit as the entry gave them", async () => {
-    const r = await run(ECHO, manifest, "fail", {}, { user: "u1", stateRoot });
-    expect(r).toEqual({ stdout: "", stderr: "the fixture failed on purpose\n", exit: 3, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null });
+    const r = await run(ECHO, manifest, "fail", {}, { user: "u1", stateRoot, wall });
+    expect(r).toEqual({ stdout: "", stderr: "the fixture failed on purpose\n", exit: 3, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null, wall: "none" });
   });
 });
 
@@ -201,7 +215,7 @@ describe("time", () => {
   it("kills a sleeping entry and what it started at the limit", async () => {
     const user = "sleeper";
     const started = Date.now();
-    const r = await run(ECHO, manifest, "sleep", {}, { user, stateRoot, timeoutMs: 1500 });
+    const r = await run(ECHO, manifest, "sleep", {}, { user, stateRoot, wall, timeoutMs: 1500 });
     expect(r.timedOut).toBe(true);
     expect(r.exit).toBe(1);
     expect(Date.now() - started).toBeLessThan(10_000);
@@ -213,7 +227,7 @@ describe("time", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const user = "slow-sleeper";
     let settled = false;
-    const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot }).then((r) => {
+    const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot, wall }).then((r) => {
       settled = true;
       return r;
     });
@@ -276,7 +290,7 @@ describe("credentials", () => {
   it("makes the environment exactly the three names plus one per need, each a teller's URL, the token in no name and no value", async () => {
     const added = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(Object.keys(process.env)))"], { env: {} });
     const selfAdded = JSON.parse(added.stdout.toString("utf8")) as string[];
-    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, stdin: "the call's stdin", credentials: [cred("github-token"), cred("test-origin")] });
+    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, stdin: "the call's stdin", credentials: [cred("github-token"), cred("test-origin")] });
     expect(r.exit, r.stderr).toBe(0);
     const out = JSON.parse(r.stdout) as Echo;
     expect(Object.keys(out.env).filter((k) => !selfAdded.includes(k)).sort()).toEqual([
@@ -303,7 +317,7 @@ describe("credentials", () => {
   });
 
   it("closes the teller after the process exits: its URL refuses at the socket", async () => {
-    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, credentials: [cred("test-origin")] });
+    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, credentials: [cred("test-origin")] });
     const url = (JSON.parse(r.stdout) as Echo).env.TOWN_CREDENTIAL_TEST_ORIGIN!;
     expect(url).toMatch(URL_SHAPE);
     expect(await refused(`${url}/after`)).toBe(true);
@@ -311,7 +325,7 @@ describe("credentials", () => {
 
   it("closes the teller after the limit", async () => {
     const user = "teller-sleeper";
-    const r = await run(ECHO, manifest, "sleep", {}, { user, stateRoot, timeoutMs: 1500, credentials: [cred("test-origin")] });
+    const r = await run(ECHO, manifest, "sleep", {}, { user, stateRoot, wall, timeoutMs: 1500, credentials: [cred("test-origin")] });
     expect(r.timedOut).toBe(true);
     const env = JSON.parse(await readFile(path.join(stateDir(stateRoot, manifest.name, user), "env.json"), "utf8")) as Record<string, string>;
     expect(env.TOWN_CREDENTIAL_TEST_ORIGIN).toMatch(URL_SHAPE);
@@ -322,7 +336,7 @@ describe("credentials", () => {
   it("closes the teller when the entry cannot be started", async () => {
     const servers = countListens();
     const missing: Manifest = { ...manifest, entry: "./no-such-entry.sh" };
-    const r = await run(ECHO, missing, "fail", {}, { user: "u1", stateRoot, credentials: [cred("test-origin")] });
+    const r = await run(ECHO, missing, "fail", {}, { user: "u1", stateRoot, wall, credentials: [cred("test-origin")] });
     expect(r.exit).toBe(1);
     expect(r.stderr).toMatch(/^town: could not start \.\/no-such-entry\.sh/);
     expect(r.stderr).not.toContain(TOKEN);
@@ -333,9 +347,9 @@ describe("credentials", () => {
   it("opens no teller for a call refused before a process exists", async () => {
     const servers = countListens();
     const over = Buffer.alloc(STDIN_LIMIT_BYTES + 1, "a");
-    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, stdin: over, credentials: [cred("test-origin")] })).rejects.toThrow(RangeError);
-    await expect(run(ECHO, manifest, "echo", {}, { user: "u1", stateRoot, credentials: [cred("test-origin")] })).rejects.toThrow(/--zeta is required/);
-    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, credentials: [cred("test-origin"), cred("test-origin")] })).rejects.toThrow(/two credentials of one type/);
+    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, stdin: over, credentials: [cred("test-origin")] })).rejects.toThrow(RangeError);
+    await expect(run(ECHO, manifest, "echo", {}, { user: "u1", stateRoot, wall, credentials: [cred("test-origin")] })).rejects.toThrow(/--zeta is required/);
+    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, credentials: [cred("test-origin"), cred("test-origin")] })).rejects.toThrow(/two credentials of one type/);
     expect(servers).toEqual([]);
   });
 
@@ -343,7 +357,7 @@ describe("credentials", () => {
     const teller = await loadShop(TELLER, ["test-origin"]);
     expect(teller.credentials).toEqual([{ type: "test-origin" }]);
     const before = origin.seen.length;
-    const r = await run(TELLER, teller, "get", { path: "/hello?from=shop" }, { user: "u1", stateRoot, credentials: [cred("test-origin")] });
+    const r = await run(TELLER, teller, "get", { path: "/hello?from=shop" }, { user: "u1", stateRoot, wall, credentials: [cred("test-origin")] });
     expect(r.exit, r.stderr).toBe(0);
     expect(r.stdout).toBe("200\nhello from the origin");
     const seen = origin.seen.slice(before);
@@ -438,26 +452,26 @@ child.on("close", (code) => {
     const cred: RunCredential = { type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN };
 
     // No dependencies: no TOWN_GRANT, whatever town it is handed.
-    const plain = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, town: { answer: answered } });
+    const plain = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, town: { answer: answered } });
     expect(names((JSON.parse(plain.stdout) as Echo).env)).toEqual(["PATH", "TOWN_STATE", "TOWN_USER"]);
     expect((JSON.parse(plain.stdout) as Echo).env.PATH).toBe(process.env.PATH);
-    const plainNeed = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, credentials: [cred], town: { answer: answered } });
+    const plainNeed = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, credentials: [cred], town: { answer: answered } });
     expect(names((JSON.parse(plainNeed.stdout) as Echo).env)).toEqual(["PATH", "TOWN_CREDENTIAL_TEST_ORIGIN", "TOWN_STATE", "TOWN_USER"]);
     expect([plain.calls, plain.denied, plainNeed.calls]).toEqual([0, null, 0]);
 
     // Dependencies: TOWN_GRANT, and the call's bin first on PATH.
-    const composed = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: answered } });
+    const composed = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, wall, town: { answer: answered } });
     expect(composed.exit, composed.stderr).toBe(0);
     const seen = JSON.parse(composed.stdout) as Probe;
     expect(names(seen.env)).toEqual(["PATH", "TOWN_GRANT", "TOWN_STATE", "TOWN_USER"]);
     const callDir = path.dirname(seen.env.TOWN_GRANT!);
     expect(seen.env.PATH).toBe(`${path.join(callDir, "bin")}${path.delimiter}${process.env.PATH}`);
-    const withNeed = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, credentials: [cred], town: { answer: answered } });
+    const withNeed = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, wall, credentials: [cred], town: { answer: answered } });
     expect(names((JSON.parse(withNeed.stdout) as Probe).env)).toEqual(["PATH", "TOWN_CREDENTIAL_TEST_ORIGIN", "TOWN_GRANT", "TOWN_STATE", "TOWN_USER"]);
   });
 
   it("makes a call directory, mode 700, holding bin/town and grant and nothing else, and removes it after", async () => {
-    const r = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: answered } });
+    const r = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, wall, town: { answer: answered } });
     const seen = JSON.parse(r.stdout) as Probe;
     const callDir = path.dirname(seen.env.TOWN_GRANT!);
     expect(path.basename(callDir)).toMatch(/^town-call-/);
@@ -469,14 +483,14 @@ child.on("close", (code) => {
     ]);
     expect(seen.env.TOWN_GRANT).toBe(path.join(callDir, "grant"));
     expect(await exists(callDir)).toBe(false);
-    const again = JSON.parse((await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: answered } })).stdout) as Probe;
+    const again = JSON.parse((await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, wall, town: { answer: answered } })).stdout) as Probe;
     expect(path.dirname(again.env.TOWN_GRANT!)).not.toBe(callDir);
     expect(again.grant).not.toBe(seen.grant);
   });
 
   it("writes a grant file whose town is the clerk and whose token is none the test holds; town from the process reaches the clerk, dead after", async () => {
     const cred: RunCredential = { type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN };
-    const r = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, credentials: [cred], town: { answer: answered } });
+    const r = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, wall, credentials: [cred], town: { answer: answered } });
     const seen = JSON.parse(r.stdout) as Probe;
     const grant = JSON.parse(seen.grant!) as { town: string; token: string };
     expect(Object.keys(grant).sort()).toEqual(["token", "town"]);
@@ -492,19 +506,19 @@ child.on("close", (code) => {
 
   it("carries the first denial among the clerk's answers on the result", async () => {
     const denying: Answer = async () => ({ stdout: "", stderr: "error: command 'echo' is not available to this grant\n", exit: 2, denial: "error: command 'echo' is not available to this grant" });
-    const r = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, town: { answer: denying } });
+    const r = await run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, wall, town: { answer: denying } });
     expect((JSON.parse(r.stdout) as Probe).town).toEqual({ exit: 2, stdout: "", stderr: "error: command 'echo' is not available to this grant\n" });
     expect([r.calls, r.denied]).toEqual([1, "error: command 'echo' is not available to this grant"]);
   });
 
   it("refuses a shop with dependencies and no town before anything is opened", async () => {
-    await expect(run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot })).rejects.toThrow(/has dependencies and run was given no town/);
+    await expect(run(probeDir, PROBE, "probe", {}, { user: "u1", stateRoot, wall })).rejects.toThrow(/has dependencies and run was given no town/);
   });
 
   it("kills the group on abort, says aborted, and aborts every call its clerk was answering", async () => {
     const user = "abort-sleeper";
     const controller = new AbortController();
-    const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot, signal: controller.signal });
+    const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot, wall, signal: controller.signal });
     const pid = Number(await waitForFile(path.join(stateDir(stateRoot, manifest.name, user), "grandchild.pid")));
     controller.abort();
     const r = await call;
@@ -518,7 +532,7 @@ child.on("close", (code) => {
         signal.addEventListener("abort", () => resolve({ stdout: "", stderr: "", exit: 1, denial: null }));
       });
     const outer = new AbortController();
-    const tree = run(probeDir, PROBE, "hang", {}, { user: "u1", stateRoot, signal: outer.signal, town: { answer: hanging } });
+    const tree = run(probeDir, PROBE, "hang", {}, { user: "u1", stateRoot, wall, signal: outer.signal, town: { answer: hanging } });
     for (let i = 0; i < 250 && !inner; i++) await realDelay(20);
     expect(inner).not.toBeNull();
     outer.abort();
@@ -531,7 +545,7 @@ child.on("close", (code) => {
 
     const before = new AbortController();
     before.abort();
-    expect(await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, signal: before.signal })).toMatchObject({ aborted: true, exit: 1, stdout: "" });
+    expect(await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall, signal: before.signal })).toMatchObject({ aborted: true, exit: 1, stdout: "" });
   });
 
   it("ends every call its clerk was answering at the limit", async () => {
@@ -541,10 +555,137 @@ child.on("close", (code) => {
         inner = signal;
         signal.addEventListener("abort", () => resolve({ stdout: "", stderr: "", exit: 1, denial: null }));
       });
-    const r = await run(probeDir, PROBE, "hang", {}, { user: "u1", stateRoot, timeoutMs: 1500, town: { answer: hanging } });
+    const r = await run(probeDir, PROBE, "hang", {}, { user: "u1", stateRoot, wall, timeoutMs: 1500, town: { answer: hanging } });
     expect([r.timedOut, r.aborted, r.exit]).toEqual([true, false, 1]);
     expect(inner).not.toBeNull();
     expect(inner!.aborted).toBe(true);
+  });
+
+  it("builds the enclosure of a composed call with a need: the call's directory read, and the teller's and the clerk's ports", async () => {
+    const recording = recordingWall();
+    const cred: RunCredential = { type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN };
+    const r = await run(probeDir, { ...PROBE, credentials: [{ type: "test-origin" }] }, "probe", {}, { user: "u1", stateRoot, wall: recording, credentials: [cred], town: { answer: answered } });
+    expect(r.exit, r.stderr).toBe(0);
+    const seen = JSON.parse(r.stdout) as Probe;
+    const callDir = path.dirname(seen.env.TOWN_GRANT!);
+    const port = (url: string) => Number(new URL(url).port);
+    expect(recording.seen).toEqual([
+      {
+        file: process.execPath,
+        args: [path.join(probeDir, "main.mjs"), "probe"],
+        within: {
+          reads: [probeDir, NODE_DIR, INSTALL, callDir],
+          writes: [stateDir(stateRoot, PROBE.name, "u1")],
+          ports: [port(seen.env.TOWN_CREDENTIAL_TEST_ORIGIN!), port((JSON.parse(seen.grant!) as { town: string }).town)],
+        },
+      },
+    ]);
+    expect(r.wall).toBe("none");
+  });
+
+  it.skipIf(!boxWall)(`runs a composed shop's town within the box's wall, answered by its clerk from the call's grant (${needsBox})`, async () => {
+    const r = await run(probeDir, PROBE, "probe", {}, { user: "walled", stateRoot, wall: boxWall!, town: { answer: answered } });
+    expect(r.exit, r.stderr).toBe(0);
+    expect(r.wall).toBe(BOX);
+    const seen = JSON.parse(r.stdout) as Probe;
+    const added = selfAdded();
+    expect(Object.keys(seen.env).filter((k) => !added.includes(k)).sort()).toEqual(["PATH", "TOWN_GRANT", "TOWN_STATE", "TOWN_USER"]);
+    expect(JSON.parse(seen.grant!)).toMatchObject({ town: expect.stringMatching(GRANT_URL) });
+    expect(seen.town).toEqual({ exit: 0, stdout: "the town's answer\n", stderr: "" });
+    expect(asked).toEqual([{ argv: ["echo", "echo", "--zeta", "from-the-probe"], stdin: null, json: false }]);
+    expect([r.calls, r.denied]).toEqual([1, null]);
+  });
+});
+
+describe("the wall", () => {
+  const names = (env: Record<string, string>) => {
+    const r = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(Object.keys(process.env)))"], { env: {} });
+    const added = JSON.parse(r.stdout.toString("utf8")) as string[];
+    return Object.keys(env).filter((k) => !added.includes(k)).sort();
+  };
+
+  it("is required: run without one is refused by the type checker, and at run time before anything is made", async () => {
+    const user = "no-wall";
+    // @ts-expect-error run takes a wall, and there is no default
+    await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user, stateRoot })).rejects.toThrow(/run was given no wall for test\/echo/);
+    expect(await stat(stateDir(stateRoot, manifest.name, user)).then(() => true, () => false)).toBe(false);
+  });
+
+  it("is given the enclosure the design names: the shop's directory, Node's, and the town's install to read, the state to write, no port", async () => {
+    const recording = recordingWall();
+    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall: recording });
+    expect(r.exit, r.stderr).toBe(0);
+    expect(path.dirname(path.dirname(TOWN_BIN))).toBe(INSTALL);
+    expect(recording.seen).toEqual([
+      {
+        file: process.execPath,
+        args: [path.join(ECHO, "main.mjs"), "echo", "--zeta", "z", "--alpha", "7", "--mode", "slow", "--loud", "false"],
+        within: { reads: [ECHO, NODE_DIR, INSTALL], writes: [stateDir(stateRoot, manifest.name, "u1")], ports: [] },
+      },
+    ]);
+    const sh = await loadShop(SH);
+    const shRecording = recordingWall();
+    await run(SH, sh, "args", { word: "w" }, { user: "u1", stateRoot, wall: shRecording });
+    expect(shRecording.seen.map((e) => [e.file, e.args])).toEqual([[path.join(SH, "entry.sh"), ["args", "--word", "w"]]]);
+  });
+
+  it("closes every window it opened when the wall refuses the enclosure", async () => {
+    const refusing = { kind: "none" as const, enclose: () => { throw new Error("the wall refused"); } };
+    const origin = await fakeOrigin();
+    const listens: http.Server[] = [];
+    const listen = http.Server.prototype.listen;
+    const spy = vi.spyOn(http.Server.prototype, "listen").mockImplementation(function (this: http.Server, ...args: unknown[]) {
+      listens.push(this);
+      return (listen as (...a: unknown[]) => http.Server).apply(this, args);
+    });
+    try {
+      const cred: RunCredential = { type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: "tok_refused" };
+      await expect(run(ECHO, manifest, "echo", { zeta: "z" }, { user: "u1", stateRoot, wall: refusing, credentials: [cred] })).rejects.toThrow(/the wall refused/);
+      expect(listens.map((s) => s.listening)).toEqual([false]);
+    } finally {
+      spy.mockRestore();
+      await origin.close();
+    }
+  });
+
+  it.skipIf(!boxWall)(`keeps the environment exactly the contract's three names under the box's wall (${needsBox})`, async () => {
+    const r = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "opaque-7", stateRoot, wall: boxWall!, stdin: "walled stdin" });
+    expect(r.exit, r.stderr).toBe(0);
+    expect(r.wall).toBe(BOX);
+    const out = JSON.parse(r.stdout) as Echo;
+    expect(names(out.env)).toEqual(["PATH", "TOWN_STATE", "TOWN_USER"]);
+    expect(out.env.PATH).toBe(process.env.PATH);
+    expect(out.argv).toEqual(["echo", "--zeta", "z", "--alpha", "7", "--mode", "slow", "--loud", "false"]);
+    expect(out.stdin).toBe("walled stdin");
+    expect(await realPath(out.cwd)).toBe(await realPath(ECHO));
+  });
+
+  it.skipIf(!boxWall)(`gives the same TOWN_STATE path within the box's wall as without it (${needsBox})`, async () => {
+    const unwalled = JSON.parse((await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "same", stateRoot, wall })).stdout) as Echo;
+    const walled = await run(ECHO, manifest, "echo", { zeta: "z" }, { user: "same", stateRoot, wall: boxWall! });
+    expect(walled.exit, walled.stderr).toBe(0);
+    expect((JSON.parse(walled.stdout) as Echo).env.TOWN_STATE).toBe(unwalled.env.TOWN_STATE);
+    expect(unwalled.env.TOWN_STATE).toBe(stateDir(stateRoot, manifest.name, "same"));
+  });
+
+  it.skipIf(!boxWall)(`kills a sleeping entry at the limit under the box's wall, with nothing left in its group (${needsBox})`, async () => {
+    const user = "walled-sleeper";
+    const call = run(ECHO, manifest, "sleep", {}, { user, stateRoot, timeoutMs: 1500, wall: boxWall! });
+    const pid = Number(await waitForFile(path.join(stateDir(stateRoot, manifest.name, user), "grandchild.pid")));
+    const pgid = Number(spawnSync("/bin/ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
+    expect(pgid).toBeGreaterThan(1);
+    expect(pgid).not.toBe(process.pid);
+    const r = await call;
+    expect([r.timedOut, r.exit, r.wall]).toEqual([true, 1, BOX]);
+    expect(await gone(pid)).toBe(true);
+    let group: string | undefined;
+    try {
+      process.kill(-pgid, 0);
+      group = "alive";
+    } catch (e) {
+      group = (e as NodeJS.ErrnoException).code;
+    }
+    expect(group, `process group ${pgid}`).toBe("ESRCH");
   });
 });
 

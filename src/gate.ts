@@ -32,6 +32,7 @@ import { noticesFor, type Notice } from "./notices.js";
 import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, run, segment, type RunCredential } from "./runtime.js";
 import { hashToken, type Grant, type Pass, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
+import type { Wall } from "./wall.js";
 
 export interface CallRequest {
   /** The bearer token; null when the request carried none. */
@@ -99,6 +100,8 @@ export interface GateDeps {
   decide?: (deps: GateDeps, req: CallRequest, signal?: AbortSignal) => Promise<Outcome>;
   /** The runtime; the real one when omitted. Tests pass one that records whether it ran. */
   runtime?: Runtime;
+  /** What encloses every shop process this gate starts, the runtime's own or one a test passes; required, and carried to a sent shop's tests. */
+  wall: Wall;
   /** Where a grant's bindings are opened; a call that needs one with none here is the town's failure. */
   vault?: Vault;
   now?: () => number;
@@ -310,6 +313,7 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     stateRoot: test ? test.stateRoot : (scratch ?? store.stateRoot),
     stdin: req.stdin,
     timeoutMs,
+    wall: deps.wall,
     ...(credentials.length ? { credentials } : {}),
     ...((manifest.depends ?? []).length ? { town: { answer: answerFor(deps, deeper) } } : {}),
     ...(signal ? { signal } : {}),

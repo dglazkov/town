@@ -1,6 +1,6 @@
 # Wall — the design
 
-**12 September 2026.** Planned, no phase begun. The project's status lives
+**12 September 2026.** Wall phase 0 closed. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §13 in

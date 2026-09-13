@@ -6,7 +6,11 @@
 // opened before the process exists and closed after it is gone; the
 // token stays in this process's memory. A shop with dependencies gets a
 // clerk and a call directory for the call, `town` first on its PATH and
-// the grant file at TOWN_GRANT, both gone when the process is.
+// the grant file at TOWN_GRANT, both gone when the process is. The
+// process runs within the wall it is given, around an enclosure built
+// once the windows are open: the shop's directory, Node's, the town's
+// install, and the call's directory to read, the state to write, and the
+// windows' ports to reach.
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -17,6 +21,7 @@ import { canonicalArgv, type ArgValues } from "./args.js";
 import { openClerk, type Answer, type Clerk } from "./clerk.js";
 import type { Manifest } from "./manifest.js";
 import { openTeller, type Teller } from "./teller.js";
+import type { Enclosure, Wall, WallKind } from "./wall.js";
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const STDIN_LIMIT_BYTES = 1024 * 1024;
@@ -39,6 +44,8 @@ export interface RunOptions {
   town?: { answer: Answer };
   /** On abort, the process group is killed as at the limit, and the result says aborted. */
   signal?: AbortSignal;
+  /** What encloses the process; required, so nothing runs unwalled because a caller forgot. */
+  wall: Wall;
 }
 
 export interface RunCredential {
@@ -61,6 +68,8 @@ export interface RunResult {
   calls: number;
   /** The first denial among those calls, or null. */
   denied: string | null;
+  /** The kind of wall the process ran within, or would have. */
+  wall: WallKind;
 }
 
 /** The environment name a credential type's teller URL is handed in: `TOWN_CREDENTIAL_<TYPE>`, "-" as "_". */
@@ -112,6 +121,9 @@ export async function run(
   const names = credentials.map((c) => credentialEnvName(c.type));
   if (new Set(names).size !== names.length) throw new Error("run was given two credentials of one type");
 
+  if (!opts.wall) throw new Error(`run was given no wall for ${manifest.name}; name one, openWall("none") included`);
+  const wall = opts.wall;
+
   const composed = (manifest.depends ?? []).length > 0;
   if (composed && !opts.town) throw new Error(`${manifest.name} has dependencies and run was given no town to answer its calls`);
 
@@ -134,7 +146,7 @@ export async function run(
     const counts = credentials.map((c, i) => ({ type: c.type, requests: tellers[i]?.requests ?? 0 }));
     await Promise.all([...tellers.map((t) => t.close()), clerk?.close()]);
     if (callDir) await rm(callDir, { recursive: true, force: true });
-    return { credentials: counts, calls: clerk?.calls ?? 0, denied: clerk?.denied ?? null };
+    return { credentials: counts, calls: clerk?.calls ?? 0, denied: clerk?.denied ?? null, wall: wall.kind };
   };
   if (opts.signal?.aborted) {
     return { stdout: "", stderr: "", exit: 1, timedOut: false, aborted: true, ...(await finish()) };
@@ -159,9 +171,20 @@ export async function run(
   }
 
   const isNode = /\.m?js$/.test(entry);
-  const file = isNode ? process.execPath : entry;
-  const fileArgs = isNode ? [entry, ...argv] : argv;
   const limit = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const within: Enclosure = {
+    reads: [root, path.dirname(path.dirname(process.execPath)), path.dirname(path.dirname(TOWN_BIN)), ...(callDir ? [callDir] : [])],
+    writes: [state],
+    ports: [...tellers.map((t) => t.url), ...(clerk ? [clerk.url] : [])].map((u) => Number(new URL(u).port)),
+  };
+  let file: string;
+  let fileArgs: string[];
+  try {
+    ({ file, args: fileArgs } = wall.enclose(isNode ? process.execPath : entry, isNode ? [entry, ...argv] : argv, within));
+  } catch (err) {
+    await finish();
+    throw err;
+  }
 
   return new Promise<RunResult>((resolve) => {
     let child: ReturnType<typeof spawn>;

@@ -20,6 +20,7 @@ import type { RunCredential } from "./runtime.js";
 import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
 import { StoreError, type Pass, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
+import type { Wall } from "./wall.js";
 
 /** `shop add`'s words for a manifest named as the town's own shop; `runtime: town` is the validator's refusal. */
 const HALL_REFUSAL = `${HALL_NAME} is the town's own shop, in every town from its first open; name the shop under another namespace`;
@@ -79,20 +80,20 @@ export function breaksDependents(store: Store, manifest: Manifest): string | nul
  * type, opened for the run and handed to the runtime, which opens a teller
  * per need. The tree runs over the dependencies' code in the town.
  */
-export async function shopTest(town: { store: Store; key: Buffer | null } | null, dir: string, picked: Picked, io: Io): Promise<number> {
+export async function shopTest(town: { store: Store; key: Buffer | null } | null, dir: string, picked: Picked, io: Io, wall: Wall): Promise<number> {
   const refuse = (line: string) => {
     io.err(`townd admin: shop test refused: ${line}\n`);
     return 1;
   };
   try {
-    if (!town) return report(await testShop(dir), io);
+    if (!town) return report(await testShop(dir, { wall }), io);
     const { store, key } = town;
     const types = store.listTypes().map((t) => t.name);
     const shops = townShops(store);
     const manifest = await loadShop(dir, types, shops);
     const met = meetNeeds(store, key, manifest.name, treeOf(manifest, store).needs, picked.user(), picked.credentials);
     if (typeof met === "string") return refuse(met);
-    return report(await testShop(dir, { types, shops, store, credentials: met }), io);
+    return report(await testShop(dir, { types, shops, store, credentials: met, wall }), io);
   } catch (err) {
     if (err instanceof ManifestRefused) {
       for (const line of err.refusals) io.err(`${line}\n`);
@@ -156,7 +157,7 @@ export async function strangeEntries(root: string): Promise<string[]> {
  * place and upsert the row. Latest only: a second add replaces the first,
  * and when it adds a need, the grants that stop being live are named.
  */
-export async function shopAdd(store: Store, key: Buffer | null, dir: string, picked: Picked, io: Io, now: number): Promise<number> {
+export async function shopAdd(store: Store, key: Buffer | null, dir: string, picked: Picked, io: Io, now: number, wall: Wall): Promise<number> {
   const src = path.resolve(dir);
   const refuse = (line: string) => {
     io.err(`townd admin: shop add refused: ${line}\n`);
@@ -203,7 +204,7 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     const manifest = await checkCopy(store, staging, types, shops);
     if (typeof manifest === "string") return refuse(manifest);
     if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
-    const results = await testShop(staging, { types, shops, store, ...(credentials.length ? { credentials } : {}) });
+    const results = await testShop(staging, { types, shops, store, wall, ...(credentials.length ? { credentials } : {}) });
     for (const r of results) io.out(r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`);
     const failing = results.filter((r) => !r.ok);
     if (failing.length) {
@@ -299,7 +300,7 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
     }
     if (typeof manifest === "string") return { refused: [manifest] };
     const timeout = deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs };
-    const results = await testShop(staging, { types, shops, store, ...timeout, agent: { deps, pass: req.pass, parent: req.parent } });
+    const results = await testShop(staging, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
     if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, kept: false, stopped: [] };
     const stopped = await putInPlace(store, staging, manifest, req.pass.userId, now);
     return { manifest, results, kept: true, stopped };

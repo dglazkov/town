@@ -1,11 +1,14 @@
 // townd, the operator's binary: `serve`, `admin`, and `spec`. `spec` reads
 // no data directory and `admin shop test` reads one only when given one;
-// every other verb needs --data, or $TOWN_DATA.
+// every other verb needs --data, or $TOWN_DATA. Until wall phase 1 gives
+// the operator --wall, every shop runs within the wall `none`, as before
+// the wall existed.
 
 import { main as admin } from "./admin.js";
 import { agentGrantAbove, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
 import { VaultError } from "./vault.js";
+import { openWall } from "./wall.js";
 
 const USAGE = "usage: townd serve [--data <dir>] [--port <n>] | townd admin [--data <dir>] <verb> | townd spec";
 
@@ -16,7 +19,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(SPEC);
     return 0;
   }
-  if (verb === "admin") return admin(rest, io);
+  if (verb === "admin") return admin(rest, io, openWall("none"));
   if (verb === "serve") return serve(rest);
   process.stderr.write(`townd: ${verb ? `${verb} is not a verb` : "no verb given"}\n${USAGE}\n`);
   return 1;

@@ -4,7 +4,8 @@
 // { stdout, stderr, exit }. In json mode stdout is the envelope and
 // stderr is empty. Each call's id is minted before the gate runs, and a
 // shop's own calls, answered at its clerk, are decided and recorded by the
-// same path with their parent's id.
+// same path with their parent's id. Until wall phase 1, every shop runs
+// within the wall `none`, as before the wall existed.
 
 import { existsSync, realpathSync } from "node:fs";
 import http from "node:http";
@@ -15,6 +16,7 @@ import { denials } from "./denials.js";
 import { KEY_MISSING, argvHash, gate, newCallId, type CallRequest, type GateDeps, type Outcome, type Vault } from "./gate.js";
 import { hashToken, openStore, type Store } from "./store.js";
 import { VaultError, readKey, requireKey } from "./vault.js";
+import { openWall } from "./wall.js";
 
 // The wire is the clerk's too, so it lives in clerk.ts; the server's names for it stay.
 export { BODY_LIMIT_BYTES, respond, type WireResponse };
@@ -121,7 +123,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
       return store.openCredential(credentialId, key);
     },
   };
-  const deps: GateDeps = { store, vault, decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
+  const deps: GateDeps = { store, vault, wall: openWall("none", { data: store.dataDir }), decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) };
 
   const server = http.createServer((req, res) => {
     const send = (status: number, type: string, body: string) => {

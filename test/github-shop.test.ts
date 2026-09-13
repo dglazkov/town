@@ -20,6 +20,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Manifest } from "../src/manifest.js";
 import { run, type RunResult } from "../src/runtime.js";
 import { loadShop } from "../src/shoptest.js";
+import { openWall } from "../src/wall.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const SHOP = path.resolve(import.meta.dirname, "../shops/github");
@@ -72,6 +73,7 @@ function call(command: string, args: Record<string, string | number>, stdin?: st
   return run(SHOP, manifest, command, args, {
     user: "u1",
     stateRoot,
+    wall: openWall("none"),
     ...(stdin === undefined ? {} : { stdin }),
     credentials: [{ type: "github-token", origin: origin.url, header: "Authorization: Bearer {token}", token: TOKEN }],
   });

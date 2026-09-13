@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main, type Io } from "../src/admin.js";
 import { openStore, type Store } from "../src/store.js";
 import { readKey } from "../src/vault.js";
+import { openWall } from "../src/wall.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const MEMORY = path.resolve(import.meta.dirname, "../shops/memory");
@@ -46,7 +47,7 @@ async function admin(args: string[], stdin?: Io["stdin"], withData = true): Prom
   let stdout = "";
   let stderr = "";
   const io: Io = { out: (s) => void (stdout += s), err: (s) => void (stderr += s), env: {}, ...(stdin ? { stdin } : {}) };
-  const exit = await main(withData ? ["--data", data, ...args] : args, io);
+  const exit = await main(withData ? ["--data", data, ...args] : args, io, openWall("none"));
   return { exit, stdout, stderr };
 }
 

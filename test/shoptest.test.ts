@@ -5,7 +5,9 @@
 // with a need has its tests run through a teller on the credential given.
 // A shop with dependencies has its tests run with the tree, over the
 // dependencies' code in a town of the test's own, in scratch, writing
-// nothing to the town; `shop test` without --data refuses it.
+// nothing to the town; `shop test` without --data refuses it. Every line
+// runs within the wall the runner is given, and so does every dependency
+// below it, as a fake wall's record shows.
 
 import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -17,13 +19,16 @@ import { main as admin, type Io } from "../src/admin.js";
 import { shopDir } from "../src/gate.js";
 import { ManifestRefused, loadShop, testShop, townShops } from "../src/shoptest.js";
 import { openStore, type Store } from "../src/store.js";
+import { openWall } from "../src/wall.js";
 import { fakeOrigin } from "./helpers/origin.js";
+import { recordingWall } from "./helpers/wall.js";
 
 const MEMORY = path.resolve(import.meta.dirname, "../shops/memory");
 const VERDICTS = path.resolve(import.meta.dirname, "fixtures/verdicts-shop");
 const TELLER = path.resolve(import.meta.dirname, "fixtures/teller-shop");
 const ECHO = path.resolve(import.meta.dirname, "fixtures/echo-shop");
 const RECIPE = path.resolve(import.meta.dirname, "fixtures/recipe-shop");
+const wall = openWall("none");
 
 describe("a shop with dependencies", () => {
   let data: string;
@@ -56,7 +61,7 @@ describe("a shop with dependencies", () => {
   });
 
   it("runs the recipe's tests through the tree, over the dependency's code in the town, and writes nothing to the town", async () => {
-    const results = await testShop(RECIPE, { types: [], shops: townShops(store), store });
+    const results = await testShop(RECIPE, { types: [], shops: townShops(store), store, wall });
     expect(results).toEqual([
       { name: "a declared command answers through the town", ok: true },
       { name: "an undeclared command is not available", ok: true },
@@ -68,7 +73,7 @@ describe("a shop with dependencies", () => {
 
   it("runs a dependency in the test's scratch state, as the test user", async () => {
     const dir = await recipeWith((t) => t.replace(/tests:[\s\S]*$/, 'tests:\n  - name: scratch\n    run: relay --words "echo echo --zeta z"\n    expect: { contains: "town-shop-test-" }\n  - name: the test user\n    run: relay --words "echo echo --zeta z"\n    expect: { contains: "test%2Fecho/shop-test" }\n'));
-    expect(await testShop(dir, { types: [], shops: townShops(store), store })).toEqual([
+    expect(await testShop(dir, { types: [], shops: townShops(store), store, wall })).toEqual([
       { name: "scratch", ok: true },
       { name: "the test user", ok: true },
     ]);
@@ -79,7 +84,7 @@ describe("a shop with dependencies", () => {
     const dir = await recipeWith((t) =>
       t.replace(/tests:[\s\S]*$/, 'tests:\n  - name: sleep\n    run: relay --words "echo sleep"\n    expect: { exit: 0 }\n  - name: the manifest\n    run: relay --words "recipe relay --words x"\n    expect: { exit: 0 }\n'),
     );
-    const results = await testShop(dir, { types: [], shops: townShops(store), store });
+    const results = await testShop(dir, { types: [], shops: townShops(store), store, wall });
     expect(results.map((r) => [r.name, r.ok, r.why])).toEqual([
       ["sleep", false, "expected exit 0, got 2: error: command 'sleep' is not available to this grant"],
       ["the manifest", false, "expected exit 0, got 2: error: command 'recipe relay' is not available to this grant"],
@@ -97,7 +102,7 @@ describe("a shop with dependencies", () => {
           .replace(/tests:[\s\S]*$/, 'tests:\n  - name: through the teller\n    run: relay --words "teller get --path /hello"\n    expect: { contains: "hello from the origin" }\n'),
       );
       const credentials = [{ type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: "tok_tree" }];
-      const opts = { types: ["test-origin"], shops: townShops(store), store };
+      const opts = { types: ["test-origin"], shops: townShops(store), store, wall };
       await expect(testShop(dir, opts)).rejects.toThrow(/need credentials of \(test-origin\) and were given \(\)/);
       expect(await testShop(dir, { ...opts, credentials })).toEqual([{ name: "through the teller", ok: true }]);
       expect(origin.seen.map((s) => [s.url, s.headers.authorization])).toEqual([["/hello", "Bearer tok_tree"]]);
@@ -110,15 +115,67 @@ describe("a shop with dependencies", () => {
     let stdout = "";
     let stderr = "";
     const io: Io = { out: (s) => void (stdout += s), err: (s) => void (stderr += s), env: {} };
-    expect(await admin(["shop", "test", RECIPE], io)).toBe(1);
+    expect(await admin(["shop", "test", RECIPE], io, wall)).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toBe("depends[0].shop: 'test/echo' cannot be checked with no data directory at hand; write the verb again with --data <dir>, so the town's shops are read, instead (spec §8)\n");
     stderr = "";
     store.close();
-    const code = await admin(["shop", "test", RECIPE, "--data", data], io);
+    const code = await admin(["shop", "test", RECIPE, "--data", data], io, wall);
     store = openStore(data);
     expect([code, stderr]).toEqual([0, ""]);
     expect(stdout).toBe("ok a declared command answers through the town\nok an undeclared command is not available\n");
+  });
+});
+
+describe("the wall", () => {
+  it("encloses every line of a shop's tests: one enclosure per line, the shop's directory read and the test's scratch state written", async () => {
+    const recording = recordingWall();
+    const results = await testShop(VERDICTS, { wall: recording });
+    expect(results).toHaveLength(7);
+    const manifest = parseYaml(await readFile(path.join(VERDICTS, "manifest.yaml"), "utf8")) as { tests: Array<{ run: string }> };
+    const lines = manifest.tests.flatMap((t) => t.run.split("\n").filter((l) => l.trim() !== ""));
+    // A failing middle line stops its test, so one line of the seven tests' is never run.
+    expect(recording.seen.length).toBe(lines.length - 1);
+    for (const e of recording.seen) {
+      expect(e.within.reads[0]).toBe(VERDICTS);
+      expect(e.within.writes).toHaveLength(1);
+      expect(path.basename(path.dirname(path.dirname(e.within.writes[0]!)))).toMatch(/^town-shop-test-/);
+      expect(e.within.ports).toEqual([]);
+    }
+  });
+
+  it("encloses a dependency's process below a composed shop's test, and reaches it through townd admin shop test", async () => {
+    const data = mkdtempSync(path.join(os.tmpdir(), "town-shoptest-wall-"));
+    try {
+      const store = openStore(data);
+      store.upsertShop(await loadShop(ECHO), 1000);
+      cpSync(ECHO, shopDir(store, "test/echo"), { recursive: true });
+      const recording = recordingWall();
+      expect(await testShop(RECIPE, { types: [], shops: townShops(store), store, wall: recording })).toEqual([
+        { name: "a declared command answers through the town", ok: true },
+        { name: "an undeclared command is not available", ok: true },
+      ]);
+      const shops = recording.seen.map((e) => e.within.reads[0]);
+      expect(shops).toContain(RECIPE);
+      expect(shops).toContain(shopDir(store, "test/echo"));
+      // The recipe's process reaches its clerk, and reads its call directory.
+      const recipe = recording.seen.find((e) => e.within.reads[0] === RECIPE)!;
+      expect(recipe.within.ports).toHaveLength(1);
+      expect(path.basename(recipe.within.reads.at(-1)!)).toMatch(/^town-call-/);
+      const echoDir = shopDir(store, "test/echo");
+      store.close();
+
+      const byAdmin = recordingWall();
+      const io: Io = { out: () => {}, err: () => {}, env: {} };
+      expect(await admin(["shop", "test", RECIPE, "--data", data], io, byAdmin)).toBe(0);
+      expect(byAdmin.seen.map((e) => e.within.reads[0])).toEqual(expect.arrayContaining([RECIPE, echoDir]));
+      const alone = recordingWall();
+      expect(await admin(["shop", "test", MEMORY], io, alone)).toBe(0);
+      expect(alone.seen.length).toBeGreaterThan(0);
+      expect(alone.seen.every((e) => e.within.reads[0] === MEMORY)).toBe(true);
+    } finally {
+      rmSync(data, { recursive: true, force: true });
+    }
   });
 });
 
@@ -127,7 +184,7 @@ describe("a shop with a need", () => {
     const origin = await fakeOrigin();
     try {
       const credentials = [{ type: "test-origin", origin: origin.url, header: "Authorization: Bearer {token}", token: "tok_shoptest" }];
-      expect(await testShop(TELLER, { types: ["test-origin"], credentials })).toEqual([{ name: "the origin answers", ok: true }]);
+      expect(await testShop(TELLER, { types: ["test-origin"], credentials, wall })).toEqual([{ name: "the origin answers", ok: true }]);
       expect(origin.seen.map((s) => [s.url, s.headers.authorization])).toEqual([["/hello", "Bearer tok_shoptest"]]);
     } finally {
       await origin.close();
@@ -135,17 +192,17 @@ describe("a shop with a need", () => {
   });
 
   it("is refused with no store at hand, naming --data, and runs nothing without the credential", async () => {
-    const err = await testShop(TELLER).catch((e: unknown) => e);
+    const err = await testShop(TELLER, { wall }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ManifestRefused);
     expect((err as ManifestRefused).refusals).toEqual([expect.stringMatching(/^credentials\[0\]\.type: 'test-origin' cannot be checked with no data directory at hand; write .*--data/)]);
-    await expect(testShop(TELLER, { types: ["test-origin"] })).rejects.toThrow(/need credentials of \(test-origin\) and were given \(\)/);
+    await expect(testShop(TELLER, { types: ["test-origin"], wall })).rejects.toThrow(/need credentials of \(test-origin\) and were given \(\)/);
   });
 });
 
 describe("the memory shop", () => {
   it("passes its own tests, one result per test in the manifest", async () => {
     const manifest = parseYaml(await readFile(path.join(MEMORY, "manifest.yaml"), "utf8"));
-    const results = await testShop(MEMORY);
+    const results = await testShop(MEMORY, { wall });
     expect(results.map((r) => r.name)).toEqual(manifest.tests.map((t: { name: string }) => t.name));
     for (const r of results) expect(r, r.why).toEqual({ name: r.name, ok: true });
   });
@@ -153,7 +210,7 @@ describe("the memory shop", () => {
 
 describe("verdicts", () => {
   it("passes what passes and fails what must fail, saying why", async () => {
-    const results = await testShop(VERDICTS);
+    const results = await testShop(VERDICTS, { wall });
     const by = Object.fromEntries(results.map((r) => [r.name, r]));
     expect(results).toHaveLength(7);
 
@@ -181,7 +238,7 @@ describe("verdicts", () => {
         "tests:\n  - name: sleeps\n    run: sleep\n    expect: { contains: sleeping }\n",
       );
       await writeFile(path.join(dir, "manifest.yaml"), text);
-      expect(await testShop(dir, { timeoutMs: 500 })).toEqual([{ name: "sleeps", ok: false, why: "line 1 `sleep` ran out of time" }]);
+      expect(await testShop(dir, { timeoutMs: 500, wall })).toEqual([{ name: "sleeps", ok: false, why: "line 1 `sleep` ran out of time" }]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -193,7 +250,7 @@ describe("verdicts", () => {
       await cp(VERDICTS, dir, { recursive: true });
       const text = await readFile(path.join(dir, "manifest.yaml"), "utf8");
       await writeFile(path.join(dir, "manifest.yaml"), `${text}credentials:\n  - type: api-key\n`);
-      const err = await testShop(dir, { types: ["github-token"] }).catch((e: unknown) => e);
+      const err = await testShop(dir, { types: ["github-token"], wall }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ManifestRefused);
       expect((err as ManifestRefused).refusals).toEqual([
         "credentials[0].type: 'api-key' is not a type this town holds; write one of (github-token) instead (spec §8)",

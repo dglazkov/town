@@ -93,7 +93,7 @@ tests:
 
 export const HALL = parseYaml(HALL_YAML) as Manifest;
 
-/** The gate's own deps: the store, and for a sent shop's tests the runtime, the vault, the limit, and the path that decides and records each call. */
+/** The gate's own deps: the store, and for a sent shop's tests the wall they run within, the runtime, the vault, the limit, and the path that decides and records each call. */
 export type HallDeps = GateDeps;
 
 /** One hall call, decided by the gate's first five steps: the pass, its grant at the hall, the command, and its parsed arguments. */

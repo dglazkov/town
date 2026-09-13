@@ -25,6 +25,7 @@ import { stateDir, type RunCredential, type RunOptions, type RunResult } from ".
 import { handleCall, respond } from "../src/server.js";
 import { loadShop } from "../src/shoptest.js";
 import { hashToken, openStore, type Grant, type Pass, type Store } from "../src/store.js";
+import { openWall } from "../src/wall.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
 
 const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
@@ -90,8 +91,8 @@ beforeEach(() => {
   store.upsertShop(MEMORY, NOW);
   store.upsertShop(KINDS, NOW);
   runs = [];
-  next = { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null };
-  deps = { store, runtime: fakeRuntime, now: () => NOW };
+  next = { stdout: "the shop's output\n", stderr: "", exit: 0, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null, wall: "none" };
+  deps = { store, wall: openWall("none"), runtime: fakeRuntime, now: () => NOW };
 });
 
 afterEach(() => {
@@ -219,12 +220,12 @@ describe("step 6 and after: the result class per outcome", () => {
     const req = call(token, ["memory", "recall", "--key", "k"]);
     expect((await gate(deps, req)).result).toBe("ok");
 
-    next = { stdout: "partial\n", stderr: "line one\nno value under k\n", exit: 7, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null };
+    next = { stdout: "partial\n", stderr: "line one\nno value under k\n", exit: 7, timedOut: false, aborted: false, credentials: [], calls: 0, denied: null, wall: "none" };
     const failed = await gate(deps, req);
     expect(failed).toMatchObject({ result: "shop-error", exit: 1, shopExit: 7, stdout: "partial\n", shopStderr: next.stderr });
     expect(failed.error).toBe(denials.shopFailed("town/memory", "recall", "line one\nno value under k"));
 
-    next = { stdout: "", stderr: "", exit: 1, timedOut: true, aborted: false, credentials: [], calls: 0, denied: null };
+    next = { stdout: "", stderr: "", exit: 1, timedOut: true, aborted: false, credentials: [], calls: 0, denied: null, wall: "none" };
     const slow = await gate({ ...deps, timeoutMs: 30_000 }, req);
     expect(slow).toMatchObject({ result: "timeout", exit: 1, error: denials.shopTimedOut("town/memory", "recall", 30) });
   });
@@ -415,7 +416,7 @@ describe("step 6: the bindings", () => {
   it("through the real runtime, a live call opens one teller, the request arrives signed, and the audit row counts it", async () => {
     const { token } = boundPass();
     const before = origin.seen.length;
-    const real: GateDeps = { store, vault, now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
     const wire = await handleCall(real, call(token, ["teller", "get", "--path", "/signed"]));
     expect(wire).toEqual({ stdout: "200\nhello from the origin", stderr: "", exit: 0 });
     expect(listens).toHaveLength(1);
@@ -428,7 +429,7 @@ describe("step 6: the bindings", () => {
 
   it("opens nothing and listens nowhere on a denied, a malformed, or a dead-pass call, through the real runtime", async () => {
     const { token, pass } = boundPass({ commands: ["get"], constraints: { "get.path": { prefix: "/ok/" } } });
-    const real: GateDeps = { store, vault, now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
     const cases: Array<[string, CallRequest, number, string]> = [
       ["a command not granted", call(token, ["teller", "post", "--path", "/ok/a", "--body", "b"]), 2, denials.notAvailable("post")],
       ["a constraint missed", call(token, ["teller", "get", "--path", "/elsewhere"]), 2, denials.constraint("path", "prefix", "/ok/")],
@@ -448,7 +449,7 @@ describe("step 6: the bindings", () => {
 
   it("makes a grant whose credential is revoked not live: 'not available', nothing opened, nothing listening, help without the shop", async () => {
     const { token, pass, credential } = boundPass();
-    const real: GateDeps = { store, vault, now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
     expect((await gate(real, call(token, ["--help"]))).stdout).toContain("test/teller");
     store.revokeCredential(credential.id, NOW);
     const o = await gate(real, call(token, ["teller", "get", "--path", "/x"]));
@@ -462,7 +463,7 @@ describe("step 6: the bindings", () => {
 
   it("makes a grant with a need its bindings do not meet not live, the same way", async () => {
     const { token } = boundPass({ bind: false });
-    const real: GateDeps = { store, vault, now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
     const o = await gate(real, call(token, ["teller", "get", "--path", "/x"]));
     expect([o.exit, o.error]).toEqual([2, denials.notAvailable("teller get")]);
     expect(opened).toEqual([]);
@@ -472,11 +473,11 @@ describe("step 6: the bindings", () => {
   it("fails on the town's side, in words that name no credential, when there is no vault key to open a binding with", async () => {
     const { token, credential } = boundPass();
     const noKey: Vault = { open: () => { throw new Error("/some/data/vault.key cannot be read: EACCES"); } };
-    const wire = await handleCall({ store, vault: noKey, now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
+    const wire = await handleCall({ store, vault: noKey, wall: openWall("none"), now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
     expect(wire).toEqual({ stdout: "", stderr: `${denials.townFailed()}\n`, exit: 1 });
     const row = store.calls().at(-1)!;
     expect([row.result, row.detail, row.credentials]).toEqual(["town-error", "a credential did not open under the vault key", []]);
-    const none = await handleCall({ store, now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
+    const none = await handleCall({ store, wall: openWall("none"), now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
     expect(none.stderr).toBe(`${denials.townFailed()}\n`);
     expect(store.calls().at(-1)!.detail).toBe("the vault key is missing");
     for (const text of [JSON.stringify(wire), JSON.stringify(store.calls())]) {
@@ -634,7 +635,7 @@ describe("a caller, with a fake runtime", () => {
 
 describe("a shop's calls, with a fake runtime: the inner-denial rule, the depth bound, and the tree's rows", () => {
   const COMPOSED: Manifest = { ...KINDS, name: "test/composed", depends: [{ shop: "town/memory", commands: ["recall", "list"] }] };
-  const shopRun = (exit: number, denied: string | null): RunResult => ({ stdout: "what the shop printed\n", stderr: "the shop's log\n", exit, timedOut: false, aborted: false, credentials: [], calls: denied ? 1 : 0, denied });
+  const shopRun = (exit: number, denied: string | null): RunResult => ({ stdout: "what the shop printed\n", stderr: "the shop's log\n", exit, timedOut: false, aborted: false, credentials: [], calls: denied ? 1 : 0, denied, wall: "none" });
 
   beforeEach(() => {
     store.upsertShop(COMPOSED, NOW);
@@ -762,7 +763,7 @@ describe("a caller, through the real runtime", () => {
 
   const opened: string[] = [];
   const vault: Vault = { open: (id) => (opened.push(id), "never-this") };
-  const real = (): GateDeps => ({ store, vault, now: () => NOW, timeoutMs: 10_000 });
+  const real = (): GateDeps => ({ store, vault, wall: openWall("none"), now: () => NOW, timeoutMs: 10_000 });
 
   it("lets the recipe call echo at echo, and tells it echo sleep and test/teller get are not available whatever the agent holds", async () => {
     opened.length = 0;

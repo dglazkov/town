@@ -27,15 +27,12 @@ leaves the town's memory, and `src/cli.ts` learns nothing here, not
 
 ---
 
-**Where we are: compose phases 0 and 1 closed, compose phase 2
-PART-DONE, 12 September 2026.** Next is compose phase 2's walk, which
-waits on a person: a GitHub token scoped to one repository of theirs
-with fewer than a hundred open issues, and a hand to close one. The
-watch shop and its stage are built and proved on a fake GitHub. Every journey step the `command` ring can walk
-is walked on fixtures: `depends` validated, a clerk per call, the
-effective grant at every depth, liveness needing the dependencies, the
-denial one level down told in the agent's words, the audit as a tree,
-and the admin's refusals.
+**Where we are: compose done, 12 September 2026.** Every phase of
+compose is closed and nothing waits: next is the next project. A real
+Claude Code session remembered `dglazkov/town`'s issues through
+`town/watch`, said what changed after one was closed by hand, declined
+a repository its grant does not name, and said watch was gone when
+memory was narrowed under it; the token was in no file searched.
 
 The order is dependency order. Phase 0 is the manifest, the clerk, and
 the runtime handing a shop `town`, each provable in process with the
@@ -309,28 +306,34 @@ scratch directory, and `town.db` with its WAL finds nothing. The wall
 clock of one `mark` from the audit's latency, recorded as a finding
 with the counts.
 
-**Status: PART-DONE.** 12 Sep 2026. `pnpm test` exit 0 at 387 tests,
-and `test/watch-shop.test.ts` walks journey 1 steps 1 to 6 over the real
-github and memory shops on a fake GitHub; `shop add` on the real token
-and the walk wait on the Open entry below.
+**Status: CLOSED.** 12 Sep 2026. `pnpm test` exit 0 at 387 tests, and
+`shop add shops/watch --user` on the real token printed two `ok` lines.
+The walk held: no denied row before the third ask, one outer and one
+inner after, the closed issue under `closed:`, watch gone after
+narrowing, and the token in no file searched.
 
 **Findings:**
 
-- **2026-09-12 — Open: the token, the repository, and a hand.** A
-  fine-grained token scoped to one repository with Issues read and
-  write, that repository with fewer than a hundred open issues, and one
-  issue closed by hand between asks. Waits on the user.
-- **2026-09-12 — The build before the token took twenty minutes.** Two
-  doc fixes first, watch's constraint and stdin; two after, `spawn` for
-  `execFile` and journey 1 step 2's wording. No return to the builder.
+- **2026-09-12 — The walk: 11 rows, 0 denied, then 7, 4 denied.** Three
+  of the seven, two denied, were the conductor's typing.
+  Sonnet 5, `Bash(town:*)` alone, marked three issues, then printed #4
+  under `closed:`; narrowed, it met "not available", reread help, said
+  watch was gone, and did not retry. Four asks, $0.18.
+- **2026-09-12 — The agent declined the unnamed repository from help.**
+  It read github's `repo` limit and applied it to watch without a call,
+  so the conductor typed `watch mark --repo octocat/Hello-World`: exit
+  2, github's line, one `inner` row over one `constraint` row.
+- **2026-09-12 — One `mark` on the real origin took 765 ms.** Inner
+  `list` 448 ms, `remember` 24 ms; three processes and three gate
+  passes cost about 300 ms over GitHub's own time.
+- **2026-09-12 — The user's auto permission mode leaked into the walk.**
+  The first session ran `gh` and wrote Claude memory; it was torn down.
+  The rerun used `--tools Bash --setting-sources project`, and `gh` was
+  refused. $0.14 spent on the leak.
+- **2026-09-12 — `dglazkov/town` had no open issues.** The conductor
+  opened three with `gh` on the user's yes, the user closed #4 by hand,
+  and the conductor closed #3 and #5 after.
 - **2026-09-12 — `execFile` takes no `stdio`.** Its child's stdin is a
   socket whatever is asked; watch spawns `town` with stdin ignored.
-- **2026-09-12 — The cli guard parsed shops without their dependencies.**
-  Watch's `depends` was refused; the guard now parses a shop after the
-  shops it names, and checks watch's words too.
 - **2026-09-12 — Watch keeps at most a hundred open issues.** Past that
-  a shift in the first hundred reads as opened or closed; `changes`
-  recalls first, so no look is exit 1 before any github denial.
-- **2026-09-12 — On loopback one `mark` took 337 to 438 ms.** Inner
-  `list` about 45 ms, `remember` about 22; the rest is watch's Node, two
-  `town` processes, and the clerk. The real figure is the walk's.
+  a shift in the first hundred reads as opened or closed.

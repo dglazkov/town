@@ -18,21 +18,21 @@
 // from a pending permit to its grant, and `permit approve` at a shop with
 // needs checks in its order, runs the shop's tests on the credentials
 // chosen when they have not run on its code, and on a refusal prints the
-// checklist that remains.
+// checklist that remains. The type and credential verbs are src/secrets.ts.
 
 import { rm } from "node:fs/promises";
 import type { CallRow } from "./audit.js";
 import { shopDir } from "./gate.js";
-import { checklist, guidanceLine, todoBlock } from "./checklist.js";
-import { proposedRefusal } from "./credentials.js";
+import { checklist, todoBlock } from "./checklist.js";
 import { bindingText, checkGrant, checkPermit, constraintText, grantStateText, makePermitGrant, needsOf, permitTable } from "./grants.js";
 import { table } from "./help.js";
 import { HALL_NAME, type Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
 import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked } from "./publish.js";
+import { secretVerb } from "./secrets.js";
 import { decideAndRecord } from "./server.js";
 import { StoreError, openStore, type Store } from "./store.js";
-import { VaultError, ensureKey, requireKey } from "./vault.js";
+import { VaultError, requireKey } from "./vault.js";
 import type { Wall } from "./wall.js";
 
 export interface Io {
@@ -43,9 +43,6 @@ export interface Io {
   /** Where `credential add` reads the secret; nothing when absent. */
   stdin?: AsyncIterable<Buffer | string> & { isTTY?: boolean };
 }
-
-/** The most `credential add` reads from stdin. */
-export const SECRET_LIMIT_BYTES = 64 * 1024;
 
 /**
  * Resolves `--wall <kind>`, or the box's wall when absent, to a way to open
@@ -66,9 +63,9 @@ const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
 durations: <n>d, <n>h, <n>m. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
 
-class UsageError extends Error {}
+export class UsageError extends Error {}
 
-interface Parsed {
+export interface Parsed {
   words: string[];
   opts: Map<string, string[]>;
 }
@@ -94,9 +91,9 @@ function parse(argv: readonly string[]): Parsed {
   return { words, opts };
 }
 
-function one(p: Parsed, name: string, required: true): string;
-function one(p: Parsed, name: string, required?: false): string | undefined;
-function one(p: Parsed, name: string, required = false): string | undefined {
+export function one(p: Parsed, name: string, required: true): string;
+export function one(p: Parsed, name: string, required?: false): string | undefined;
+export function one(p: Parsed, name: string, required = false): string | undefined {
   const vs = p.opts.get(name);
   if (!vs) {
     if (required) throw new UsageError(`--${name} is required`);
@@ -186,7 +183,7 @@ function usage(io: Io, why: string): number {
   return 1;
 }
 
-function noExtra(args: readonly string[], n: number, what: string): void {
+export function noExtra(args: readonly string[], n: number, what: string): void {
   if (args.length !== n) throw new UsageError(`${what} takes ${n === 0 ? "no words" : n === 1 ? "one word" : `${n} words`}, not ${args.length}`);
 }
 
@@ -343,89 +340,14 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       return 0;
     }
 
-    case "type add": {
-      noExtra(args, 1, "type add");
-      const guidance = one(p, "guidance");
-      const t = store.addType({ name: args[0]!, origin: one(p, "origin", true), header: one(p, "header", true), ...(guidance === undefined ? {} : { guidance }) }, now);
-      io.out(`added ${t.name}\n`);
-      return 0;
-    }
-    case "type approve": {
-      noExtra(args, 1, "type approve");
-      const t = store.approveType(args[0]!);
-      io.out(`${t.name}: a ${t.kind} type, sent to ${t.origin} in ${t.header}\n`);
-      const said = guidanceLine(t);
-      if (said) io.out(`${said}\n`);
-      io.out(`approved ${t.name}, proposed by ${t.proposedBy}; it is the town's\n`);
-      return 0;
-    }
+    case "type add":
+    case "type approve":
     case "type ls":
-      noExtra(args, 0, "type ls");
-      io.out(
-        table(
-          ["name", "kind", "state", "proposer", "origin", "header", "added"],
-          store.listTypes().map((t) => [t.name, t.kind, t.state, t.proposedBy ?? "-", t.origin, t.header, isoTime(t.addedAt)]),
-        ),
-      );
-      return 0;
-    case "type rm": {
-      noExtra(args, 1, "type rm");
-      store.removeType(args[0]!);
-      io.out(`removed ${args[0]!}\n`);
-      return 0;
-    }
-
-    case "credential add": {
-      noExtra(args, 0, "credential add");
-      const userName = one(p, "user", true);
-      const type = one(p, "type", true);
-      const label = one(p, "label") ?? "";
-      if (!store.userByName(userName)) throw new StoreError(`user ${userName} does not exist; add it with townd admin user add ${userName}`);
-      const t = store.getType(type);
-      if (!t) {
-        throw new StoreError(`type ${type} is not a type this town holds; write one of (${store.listTypes().map((t) => t.name).join(", ")}), or add it with townd admin type add`);
-      }
-      if (t.state === "proposed") throw new StoreError(proposedRefusal(t));
-      // What to paste, in the words of whoever wrote the type, before the prompt reads it.
-      const said = guidanceLine(t);
-      if (said) io.err(`${said}\n`);
-      const value = await readSecret(io);
-      const c = store.addCredential({ userName, type, label, value }, ensureKey(store.dataDir), now);
-      io.out(`${c.id}\n`);
-      return 0;
-    }
-    case "credential ls": {
-      noExtra(args, 0, "credential ls");
-      const userName = one(p, "user");
-      if (userName !== undefined && !store.userByName(userName)) throw new StoreError(`user ${userName} does not exist; townd admin user ls lists them`);
-      io.out(
-        table(
-          ["id", "user", "type", "label", "created", "state", "grants"],
-          store.listCredentials(userName).map((c) => [
-            c.id,
-            c.userName,
-            c.type,
-            c.label === "" ? "-" : c.label,
-            isoTime(c.createdAt),
-            c.revokedAt === null ? "active" : "revoked",
-            c.grants.length ? c.grants.join(",") : "-",
-          ]),
-        ),
-      );
-      return 0;
-    }
-    case "credential rm": {
-      noExtra(args, 1, "credential rm");
-      const held = store.credentialById(args[0]!);
-      const liveBefore = held ? store.liveOf(held.grants, now) : [];
-      const c = store.revokeCredential(args[0]!, now);
-      io.out(`revoked ${c.id}\n`);
-      const stillLive = store.liveOf(liveBefore, now);
-      for (const id of liveBefore.filter((g) => !stillLive.includes(g))) {
-        io.out(`${id} at ${store.grantById(id)!.shop} is no longer live\n`);
-      }
-      return 0;
-    }
+    case "type rm":
+    case "credential add":
+    case "credential ls":
+    case "credential rm":
+      return secretVerb(store, key, args, p, io, now);
 
     case "audit": {
       if (verb !== undefined) throw new UsageError(`audit takes flags, not ${verb}`);
@@ -492,27 +414,4 @@ function state(x: { revokedAt: number | null; expiresAt: number | null }, now: n
   if (x.revokedAt !== null) return "revoked";
   if (x.expiresAt !== null && x.expiresAt <= now) return "expired";
   return "active";
-}
-
-/**
- * The whole of stdin, less one trailing newline ("\n" or "\r\n"). Never
- * an argument and never the environment: a secret there would be in a
- * shell's history or a process list.
- */
-async function readSecret(io: Io): Promise<string> {
-  if (!io.stdin) throw new StoreError("credential add reads the secret on stdin, and there is none; pipe the secret in");
-  if (io.stdin.isTTY) io.err("townd admin: reading the secret from stdin until end of input (Ctrl-D)\n");
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of io.stdin) {
-    const b = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
-    size += b.length;
-    if (size > SECRET_LIMIT_BYTES) throw new StoreError(`credential add read more than ${SECRET_LIMIT_BYTES} bytes on stdin, more than a credential; pipe the secret alone`);
-    chunks.push(b);
-  }
-  let value = Buffer.concat(chunks).toString("utf8");
-  if (value.endsWith("\r\n")) value = value.slice(0, -2);
-  else if (value.endsWith("\n")) value = value.slice(0, -1);
-  if (value === "") throw new StoreError("credential add read nothing on stdin; pipe the secret in, since it is never an argument");
-  return value;
 }

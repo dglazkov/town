@@ -159,7 +159,9 @@ tests, memory's `roundtrip`, 33 store tests, and all four `shop add`s.
 ## Phase 1: The isolate and the window
 
 **Closes:** journey 2 steps 1, 2, 4, 5, and 7, and its three criteria,
-with a test's own gate deps in place of the object.
+as far as the isolate reaches: `runIsolate` called by the test in place
+of the object. The publish, the audit rows, and the store's rows those
+steps name are the object's, and box phase 2's.
 
 **Work:** `package.json`: vitest pinned to 4.1, `@cloudflare/vitest-pool-workers`,
 `@cloudflare/workers-types`, and `wrangler` as devDependencies, the
@@ -174,10 +176,14 @@ rule, `runIsolate` as the design writes it, the race, the disposal,
 the load error, the state's cap. `src/box.ts` in its first form: the
 `Window` entrypoint over `src/window.ts`'s rule with a teller by host
 and the refusal, and a `default` that answers `town`; no object yet.
+The fake origin sits behind the Worker's own `fetch` by whatever the
+pool offers, since `@cloudflare/vitest-pool-workers` 0.22 ships no
+`fetchMock`; the builder names what it chose, and the Window's forward
+is the real `fetch`, never a stand-in the test calls.
 
-Tests, `box`: `test/isolate.test.ts`, the four worker shops through
-`runIsolate` with a fake origin at `fetchMock`, every test of theirs
-passing, the state in and out, the cap, the four exits, a top-level
+Tests, `box`: `test/isolate.test.ts`, memory, github, and gdocs through
+`runIsolate` with the fake origin, every test of theirs passing (watch's
+call the clerk, box phase 2's), the state in and out, the cap, the four exits, a top-level
 `await` entry and §7's line, a shop that does not parse; `test/pry.test.ts`,
 the prying shop as a worker shop with and without a need, its report
 asserted line by line as journey 2 steps 1 and 2 write it, the
@@ -201,8 +207,9 @@ fails).
 ## Phase 2: The object and the door
 
 **Closes:** journey 1 steps 3 to 9 and its second and third criteria;
-journey 2 steps 3, 6, and 8; journey 4 steps 1 and 4, and its first
-criterion for the landing's refusals.
+journey 2 steps 3, 6, and 8, and the publish, audit, and store halves
+of steps 1, 2, and 5; journey 4 steps 1 and 4, and its first criterion
+for the landing's refusals.
 
 **Work:** `src/box.ts`: the object's SQL driver over `ctx.storage.sql`,
 `rowsWritten`, and `transactionSync`; the shelf as `shop_files`; the
@@ -218,6 +225,9 @@ refusal of a directory, `--data` with `--town` refused, `--wall` over
 `--town` refused, and `wait` answered by `GET /admin/consent/<state>`.
 `src/consent.ts`: the flow split from the listener, the landing over
 the flow. `src/gate.ts`: nothing but the runtime it is given.
+`shops/watch/main.mjs`: its calls posted with `fetch` to the town and
+the bearer its `TOWN_GRANT` names, in place of spawning `town`, which
+an isolate cannot; its tests passing on both boxes.
 `test/helpers/town.ts` grown with `dev()`, a `wrangler dev` on a free
 port with the secrets as vars, stopped after. `README.md`: the box's
 section, one line per verb whose shape changes.
@@ -229,8 +239,8 @@ its rows; `test/door.test.ts`, the four routes, `parseCall`'s refusals,
 the operator's bearer wrong and absent, the hall answering `town
 --help` through `/call`, `publish` of a worker shop and the refusal of
 a subprocess shop, `town/watch` calling through the clerk's host and
-the tree in the audit, the landing with a fake authorization server at
-`fetchMock`, the `wait` answered, `state` unknown and `error` refused
+the tree in the audit, the landing with a fake authorization server
+behind the Worker's `fetch` as box phase 1 put the origin, the `wait` answered, `state` unknown and `error` refused
 in consent's words, the refresh with the clock var moved an hour;
 `test/pry.test.ts` grown with journey 2 step 8, the exfil turned a
 second time, through the object.

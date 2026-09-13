@@ -169,8 +169,8 @@ The box of journey 1 after step 3, with dimitri's pass holding
 Acceptance criteria:
 
 - Every step runs in workerd through the vitest pool, in the `box`
-  ring, with the origin at `fetchMock`; the ring needs no account and
-  no network.
+  ring, with a fake origin behind the Worker's own `fetch`; the ring
+  needs no account and no network.
 - The isolate's `env` holds strings alone: a test reads every value the
   entry was given and finds no binding, no stub, and no function.
 - The token reaches the window's props and the origin's header and
@@ -251,7 +251,7 @@ of the web kind whose redirect URI is the box's landing.
 Acceptance criteria:
 
 - Steps 1, 2's refusals and timeout, and 4 run in the `box` ring with a
-  fake authorization server at `fetchMock`, the redirect delivered by
+  fake authorization server behind the Worker's `fetch`, the redirect delivered by
   the test's own request to the landing; step 3's refresh runs there
   with the clock var moved an hour.
 - Steps 2 and 3 are walked by hand once, on the deployed box, with a

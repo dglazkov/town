@@ -431,7 +431,8 @@ its line in `stderr` as any shop failure is.
   store's own tests, so the two drivers are proved by one suite; the
   shelf in rows; the key from the secret and the refusal without it;
   `runIsolate` with the four worker shops through the door with a fake
-  origin at `fetchMock`, every test of theirs passing; the state in and
+  origin behind the Worker's own `fetch` (the pool at 0.22 ships no
+  `fetchMock`), every test of theirs passing; the state in and
   out, and the cap; a window request forwarded with its header and a
   request past it refused, and no outbound at all for a shop with no
   need; the prying shop from wall as a worker shop, printing its
@@ -441,7 +442,7 @@ its line in `stderr` as any shop failure is.
   hall's `publish` of a worker shop and its refusal of a subprocess
   shop; the door's four routes, the operator's bearer refused, and
   `parseCall`'s refusals; the landing with a fake authorization server
-  at `fetchMock`; a top-level `await` in a shop's entry and the line it
+  behind the same `fetch`; a top-level `await` in a shop's entry and the line it
   gets. The CPU limit is skipped by name, as pen's is.
 - **command**: `test/dev.test.ts`, a `wrangler dev` started on a free
   port with the secrets set as vars, the built `town` in a scratch

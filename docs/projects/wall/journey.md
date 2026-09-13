@@ -88,7 +88,9 @@ exfil test sets them.
 3. It is refused the operator's home and a listing of it, `~/.ssh`,
    `/tmp`, and the temporary directory the town makes call directories
    in. It reads `/usr/bin/true` and `/etc/hosts`, since the wall hides
-   what people wrote and not the box.
+   what people wrote and not the box. It is refused a write anywhere
+   but its state, `/Users/Shared` included, a directory the operator
+   may write, so it cannot leave a program where the operator runs one.
 4. It sends a request through its teller; the request arrives at the
    origin signed by the town, and the answer comes back. It sends the
    same request to the town's own address, handed to it on stdin, to a

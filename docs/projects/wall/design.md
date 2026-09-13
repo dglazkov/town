@@ -90,6 +90,12 @@ own install, and the call's directory. `/usr`, `/System`, `/Library`,
 of the operator's. What the wall hides is everything a person or the
 town wrote on this box. An operator whose secrets live outside those
 places has a finding to make, and the deny list is one line to grow.
+Writing is the other way round again, since the box is allowed only to
+be read: every write is denied but the state's and `/dev/null`, so a
+shop cannot leave a program where the operator will run it,
+`/opt/homebrew/bin` and `/Users/Shared` being writable by the operator
+and so by an unwalled shop. Measured before wall phase 0 began, under
+the profile as first written: a walled Node wrote to both.
 
 **A box without a wall says so.** The draft's promise was silent; a
 mechanism that is absent must not be. `townd serve` and `townd admin`
@@ -146,10 +152,13 @@ the profile is:
 (allow network-outbound (remote ip "localhost:<port>"))        ; one per port
 (deny signal)
 (allow signal (target same-sandbox))
+(deny file-write*)
+(allow file-write* (literal "/dev/null"))
 (deny file-read* file-write*
   (subpath "<home>") (subpath "/tmp") (subpath "/private/tmp")
   (subpath "/private/var/folders") (subpath "/Volumes")
   (subpath "<data>"))                                          ; when given
+(allow file-read-metadata (literal "<ancestor>"))              ; one per ancestor of a read or write
 (allow file-read* (subpath "<read>"))                           ; one per read
 (allow file-read* file-write* (subpath "<write>"))              ; one per write
 ```
@@ -157,7 +166,11 @@ the profile is:
 Seatbelt's rule is that the last match wins, so an allow below a deny
 opens a subpath inside a hidden one: the shop's directory is under the
 data directory and the state is under it too, and both are allowed
-back by name. Every path in the profile is absolute and real
+back by name. Each directory above a read or a write may be stat'ed,
+not listed or read: Node finds its entry by `realpath`, which `lstat`s
+every ancestor, and under the deny alone an entry anywhere below the
+home or `/tmp` fails to start, `EPERM` on the ancestor, measured before
+wall phase 0 began. Every path in the profile is absolute and real
 (`realpath`), since Seatbelt matches the path a process opens, and
 `/tmp` on this box is `/private/tmp`. A path or a port that would break
 the profile's text, a quote or a newline, is refused before any process

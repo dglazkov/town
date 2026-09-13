@@ -24,7 +24,8 @@ Gate's, vault's, compose's, and hall's rules still hold, and
 
 ---
 
-**Where we are: planned, 12 September 2026.** No phase begun. Two
+**Where we are: planned, 12 September 2026.** No phase begun; next is
+wall phase 0. Two
 facts were measured before the docs were written and shape them: Docker
 Desktop on this box cannot give a container the call's windows, a unix
 socket in a bind mount being refused and a container with no network
@@ -94,12 +95,13 @@ every shop with `none`.
 Mac, `pnpm test -- test/wall.test.ts` runs, not skips, and its output
 names each refusal by errno. Falsified by at least one mutation: the
 profile's deny of the data directory removed (the key line fails), the
+deny of every write removed (the `/Users/Shared` line fails), the
 port allow made `localhost:*` (the other-port line fails), and
 `(target same-sandbox)` made `(target others)` (the `kill -0` line
 fails). Then by hand: a one-line script that opens the box's wall
 around `node -e` reading `~/.zshrc`, printing `EPERM`.
 
-**Status: OPEN.**
+**Status: NOT STARTED.**
 
 ---
 
@@ -155,7 +157,7 @@ user, a pass, a grant, a call at `remember` and `recall`, and `audit`
 showing `seatbelt` on both rows; then `townd serve --wall none` and
 the line saying so.
 
-**Status: OPEN.**
+**Status: NOT STARTED.**
 
 ---
 
@@ -194,4 +196,4 @@ directory, and the published shop's directory under the data directory
 finds it only in the grant file. How the agent described the wall, and
 what it tried, recorded as findings.
 
-**Status: OPEN.**
+**Status: NOT STARTED.**

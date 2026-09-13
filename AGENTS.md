@@ -15,7 +15,9 @@ directory, the `town` command, and one shop, on one box. The second is
 the town and used on a shop's behalf, with the shop never holding it.
 The third is [project compose](docs/projects/compose/design.md): a shop
 calling other shops through the town as the agent that called it, and
-never as more.
+never as more. The fourth is [project hall](docs/projects/hall/design.md):
+Town Hall as a shop the town is born with, where an agent finds,
+writes, publishes, and asks for shops, and a person decides.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

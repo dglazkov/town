@@ -466,9 +466,13 @@ paragraphs walked to text, headings as `#` lines in `markdown`. A
 non-2xx answer is exit 1 with the status and nothing else. One test,
 `read --doc-id no-such-document` expecting exit 1, which reaches Google
 signed and reads nothing; the read is the walk's. The operator adds it
-with `shop add shops/gdocs --user dimitri` after connecting, and the
-add proposes and, being the operator's, holds the type in one step,
-taking the registration as `type add` does.
+with `shop add shops/gdocs --user dimitri --client-id <id>`, which,
+being the operator's, holds the type as the manifest defines it, taking
+the registration as `type add` does, and says so. A credential cannot
+exist before its type, so that first add is refused for the missing
+credential, naming `credential connect`, with the type held and the
+shop not added; after connecting, the same add runs the test and adds
+the shop.
 
 ## The store
 
@@ -500,9 +504,13 @@ never stored, so an approval reads the town as it is.
   themselves, so the seeded and hand-added types can tell a person
   where their token is made too.
 - `shop add <dir> --user <name>`: a manifest defining a type the town
-  does not hold proposes and holds it in one step, the operator being
-  the trust root, and for `oauth` takes `--client-id` and the secret on
-  stdin; then vault's path.
+  does not hold holds it in one step, the operator being the trust
+  root, printing `held <type>, as <shop> defines it` with the type's
+  guidance, and for `oauth` takes `--client-id` and the secret on
+  stdin; then vault's path. When that path refuses for a credential the
+  user lacks, the refusal says the type stays held and names the verb
+  that connects one, since a credential needs its type held first and
+  the add's tests need the credential.
 - `audit`: rows for `connect` and for an approval's tests, and
   `refreshed <type>` in `detail`.
 

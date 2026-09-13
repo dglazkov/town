@@ -185,12 +185,14 @@ journey 1 after step 4.
    ls` shows it with its granted scopes and no value. Refused at the
    provider, the verb prints the provider's error and exit 1, and
    nothing was written. Left alone five minutes, exit 1 the same.
-7. `townd admin shop add shops/gdocs --user dimitri` proposes and holds
-   `google-oauth` in one step when the town lacks it, taking
-   `--client-id` and the secret as `type approve` does, then runs the
-   shop's one test through a teller against Google on dimitri's
-   credential and adds the shop; with the type already held, as vault's
-   `shop add` runs.
+7. `townd admin shop add shops/gdocs --user dimitri --client-id <id>`,
+   the secret on stdin as `type approve` takes it, holds `google-oauth`
+   as the manifest defines it when the town lacks it, and says so; while
+   dimitri holds no credential of it, the add is then refused naming
+   `credential connect`, the type held and the shop not added. After
+   connecting, the same `shop add` runs the shop's one test through a
+   teller against Google on dimitri's credential and adds the shop; with
+   the type already held, as vault's `shop add` runs.
 8. `townd admin type rm figma` is refused while dimitri's credential
    holds it; `credential rm` of a credential an approval's tests ran on
    names the grant that stops being live. `type rm` of a proposed type

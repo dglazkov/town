@@ -7,20 +7,33 @@
 //   node scripts/walk.mjs --shop watch --repo <owner/name> < <token file>
 //                                            github, memory, and watch over them, three grants, on the token read from stdin
 //   node scripts/walk.mjs --shop hall        the memory shop, a pass with the hall whole and memory at three commands; no token
+//   node scripts/walk.mjs --shop hall --data <dir>
+//                                            the same over an existing data directory, served as it is: memory added only
+//                                            when missing, dimitri reused, and a grant at town/gdocs read when the town holds
+//                                            it and dimitri a live google-oauth credential; the directory is never removed
 //   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result and by wall, credentials served,
-//                                            and the hall's rows by command and detail with the grants' sources
+//                                            and the hall's rows by command and detail with the grants' sources; since the
+//                                            walk began, publishes that asked a permit, approvals with their tests, consents,
+//                                            and refreshes
 //   node scripts/walk.mjs --search <root> [<path>...] < <token file>
 //                                            files under the root and the paths holding the token's bytes
-//   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root
+//   node scripts/walk.mjs --search-sealed <root> [<path>...]
+//                                            every secret the town holds sealed, opened with its key in this process, and
+//                                            the files under the root, the paths, and the data directory holding its bytes,
+//                                            named and never printed
+//   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root, never a data directory given
 //
 // The token is read from stdin, a pipe or a file and never a terminal,
 // and goes nowhere but the stdin of `townd admin credential add`: not
-// argv, not any child's environment, not walk.json, not stdout.
+// argv, not any child's environment, not walk.json, not stdout. A sealed
+// secret `--search-sealed` opens stays in its process's memory.
 //
 // The walk root, under the system's temporary directory, holds three
-// siblings: data/ (the town's), agent/ (the agent's, with .town/grant),
-// and shim/ (a `town` for the agent's PATH, and nothing else). Plain
-// Node, no dependency; it runs the built binaries, so build first.
+// siblings: data/ (the town's, unless --data names one elsewhere), agent/
+// (the agent's, with .town/grant), and shim/ (a `town` for the agent's
+// PATH, and nothing else). Plain Node, no dependency; it runs the built
+// binaries, and `--data` and `--search-sealed` import dist/store.js and
+// dist/vault.js, so build first.
 
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -90,13 +103,15 @@ function watchPlan(repo, token) {
 function hallPlan() {
   return {
     user: "dimitri",
-    shops: [{ dir: MEMORY }],
+    shops: [{ dir: MEMORY, name: "town/memory" }],
     grants: [
       { shop: "town/hall", commands: "search,show,spec,validate,test,publish,request,requests", constraints: [] },
       { shop: "town/memory", commands: "remember,recall,list", constraints: [] },
     ],
     shop: "town/hall",
     permits: true,
+    // Over a given data directory: a grant at this shop, bound to the user's live credential of this type, when the town holds both.
+    reader: { shop: "town/gdocs", commands: "read", type: "google-oauth" },
     expires: "1d",
   };
 }
@@ -228,31 +243,91 @@ async function startTown(root, data) {
   throw new Error(`townd serve printed no address in 15s:\n${readFileSync(log, "utf8")}`);
 }
 
-async function setUp(plan) {
+/** Every `townd … serve` on this box, by pid and command line. */
+function servingTowns() {
+  const r = spawnSync("/bin/ps", ["-axo", "pid=,command="], { encoding: "utf8" });
+  return (r.stdout ?? "")
+    .split("\n")
+    .map((l) => /^\s*(\d+)\s+(.*)$/.exec(l))
+    .filter((m) => m && /townd(\.js)?\s+serve(\s|$)/.test(m[2]))
+    .map((m) => ({ pid: Number(m[1]), command: m[2] }));
+}
+
+/** dist/store.js and dist/vault.js, the store's own code, imported as the town runs it. */
+async function storeCode() {
+  const [store, vault] = await Promise.all([import(path.join(REPO, "dist", "store.js")), import(path.join(REPO, "dist", "vault.js"))]);
+  return { openStore: store.openStore, readKey: vault.readKey };
+}
+
+/**
+ * `--data <dir>`: an existing town's data directory, resolved, or a refusal
+ * before anything is made or touched: no town.db in it, under an agent's
+ * directory, or a town serving it already, by the process list or by an
+ * answer at the address it last served at.
+ */
+async function givenData(dir) {
+  const data = path.resolve(dir);
+  if (!existsSync(data) || !statSync(data).isDirectory()) die(`--data ${dir} is not a directory; name an existing town's data directory`);
+  if (!existsSync(path.join(data, "town.db"))) die(`--data ${dir} holds no town.db, so it is not a town's data directory; nothing was touched`);
+  const above = grantAbove(data);
+  if (above) die(`${above} makes ${data} an agent's directory, and a data directory is never under one; nothing was touched`);
+  const spellings = new Set([dir, data, realpathSync(data)]);
+  for (const t of servingTowns()) {
+    if ([...spellings].some((s) => t.command.includes(`--data ${s} `) || t.command.endsWith(`--data ${s}`))) die(`a town is serving ${data} already (pid ${t.pid}); stop it, then stage again; nothing was touched`);
+  }
+  const { openStore } = await storeCode();
+  const store = openStore(data);
+  const address = store.getMeta("address");
+  store.close();
+  if (address) {
+    const answer = await fetch(address, { signal: AbortSignal.timeout(1000) }).then((r) => r.text(), () => null);
+    if (answer === "town\n") die(`a town answers at ${address}, where ${data} was last served; stop it, then stage again; nothing was touched`);
+  }
+  return data;
+}
+
+async function setUp(plan, given) {
   assertBuilt();
   const said = sentence();
   const root = mkdtempSync(path.join(os.tmpdir(), "town-walk-"));
-  const data = path.join(root, "data");
+  const data = given ?? path.join(root, "data");
   const agent = path.join(root, "agent");
   const shim = path.join(root, "shim");
   let town = null;
   try {
     const above = grantAbove(data);
     if (above) throw new Error(`${above} makes ${data} an agent's directory; set TMPDIR to a directory with no .town/grant in it or above it`);
-    mkdirSync(data);
+    if (given === undefined) mkdirSync(data);
     mkdirSync(path.join(agent, ".town"), { recursive: true });
     mkdirSync(shim);
+    if (!path.relative(realpathSync(agent), realpathSync(data)).startsWith("..")) throw new Error(`the data directory ${data} is under the agent's directory ${agent}`);
     writeFileSync(path.join(shim, "town"), `#!/bin/sh\nexec '${process.execPath}' '${TOWN}' "$@"\n`);
     chmodSync(path.join(shim, "town"), 0o755);
 
+    // The rows a given town recorded before the walk: the audit lists them first, and --status counts past them.
+    const auditBefore = given === undefined ? 0 : column(mustAdmin(data, "audit").stdout, "call").length;
+    const startedAt = Date.now();
     town = await startTown(root, data);
     const user = plan.user ?? "walker";
-    mustAdmin(data, "user", "add", user);
+    // Over a given directory, what the town already holds is kept: its user, and its shops.
+    const kept = [];
+    const added = [];
+    if (given !== undefined && column(mustAdmin(data, "user", "ls").stdout, "name").includes(user)) kept.push(`user ${user}`);
+    else {
+      mustAdmin(data, "user", "add", user);
+      added.push(`user ${user}`);
+    }
     if (plan.token !== undefined) mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", user, "--type", "github-token", "--label", "walk");
+    const held = given === undefined ? [] : column(mustAdmin(data, "shop", "ls").stdout, "name");
     for (const shop of plan.shops) {
+      if (shop.name && held.includes(shop.name)) {
+        kept.push(`shop ${shop.name}`);
+        continue;
+      }
       // A shop marked `user` runs its tests through a teller against GitHub, on the walker's token, its dependencies' tests included.
-      const added = mustAdmin(data, "shop", "add", shop.dir, ...(shop.user ? ["--user", user] : []));
-      if (plan.token !== undefined) process.stdout.write(added.stdout);
+      const addedShop = mustAdmin(data, "shop", "add", shop.dir, ...(shop.user ? ["--user", user] : []));
+      if (shop.name) added.push(`shop ${shop.name}`);
+      if (plan.token !== undefined) process.stdout.write(addedShop.stdout);
     }
     const pass = mustAdmin(data, "pass", "new", "--user", user, "--label", "walk");
     const passId = pass.stderr.trim();
@@ -262,9 +337,30 @@ async function setUp(plan) {
     const grants = {};
     for (const g of plan.grants) grants[g.shop] = mustAdmin(data, "grant", "new", ...grantArgs(g.shop, g.commands, g.constraints)).stdout.trim();
     const grantId = grants[plan.shop];
+    const reader = given !== undefined && plan.reader ? readerGrant(data, user, plan.reader, (credential) => [...grantArgs(plan.reader.shop, plan.reader.commands, []), "--credential", credential]) : null;
+    if (reader?.grant) grants[plan.reader.shop] = reader.grant;
     if (grantAbove(data)) throw new Error(`the data directory ${data} is under a grant file; the walk root is laid out wrong`);
 
-    const walk = { root, data, agent, shim, grantFile, address: town.address, wall: town.wall, pid: town.pid, passId, grantId, grants, sentence: said, shop: plan.shop, ...(plan.repo ? { repo: plan.repo } : {}) };
+    const walk = {
+      root,
+      data,
+      ...(given === undefined ? {} : { dataGiven: true }),
+      agent,
+      shim,
+      grantFile,
+      address: town.address,
+      wall: town.wall,
+      pid: town.pid,
+      startedAt,
+      auditBefore,
+      passId,
+      grantId,
+      grants,
+      ...(reader ? { reader } : {}),
+      sentence: said,
+      shop: plan.shop,
+      ...(plan.repo ? { repo: plan.repo } : {}),
+    };
     writeFileSync(path.join(root, "walk.json"), `${JSON.stringify(walk, null, 2)}\n`);
     const quote = (w) => (/^[A-Za-z0-9_./:,=-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
     const n = plan.narrowed;
@@ -277,7 +373,7 @@ async function setUp(plan) {
         ]
       : [];
     const permits = plan.permits
-      ? [`to decide what the agent asks for, at the box:`, `  node ${TOWND} admin permit ls --pass ${passId}`, `  node ${TOWND} admin permit approve <id>`, ``]
+      ? [`to decide what the agent asks for, at the box:`, `  node ${TOWND} admin permit ls --pass ${passId}`, `  node ${TOWND} admin permit show <id>`, `  node ${TOWND} admin permit approve <id>`, ``]
       : [];
 
     process.stdout.write(
@@ -285,7 +381,9 @@ async function setUp(plan) {
         `walk ready: ${root}`,
         ``,
         `the town:    ${town.address} (pid ${town.pid}), pass ${passId}, shops walled by ${town.wall}`,
+        ...(given === undefined ? [] : [`the data:    ${data}, given, and kept at teardown; ${[kept.length ? `kept ${kept.join(", ")}` : "", added.length ? `added ${added.join(", ")}` : ""].filter(Boolean).join("; ")}`]),
         ...plan.grants.map((g, i) => `${(i === 0 ? "the grants:" : "").padEnd(13)}${grants[g.shop]} ${g.shop} ${g.commands}; ${g.constraints.length ? g.constraints.join("; ") : "no constraints"}; expires ${plan.expires}`),
+        ...(reader ? [`${"".padEnd(13)}${reader.said}`] : []),
         ``,
         `start the agent in:`,
         `  cd ${agent}`,
@@ -302,6 +400,7 @@ async function setUp(plan) {
         ...permits,
         `status:      node ${SELF} --status ${root}`,
         ...(plan.token === undefined ? [] : [`search:      node ${SELF} --search ${root} <transcript> < <token file>`]),
+        ...(given === undefined ? [] : [`search:      node ${SELF} --search-sealed ${root} <transcript> <scratch>...`]),
         `teardown:    node ${SELF} --teardown ${root}`,
         ``,
       ].join("\n"),
@@ -311,9 +410,26 @@ async function setUp(plan) {
       process.kill(town.pid, "SIGTERM");
       await waitGone(town.pid, 5000);
     }
+    // The walk root alone: a given data directory is never under it, and is never removed.
     rmSync(root, { recursive: true, force: true });
     die(err.message);
   }
+}
+
+/**
+ * The grant at `reader.shop` a given town can make: when it holds the shop
+ * and `user` a live credential of `reader.type`, bound to the newest; else
+ * no grant, and why. What to print either way.
+ */
+function readerGrant(data, user, reader, argsFor) {
+  if (!column(mustAdmin(data, "shop", "ls").stdout, "name").includes(reader.shop)) return { said: `no grant at ${reader.shop}: the town holds no ${reader.shop}` };
+  const creds = mustAdmin(data, "credential", "ls", "--user", user).stdout;
+  const [ids, types, states] = ["id", "type", "state"].map((c) => column(creds, c));
+  const live = ids.filter((_, i) => types[i] === reader.type && states[i] === "active");
+  if (live.length === 0) return { said: `no grant at ${reader.shop}: ${user} holds no live ${reader.type} credential` };
+  const credential = live.at(-1);
+  const grant = mustAdmin(data, "grant", "new", ...argsFor(credential)).stdout.trim();
+  return { grant, credential, said: `${grant} ${reader.shop} ${reader.commands}; no constraints; bound to ${credential}, ${user}'s ${reader.type}${live.length > 1 ? `, the newest of ${live.length}` : ""}` };
 }
 
 function readWalk(root) {
@@ -379,7 +495,70 @@ function status(root) {
   for (const [type, t] of types) process.stdout.write(`credentials: ${type} ${t.requests} requests over ${t.rows} rows, ${t.none} of them with none\n`);
   const bareTotal = [...bare.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows for ${shop} with no credential served: ${bareTotal}${bareTotal ? `; ${[...bare].map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}\n`);
-  if (shop === "town/hall") process.stdout.write(hallCounts(audit.stdout, grants.stdout));
+  if (shop === "town/hall") process.stdout.write(hallCounts(audit.stdout, grants.stdout) + sinceWalk(walk));
+}
+
+/** An audit table's rows as objects of the named columns. */
+function rowsOf(table, names) {
+  const cols = Object.fromEntries(names.map((n) => [n, column(table, n)]));
+  return (cols[names[0]] ?? []).map((_, i) => Object.fromEntries(names.map((n) => [n, cols[n][i]])));
+}
+
+/**
+ * What the town recorded since the walk began, under any pass or none: the
+ * rows by shop with their results and credentials; the publishes that asked
+ * a permit; the approvals of this pass's permits, each with the rows made
+ * under it; the consents; and the refreshes by type. The audit less the
+ * rows a given town held before the stage, which it lists first, since it
+ * orders rows by their times to the millisecond.
+ */
+function sinceWalk(walk) {
+  const audit = admin(walk.data, "audit");
+  const permits = admin(walk.data, "permit", "ls", "--pass", walk.passId);
+  if (audit.exit !== 0 || permits.exit !== 0) die(`townd admin failed:\n${audit.stderr}${permits.stderr}`);
+  const before = walk.auditBefore ?? 0;
+  const rows = rowsOf(audit.stdout, ["call", "at", "pass", "shop", "command", "result", "credentials", "parent", "detail"]).slice(before);
+  const ours = new Set(column(permits.stdout, "id"));
+  const said = (m) => [...m].map(([k, v]) => `${k} ${v}`).join(", ");
+  const tally = (m, k, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
+  const lines = [`since the walk began: ${rows.length} rows${before ? `, after the ${before} the town held before it` : ""}`];
+
+  const byShop = new Map();
+  for (const r of rows) {
+    const s = byShop.get(r.shop) ?? { results: new Map(), credentials: new Map(), passes: new Set() };
+    tally(s.results, r.command === "-" && r.parent === "-" && r.pass !== "-" ? "help" : r.result);
+    if (r.credentials !== "-") for (const part of r.credentials.split(",")) tally(s.credentials, part.slice(0, part.lastIndexOf(":")), Number(part.slice(part.lastIndexOf(":") + 1)));
+    s.passes.add(r.pass === walk.passId ? "the walk's pass" : r.pass === "-" ? "no pass" : r.pass);
+    byShop.set(r.shop, s);
+  }
+  lines.push(`rows by shop:`);
+  for (const [name, s] of byShop) lines.push(`  ${name === "-" ? "no shop" : name}: ${said(s.results)}; ${s.credentials.size ? `credentials ${[...s.credentials].map(([t, n]) => `${t} ${n} requests`).join(", ")}` : "no credential served"}; under ${[...s.passes].join(", ")}`);
+
+  const published = rows.filter((r) => r.shop === "town/hall" && r.command === "publish" && /^published \S+ \S+; requested prm_[0-9a-f]+$/.test(r.detail));
+  lines.push(`published, requesting a permit: ${published.length}`, ...published.map((r) => `  ${r.detail}`));
+
+  const approvals = rows.filter((r) => ours.has(/^approval (prm_[0-9a-f]+) tests \d+\/\d+$/.exec(r.detail)?.[1]));
+  lines.push(`approvals of the walk's permits: ${approvals.length}`);
+  for (const a of approvals) {
+    lines.push(`  ${a.detail}, ${a.shop}, ${a.result} (${a.call})`);
+    const under = (id, depth) => {
+      for (const c of rows.filter((r) => r.parent === id)) {
+        lines.push(`${"  ".repeat(depth + 2)}${c.shop} ${c.command} ${c.result}${c.credentials === "-" ? "" : ` ${c.credentials}`}${c.detail === "-" ? "" : `: ${c.detail}`}`);
+        under(c.call, depth + 1);
+      }
+    };
+    under(a.call, 0);
+    const tests = rows.filter((r) => r.parent === a.call);
+    lines.push(`    tests under it: ${tests.length}, ${tests.filter((t) => t.result === "ok").length} ok`);
+  }
+
+  const connected = rows.filter((r) => /^connected \S+ for \S+ in \d+s$/.test(r.detail));
+  lines.push(`consents: ${connected.length}`, ...connected.map((r) => `  ${r.detail}`));
+
+  const refreshed = new Map();
+  for (const r of rows) for (const m of r.detail.matchAll(/(?:^|, )refreshed (\S+?)(?=,|$)/g)) tally(refreshed, m[1]);
+  lines.push(`refreshes: ${[...refreshed.values()].reduce((a, b) => a + b, 0)}${refreshed.size ? `; ${said(refreshed)}` : ""}`);
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -411,7 +590,7 @@ function hallCounts(auditTable, grantTable) {
   const lines = [`hall rows by command: ${[...byCommand.values()].reduce((a, c) => a + c.rows, 0)}`];
   for (const [command, c] of byCommand) lines.push(`  ${command} ${c.rows}: ${said(c.kinds)}${c.sections.size ? `; sections refused: ${said(c.sections)}` : ""}`);
   const sources = new Map();
-  for (const source of column(grantTable, "source")) tally(sources, source === "-" ? "operator" : source.startsWith("permit ") ? "permit" : source);
+  for (const source of column(grantTable, "source")) tally(sources, source === "-" ? "operator" : source);
   lines.push(`grants by source: ${said(sources)}`);
   return `${lines.join("\n")}\n`;
 }
@@ -489,6 +668,94 @@ async function search(root, paths) {
   process.exit(found === 0 ? 0 : 1);
 }
 
+/**
+ * Every secret the store holds sealed, opened with the vault's key by the
+ * store's own code in this process: each credential's value, a `token`
+ * credential's whole and an `oauth` credential's refresh and access tokens,
+ * revoked ones included; and each type's client secret. By name, never
+ * printed; an empty one, a public client's, is named and not searched.
+ */
+async function sealedSecrets(data) {
+  const { openStore, readKey } = await storeCode();
+  let store;
+  try {
+    store = openStore(data);
+    const key = readKey(data);
+    const rows = store.sealedRows();
+    if (key === null) {
+      if (rows > 0) throw new Refusal(`${rows} sealed rows and no vault.key`);
+      return [];
+    }
+    const out = [];
+    for (const c of store.listCredentials()) {
+      const value = store.openCredential(c.id, key);
+      const what = `${c.id} ${c.type}${c.revokedAt === null ? "" : " (revoked)"}`;
+      if (store.getType(c.type)?.kind !== "oauth") {
+        out.push({ name: `${what} token`, value });
+        continue;
+      }
+      let tokens;
+      try {
+        tokens = JSON.parse(value);
+      } catch {
+        throw new Refusal(`${c.id}'s value is not an oauth credential's JSON`);
+      }
+      for (const field of ["refresh_token", "access_token"]) out.push({ name: `${what} ${field}`, value: String(tokens?.[field] ?? "") });
+    }
+    for (const t of store.listTypes()) if (t.hasClient) out.push({ name: `type ${t.name} client_secret`, value: store.openClient(t.name, key).secret });
+    return out;
+  } catch (err) {
+    // The vault's and the store's refusals are one line and hold no value; any other message may quote what it read, a parser's does, so it is not printed.
+    const said = err instanceof Refusal || ["VaultError", "StoreError"].includes(err?.constructor?.name) ? err.message : `${err?.constructor?.name ?? "an error"}, its message not printed`;
+    die(`the sealed rows of ${data} did not open: ${said}; nothing was searched`, 2);
+  } finally {
+    store?.close();
+  }
+}
+
+class Refusal extends Error {}
+
+/**
+ * `--search-sealed <root> [<path>...]`: every file under the walk root, the
+ * paths, and the data directory's town.db, its WAL and shared memory,
+ * shops/, and state/, searched for each sealed secret's bytes. One line per
+ * secret by name with how many files hold it, each file under it; exit 0
+ * for none found, 1 for some, 2 when it could not look.
+ */
+async function searchSealed(root, paths) {
+  if (!root) die("name the walk root: --search-sealed <root> [<path>...]", 2);
+  if (!existsSync(path.join(path.resolve(root), "walk.json"))) die(`${root} has no walk.json; it is not a walk root, and nothing was searched`, 2);
+  const walk = readWalk(root);
+  for (const p of paths) if (!existsSync(p)) die(`${p} does not exist; nothing was searched`, 2);
+  assertBuilt();
+  const secrets = await sealedSecrets(walk.data);
+  const inData = ["town.db", "town.db-wal", "town.db-shm", "shops", "state"].map((e) => path.join(walk.data, e)).filter((p) => existsSync(p));
+  const files = [...new Set([walk.root, ...paths, ...inData].flatMap((p) => filesUnder(path.resolve(p))))];
+  const bytes = new Map();
+  for (const file of files) {
+    try {
+      bytes.set(file, readFileSync(file));
+    } catch (err) {
+      die(`${file} could not be read (${err.code ?? "unknown error"}); the search is incomplete`, 2);
+    }
+  }
+  process.stdout.write(`searched ${files.length} files under ${[walk.root, ...paths, ...inData].join(", ")}\n`);
+  process.stdout.write(`the store holds each secret sealed, so a hit in town.db or its WAL is the plaintext bytes, not the sealed row\n`);
+  let found = 0;
+  for (const s of secrets) {
+    if (s.value === "") {
+      process.stdout.write(`${s.name}: empty, not searched\n`);
+      continue;
+    }
+    const needle = Buffer.from(s.value, "utf8");
+    const holding = files.filter((f) => bytes.get(f).includes(needle));
+    if (holding.length) found++;
+    process.stdout.write(`${s.name}: ${holding.length} files\n${holding.map((f) => `  ${f}\n`).join("")}`);
+  }
+  process.stdout.write(`${secrets.length} sealed secrets; ${found} found in a file\n`);
+  process.exit(found === 0 ? 0 : 1);
+}
+
 async function teardown(root) {
   const walk = readWalk(root);
   if (alive(walk.pid)) {
@@ -503,16 +770,25 @@ async function teardown(root) {
   } else {
     process.stdout.write(`the town, pid ${walk.pid}, was not running\n`);
   }
+  // A data directory given with --data is the town's, not the walk's: never under the root, so never removed with it.
+  if (walk.dataGiven && existsSync(walk.data)) {
+    const rel = path.relative(realpathSync(walk.root), realpathSync(walk.data));
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) die(`${walk.data}, the data directory given, is under ${walk.root}; the root is kept, and nothing was removed`);
+  }
   rmSync(walk.root, { recursive: true, force: true });
   if (existsSync(walk.root)) die(`${walk.root} is still there`);
   process.stdout.write(`removed ${walk.root}\n`);
+  if (walk.dataGiven) process.stdout.write(`kept ${walk.data}, the data directory given\n`);
 }
 
 const [flag, ...words] = process.argv.slice(2);
 if (flag === undefined) await setUp(memoryPlan());
 else if (flag === "--shop" && words[0] === "hall") {
-  if (words.length > 1) die("--shop hall takes no other flag; it needs no repository and no token");
-  await setUp(hallPlan());
+  const rest = words.slice(1);
+  if (rest.length === 0) await setUp(hallPlan());
+  else if (rest[0] === "--data" && rest.length === 2) await setUp(hallPlan(), await givenData(rest[1]));
+  else if (rest[0] === "--data" && rest.length === 1) die("--data needs a value, an existing town's data directory");
+  else die("--shop hall takes no other flag but --data <dir>; it needs no repository and no token");
 } else if (flag === "--shop") {
   const opts = new Map();
   for (let i = 0; i < process.argv.length - 2; i += 2) {
@@ -529,8 +805,9 @@ else if (flag === "--shop" && words[0] === "hall") {
   if (!REPO_SHAPE.test(repo)) die("--repo is not owner/name of letters, digits, _, ., and -");
   await setUp(PLANS[shop](repo, await readToken(`--shop ${shop}`)));
 } else if (flag === "--search") await search(words[0], words.slice(1));
+else if (flag === "--search-sealed") await searchSealed(words[0], words.slice(1));
 else if (flag === "--status" || flag === "--teardown") {
   if (words.length > 1) die(`too many words: ${words.slice(1).join(" ")}`);
   if (flag === "--status") status(words[0]);
   else await teardown(words[0]);
-} else die(`${flag} is not a walk flag; write nothing, --shop hall, --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], or --teardown <root>`);
+} else die(`${flag} is not a walk flag; write nothing, --shop hall [--data <dir>], --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], --search-sealed <root> [<path>...], or --teardown <root>`);

@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 since: 2026-09-13
 see: consent
-note: "written 13 Sep 2026, the day after wall closed: the town's consent, where a credential the town has never seen is proposed by an agent's manifest, shown to a person with its origin, and connected by that person at their own terminal, pasted once or consented to in a browser; the grant that binds it is a permit, and the town refreshes what expires. Consent phase 0 closed 13 Sep 2026: a token type proposed with the shop, the permit in the publish grant's place, and permit show's checklist typed as printed to a grant with the tests run at approval. Consent phase 1 closed the same day: the oauth kind, connect on loopback, the refresh and the revocation, and town/gdocs, proved against fakes and by hand against Google. The walk waits."
+note: "written 13 Sep 2026, the day after wall closed: the town's consent, where a credential the town has never seen is proposed by an agent's manifest, shown to a person with its origin, and connected by that person at their own terminal, pasted once or consented to in a browser; the grant that binds it is a permit, and the town refreshes what expires. Consent phase 0 closed 13 Sep 2026: a token type proposed with the shop, the permit in the publish grant's place, and permit show's checklist typed as printed to a grant with the tests run at approval. Consent phase 1 closed the same day: the oauth kind, connect on loopback, the refresh and the revocation, and town/gdocs, proved against fakes and by hand against Google. Consent phase 2 walked the same day: a real agent proposed a Figma type, a person with no account made the token from its guidance, and gdocs read a real document; open, a republish's guidance and replacing an under-scoped credential."
 ---
 
 # Consent — the journeys

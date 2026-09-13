@@ -30,16 +30,14 @@ untouched, and `src/cli.ts` learns nothing here, not `consent`, not
 
 ---
 
-**Where we are: 13 September 2026.** Consent phases 0 and 1 are
-closed, and consent phase 2, the walk, is next: it waits on a personal
-token from a provider the town has no type for, named by the shepherd
-(⚑), and uses the town at `~/town-consent`, which holds the Google
-registration and credential. What holds: a manifest proposes a type
-with guidance, a publish of a shop with needs asks for a permit, `permit
-show`'s checklist typed as printed ends at a grant with the tests run at
-approval, `credential connect` caught a real Google consent on loopback,
-and the gate refreshes an `oauth` credential before a call and revokes
-it on `invalid_grant`.
+**Where we are: 13 September 2026.** All three phases are closed, and
+consent phase 2's walk found two Opens that wait on a design decision,
+not a person: a republish's guidance never reaches a held type, and
+`permit show` has no line for replacing an under-scoped credential. A
+real agent proposed a Figma type, a person with no Figma account made
+the token from its guidance, the checklist reached a grant with the
+tests run at approval, and `town/gdocs` read a Google document on a
+real consent. `~/town-consent` keeps the Google registration.
 
 The order is dependency order. Phase 0 is the type with the shop: the
 manifest's need grown, guidance included, proposed and held types, the
@@ -334,4 +332,40 @@ wait, whether the agent's words and the checklist were enough to make
 the token and reach the grant without another source, and how many
 round trips `validate` took, recorded as findings.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. `pnpm test` exit 0 at 555 tests, and
+the walk held as the Proof names it: a Figma type proposed, published,
+its tests run at approval, the shop used, `town/gdocs` read, no call
+denied, and no secret in any file searched; two Opens below.
+
+**Findings:**
+
+- **2026-09-13 — The walk: 15 rows, 0 denied, 2 `shop-error`.** Sonnet
+  5, Bash alone, five prompts, 42 turns, $0.81 with no cap. `validate`
+  once, no refusal; about half the first 29 turns went to Claude Code's
+  heredoc check.
+- **2026-09-13 — The person had no Figma account** and made both tokens
+  from the guidance alone. The agent told them a permit waited and the
+  scope, but not where the token is made or `permit show`.
+- **2026-09-13 — The guidance asked for `file_content:read` alone;**
+  comments need `file_comments:read` and got 403. The agent read the
+  scope from the 403, fixed the guidance, and, told no permit waited,
+  asked with `request`.
+- **2026-09-13 — Open: a republish's guidance never reaches the box.**
+  The held type keeps its first proposal's words, so `permit show`
+  printed the wrong scope after the fix. Waits on a design decision.
+- **2026-09-13 — Open: the checklist cannot replace a credential.** The
+  new permit marked the credential `done` on the under-scoped token; the
+  conductor typed `credential rm` first, a word nothing printed. Waits
+  on a design decision.
+- **2026-09-13 — Tests that expect a failure prove reach, not scope:**
+  both approvals ran 2/2, `figma:1` a row, on a token that could not
+  read comments.
+- **2026-09-13 — Search:** the Figma tokens, Google's tokens, and the
+  client secret were in no file under the walk root, Claude Code's
+  session, `town.db`, its WAL, `shops/`, or `state/`; the pass's token
+  only in `.town/grant`.
+- **2026-09-13 — The by-hand refresh row, stamped by the moved clock,
+  sorts after the walk,** so `--status` counted it; the walk refreshed
+  nothing, on a consent made fresh for it.
+- **2026-09-13 — The walk ran on `~/town-consent`** by `walk.mjs
+  --data`, since a sealed credential cannot leave its key.

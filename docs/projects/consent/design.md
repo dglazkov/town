@@ -217,10 +217,16 @@ The rules, each a refusal citing §8:
   not at all; `oauth` needs both; `guidance` needs a definition, since
   a held type carries its own.
 - `guidance` is prose for a person, one paragraph, at most six hundred
-  characters, and holds no URL whose host is not the origin's, the
-  authorize endpoint's, or the token endpoint's: `credentials[0].guidance:
-  names example.com, which is not where this type sends; say where the
-  secret is made, not where to send it (spec §8)`.
+  characters, and names no host that is not the origin's, the authorize
+  endpoint's, or the token endpoint's, whether written as a URL
+  (`https://paste.example.com/figma`) or bare (`paste.example.com`, a
+  dotted name whose last label is letters and not a file's extension,
+  so `main.mjs` is not a host): `credentials[0].guidance: names
+  example.com, which is not where this type sends; say where the secret
+  is made, not where to send it (spec §8)`. A person pasting a token at
+  a host the guidance named is the exfiltration the origin exists to
+  stop, and a bare name misleads as well as a URL; so the guidance says
+  where by the provider's own menus, `Figma > Settings > Security`.
 - `origin` is an absolute `http:` or `https:` URL with no query,
   fragment, or userinfo; `header` is `<Name>: <value with {token}>`;
   `authorize` and `token` are `https:` URLs; `scopes` is a non-empty
@@ -340,8 +346,11 @@ and names filled in, each marked `done` or not:
 to do:
   done  townd admin type approve figma
         printf '%s\n' "$TOKEN" | townd admin credential add --user dimitri --type figma --label figma
-        townd admin permit approve prm_4f… (runs dimitri/figma's 2 tests on it first)
+        townd admin permit approve prm_4f…  # runs dimitri/figma's 2 tests on it first
 ```
+
+The note on the approve line is a shell comment, since each line is
+typed into a shell as printed and a parenthesis there is a syntax error.
 
 For an `oauth` need the lines are `type approve … --client-id <id>`
 with the secret on stdin and `credential connect …`, and the guidance

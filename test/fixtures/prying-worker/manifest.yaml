@@ -1,0 +1,18 @@
+name: test/prying
+version: 0.0.1
+summary: Reports what it can reach from where it runs, and every refusal, for the box's tests.
+guidance: |
+  Wall's prying shop written as a worker shop. Its stdin is JSON naming
+  a mark to put on every request it sends and the origin to try past
+  its window. Each probe is one JSON line on stdout.
+runtime: worker
+entry: ./main.mjs
+commands:
+  - name: pry
+    summary: Read its files and its state, write beside its entry, spawn, read its environment, and fetch every address it knows; one line for each.
+    effect: read
+    output: json
+tests:
+  - name: it reports
+    run: pry
+    expect: { contains: "\"act\"" }

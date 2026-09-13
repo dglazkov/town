@@ -1,0 +1,14 @@
+{
+  // The box: the Worker's files and the box ring's, which run in workerd, checked against the runtime's own types as
+  // `wrangler types` generates them for wrangler.jsonc's date and flags (`pnpm typecheck` writes them under .wrangler/
+  // first), the pool's, and Node's, since the town's modules they import are Node's too. The DOM's lib is here for one
+  // thing: the runtime's URL iterates its search params with an iterator older than the one Node's `fileURLToPath` takes,
+  // and the DOM's is the one TypeScript and Node agree on.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["node", "@cloudflare/vitest-pool-workers/types"]
+  },
+  "include": [".wrangler/types/worker.d.ts", "src/box.ts", "src/isolate.ts", "test/isolate.test.ts", "test/pry.test.ts", "test/helpers/box.ts"],
+  "exclude": []
+}

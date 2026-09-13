@@ -325,8 +325,8 @@ checks it.
 ## The window
 
 `Window` in `src/box.ts` is a `WorkerEntrypoint` whose `props` are the
-call's: the call's id, the nonce, and per need the type, origin,
-header, and token; and for a shop with dependencies the caller the
+call's: the call's id, and per need its own nonce, the type, origin,
+header, and token, since one nonce cannot tell two needs apart; and for a shop with dependencies the caller the
 clerk would carry, the pass, the manifest, the parent, and the depth.
 The object makes one per call with `this.ctx.exports.Window({ props })`
 and hands it to `runIsolate` as the outbound. Its `fetch` reads the

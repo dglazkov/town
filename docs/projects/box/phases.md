@@ -38,13 +38,13 @@ never load it.
 
 ---
 
-**Where we are: box phase 0 closed, 13 September 2026.** Next is box
-phase 1, the isolate and the window in workerd and the `box` ring, which
-needs no account. The seams stand on the laptop: the store over `Sql`
-and positional throughout, the shelf, the key source, the window's
-rule, schema 7, `runtime: worker` in the manifest and spec §7,
-`bin/main.js`, and the four shops as worker shops, 602 tests green on
-both rings. Nothing waits on a person until box phase 3's ⚑ steps.
+**Where we are: box phase 1 closed, 13 September 2026.** Next is box
+phase 2, the object and the door, with `wrangler dev` in the command
+ring, which needs no account. Box phase 0 put the seams on the laptop;
+box phase 1 ran the four exits, the state and its cap, the window, and
+wall's prying shop in isolates in workerd, the `box` ring beside the
+other two, 618 tests green. Nothing waits on a person until box phase
+3's ⚑ steps.
 
 The order is dependency order. Phase 0 is the seams, on the laptop
 alone: the store over `Sql`, the shelf, the key source, the window's
@@ -202,7 +202,43 @@ watches a request leave), a binding put in the isolate's `env` (the
 strings-alone test fails), and the cap not checked (the cap test
 fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (40 files, 618 tests; rings checkout 26,
+command 12, box 2 in the pool), and `pnpm typecheck` exit 0; the three
+mutations each failed their named tests in `test/pry.test.ts` and
+`test/isolate.test.ts`.
+
+**Findings:**
+
+- **2026-09-13 — The phase took forty-five minutes of wall clock.** No
+  return to the builder; three doc fixes before the brief.
+- **2026-09-13 — The fake origin is miniflare's `outboundService`.** A
+  function in the vitest process every global `fetch` of the Worker
+  reaches, the Window's real forward included; an isolate with no
+  `globalOutbound` inherits it, which is how the leak mutation shows.
+- **2026-09-13 — The vitest 4.1 pin cost nothing measured.** The two
+  rings ran 44.05 s on 5 and 43.7 s on 4.1; the box ring's sixteen tests
+  take 0.75 s, an 8.5 MB state in and out 19 ms.
+- **2026-09-13 — `@cloudflare/workers-types` clashes with
+  `@types/node`** over the town's modules the isolate imports; `pnpm
+  typecheck` generates types with `wrangler types` into `.wrangler/`
+  and checks `tsconfig.worker.json` second. The build never compiles
+  `src/box.ts` or `src/isolate.ts`.
+- **2026-09-13 — Wrangler reads the checkout's `.env` into a test
+  Worker as secrets.** The walk's token would have been in its `env`;
+  `vitest.box.config.ts` turns that off.
+- **2026-09-13 — Each need takes its own nonce.** One per call cannot
+  tell two needs apart; the Window's props carry a nonce per need.
+- **2026-09-13 — A loaded module has no `import.meta.url`.** A shop
+  that finds its files by it fails on the box alone; `process.cwd()` is
+  `/bundle`. No shop under `shops/` uses it.
+- **2026-09-13 — Open: the window's request count lives in the Window
+  isolate's memory.** On the platform `ctx.exports.Window` need not run
+  in the object's isolate; box phase 2 moves the count into the object
+  or the call's answer.
+- **2026-09-13 — Open: spec §7 does not say `import.meta.url` is absent
+  on the box.** Waits on a line in a spec at 298 of 300, box phase 2 or
+  the walk's reading.
 
 ## Phase 2: The object and the door
 

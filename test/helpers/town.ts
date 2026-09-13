@@ -21,11 +21,18 @@ export const MEMORY = path.join(ROOT, "shops/memory");
 /** The environment name by which a test tells townd this box has no wall: src/wall.ts's NO_WALL_ENV, read there alone. */
 export const NO_WALL_ENV = "TOWN_TEST_NO_WALL";
 
-/** Throws when any src/*.ts is newer than its dist/*.js, or dist is missing. */
+/** The files under src/ that `pnpm build` never compiles, the Worker's: tsconfig.json's exclude, read as tsconfig.build.json inherits it. */
+function notBuilt(): string[] {
+  const text = readFileSync(path.join(ROOT, "tsconfig.json"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  return ((JSON.parse(text) as { exclude?: string[] }).exclude ?? []).filter((f) => f.startsWith("src/")).map((f) => path.basename(f));
+}
+
+/** Throws when any src/*.ts that `pnpm build` compiles is newer than its dist/*.js, or dist is missing. */
 export function assertBuilt(): void {
   const src = path.join(ROOT, "src");
+  const skipped = notBuilt();
   for (const e of readdirSync(src)) {
-    if (!e.endsWith(".ts")) continue;
+    if (!e.endsWith(".ts") || skipped.includes(e)) continue;
     const js = path.join(ROOT, "dist", e.replace(/\.ts$/, ".js"));
     let built: number;
     try {

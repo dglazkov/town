@@ -164,11 +164,13 @@ async function readToken(what, code = 1) {
   return value;
 }
 
-/** Refuses when dist/ is missing or any src/*.ts is newer than its dist/*.js. */
+/** Refuses when dist/ is missing or any src/*.ts that `pnpm build` compiles is newer than its dist/*.js; the Worker's files, tsconfig.json's exclude, are never compiled. */
 function assertBuilt() {
   const src = path.join(REPO, "src");
+  const tsconfig = JSON.parse(readFileSync(path.join(REPO, "tsconfig.json"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  const skipped = (tsconfig.exclude ?? []).filter((f) => f.startsWith("src/")).map((f) => path.basename(f));
   for (const e of readdirSync(src)) {
-    if (!e.endsWith(".ts")) continue;
+    if (!e.endsWith(".ts") || skipped.includes(e)) continue;
     const js = path.join(REPO, "dist", e.replace(/\.ts$/, ".js"));
     if (!existsSync(js)) die(`dist/${path.basename(js)} is missing; run pnpm build`);
     if (statSync(path.join(src, e)).mtimeMs > statSync(js).mtimeMs) die(`dist is older than src/${e}; run pnpm build`);

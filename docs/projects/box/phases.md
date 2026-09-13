@@ -67,7 +67,8 @@ moved from a laptop; the OAuth relay; a Linux wall, never.
 
 **Closes:** journey 3 in full.
 
-**Work:** `src/sql.ts`: `Sql` and `fileSql` as the design writes them,
+**Work:** `src/sql.ts`: `Sql` and `fileSql` as the design writes them, a named
+parameter refused by the file driver,
 the `node:sqlite` load and its dropped warning moved here from
 `src/schema.ts`. `src/schema.ts`, `src/store.ts`, `src/credentials.ts`,
 `src/audit.ts`, `src/liveness.ts`: every query over `Sql`, positional
@@ -109,10 +110,12 @@ under `shops/`; one stays under `test/fixtures/`.
 
 **Proof:** `pnpm build && pnpm test && pnpm typecheck` exit 0, both
 rings, every test of the six projects before this one passing as it
-did. Falsified by at least one mutation: `bin/main.js` not awaiting
+did. Falsified by at least one mutation: the launcher not awaiting
 `main` (memory's `roundtrip` test fails), a named parameter left in the
-store (`test/sql.test.ts` fails on the file driver), and `runtime:
-worker` refused by the manifest (every `shop add` fails).
+store (the file driver refuses it, as SQLite over the object would bind
+it null, and the store's tests that reach the query fail; `test/sql.test.ts`
+proves the refusal), and `runtime: worker` refused by the manifest
+(every `shop add` fails).
 
 **Status: NOT STARTED.**
 

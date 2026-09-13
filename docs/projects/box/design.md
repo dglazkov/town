@@ -87,7 +87,8 @@ pilot's. The store does not know which it is over: it asks a seam,
 `Sql`, for `all`, `get`, `run`, `exec`, and `transaction`, and the seam
 is `node:sqlite` on a laptop and `ctx.storage.sql` on the box. The
 object's driver takes positional parameters alone, so the store's few
-named ones become positional on both; `BEGIN IMMEDIATE` becomes the
+named ones become positional on both, and the file driver refuses a
+named one so the laptop proves the box's rule; `BEGIN IMMEDIATE` becomes the
 seam's `transaction`, which is `transactionSync` on the box.
 
 **The wall is the absence of a binding.** Wall enclosed a process with
@@ -413,7 +414,8 @@ its line in `stderr` as any shop failure is.
 ## Testing it
 
 - **checkout**: `src/sql.ts`'s file driver, each of the five over a
-  file, a transaction rolled back; the store's tests as they are over
+  file, a transaction rolled back, and a named parameter refused, since
+  the object's driver would bind it null and say nothing; the store's tests as they are over
   it, and positional throughout; `src/shelf.ts`'s disk shelf, put and
   read and removed, and a name escaped as `stateDir` escapes it;
   `src/window.ts`'s rule, the teller's tests moved to it and the teller

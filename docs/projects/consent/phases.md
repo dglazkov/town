@@ -30,14 +30,14 @@ untouched, and `src/cli.ts` learns nothing here, not `consent`, not
 
 ---
 
-**Where we are: 13 September 2026.** All three phases are closed, and
-consent phase 2's walk found two Opens that wait on a design decision,
-not a person: a republish's guidance never reaches a held type, and
-`permit show` has no line for replacing an under-scoped credential. A
-real agent proposed a Figma type, a person with no Figma account made
-the token from its guidance, the checklist reached a grant with the
-tests run at approval, and `town/gdocs` read a Google document on a
-real consent. `~/town-consent` keeps the Google registration.
+**Where we are: 13 September 2026.** Consent phase 3 is next, the
+words that change and the token that falls short, written after
+consent phase 2's walk found its two Opens; it needs no person. Consent
+phases 0 to 2 are closed: a real agent proposed a Figma type, a person
+with no Figma account made the token from its guidance, the checklist
+reached a grant with the tests run at approval, and `town/gdocs` read a
+Google document on a real consent. `~/town-consent` keeps the Google
+registration.
 
 The order is dependency order. Phase 0 is the type with the shop: the
 manifest's need grown, guidance included, proposed and held types, the
@@ -50,7 +50,9 @@ exchange and the refresh at the gate's sixth step, the revocation on
 `invalid_grant`, and `town/gdocs`, provable against a fake
 authorization server and proved once by hand against Google. Phase 2 is
 the walk, last, because it is the only thing here that costs money and
-it reads the audit the earlier phases made.
+it reads the audit the earlier phases made. Phase 3 came after the walk:
+a republish's guidance reaching the type, and a credential replaced
+under its grants, the two holes the walk found.
 
 **Deliberately open.** Postponed on purpose: the Square; a person who
 has never made a token; a person not at the box, and a provider that refuses loopback, both the box's; scope
@@ -352,11 +354,11 @@ denied, and no secret in any file searched; two Opens below.
   asked with `request`.
 - **2026-09-13 — Open: a republish's guidance never reaches the box.**
   The held type keeps its first proposal's words, so `permit show`
-  printed the wrong scope after the fix. Waits on a design decision.
+  printed the wrong scope after the fix. Waits on consent phase 3.
 - **2026-09-13 — Open: the checklist cannot replace a credential.** The
   new permit marked the credential `done` on the under-scoped token; the
   conductor typed `credential rm` first, a word nothing printed. Waits
-  on a design decision.
+  on consent phase 3.
 - **2026-09-13 — Tests that expect a failure prove reach, not scope:**
   both approvals ran 2/2, `figma:1` a row, on a token that could not
   read comments.
@@ -369,3 +371,57 @@ denied, and no secret in any file searched; two Opens below.
   nothing, on a consent made fresh for it.
 - **2026-09-13 — The walk ran on `~/town-consent`** by `walk.mjs
   --data`, since a sealed credential cannot leave its key.
+
+---
+
+## Phase 3: The words that change and the token that falls short
+
+**Closes:** journey 4 in full; consent phase 2's two Opens.
+
+**Work:** `src/publish.ts`, `src/hall.ts`, and `src/credentials.ts`: a
+publish or `shop add` of a type's proposer with a matching definition
+and other guidance writes the guidance onto the type, host rule kept,
+and the publish line says so; the standing-grant line gains its
+`town hall request` clause. `src/checklist.ts` and `src/hall.ts`: the
+guidance shown with a permit, `requests`, and `hall show` is the
+shop's own manifest's, falling back to the type's. `src/secrets.ts`
+and `src/consent.ts`: `credential add --replace` and `credential
+connect --replace`, one transaction moving every unrevoked grant on the
+old credential to the new one and revoking the old, `revoked_why`
+`replaced by <id>`, the moves printed, the three refusals.
+`src/checklist.ts`: the `or, to use a new secret instead:` line for a
+need the user holds, never marked done, printed by `permit show` and a
+refused `permit approve`. `README.md`: the replacement line.
+`test/fixtures/`: a figma bundle whose `comments` a fake origin answers
+only for a wide token, at 0.1.0 with narrow guidance and 0.2.0 with
+both scopes.
+
+Tests, `checkout`: guidance written by the proposer's republish, held
+and proposed, and not by another shop's, whose permit shows its own;
+the host rule on the new words; `--replace` moving grants with shop,
+commands, constraints, and source unchanged, the old revoked with why,
+each refusal writing nothing, and the `oauth` path through the fake
+authorization server; the checklist's replacement line present for a
+held need, absent for an unmet one, never `done`.
+
+Tests, `command`: journey 4 steps 1 to 4 through the built binaries
+against a served town and the fake origin, a scripted agent, and the
+operator typing only the lines `permit show` printed; step 5's
+refusals.
+
+**Not this phase:** No walk: the path is the walk's, and a fake origin
+that refuses a narrow token is its proof. No scope read from a
+provider, no retry, no notice of a 403 to the person.
+
+**Proof:** `pnpm build && pnpm test && pnpm typecheck` exit 0, both
+rings. Falsified by at least one mutation: the proposer's guidance not
+written (journey 4 step 3's words fail), `--replace` leaving grants on
+the old credential (the call still 403 and the grant-reads test
+fails), and the replacement line left out (the checklist test ends with
+`comments` refused). Then by hand, from this checkout: a served town,
+the 0.1.0 bundle published through the built `town`, approved by the
+checklist on a narrow token, `comments` refused; 0.2.0 republished, a
+request, `permit show` read and its lines typed as printed; `comments`
+answered.
+
+**Status: NOT STARTED.**

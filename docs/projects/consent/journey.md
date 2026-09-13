@@ -1,8 +1,8 @@
 ---
-status: done
+status: partial
 since: 2026-09-13
 see: consent
-note: "written 13 Sep 2026, the day after wall closed: the town's consent, where a credential the town has never seen is proposed by an agent's manifest, shown to a person with its origin, and connected by that person at their own terminal, pasted once or consented to in a browser; the grant that binds it is a permit, and the town refreshes what expires. Consent phase 0 closed 13 Sep 2026: a token type proposed with the shop, the permit in the publish grant's place, and permit show's checklist typed as printed to a grant with the tests run at approval. Consent phase 1 closed the same day: the oauth kind, connect on loopback, the refresh and the revocation, and town/gdocs, proved against fakes and by hand against Google. Consent phase 2 walked the same day: a real agent proposed a Figma type, a person with no account made the token from its guidance, and gdocs read a real document; open, a republish's guidance and replacing an under-scoped credential."
+note: "written 13 Sep 2026, the day after wall closed: the town's consent, where a credential the town has never seen is proposed by an agent's manifest, shown to a person with its origin, and connected by that person at their own terminal, pasted once or consented to in a browser; the grant that binds it is a permit, and the town refreshes what expires. Consent phase 0 closed 13 Sep 2026: a token type proposed with the shop, the permit in the publish grant's place, and permit show's checklist typed as printed to a grant with the tests run at approval. Consent phase 1 closed the same day: the oauth kind, connect on loopback, the refresh and the revocation, and town/gdocs, proved against fakes and by hand against Google. Consent phase 2 walked the same day: a real agent proposed a Figma type, a person with no account made the token from its guidance, and gdocs read a real document; journey 4, a republish's guidance and a credential replaced when a token falls short, written after it for consent phase 3."
 ---
 
 # Consent — the journeys
@@ -273,3 +273,50 @@ Acceptance criteria:
   project, and its tests pass as vault wrote them.
 - `src/cli.ts` learns nothing: the guard passes with `consent`,
   `connect`, `oauth`, and `refresh` among the forbidden words.
+
+## Journey 4: The token falls short
+
+The town of journey 2 after step 4: `dimitri/figma` published by the
+agent with guidance asking for `file_content:read`, the type held, the
+credential `credential_A` pasted, the permit approved. Its `comments`
+needs a scope that token lacks. This is what consent phase 2's walk
+found.
+
+1. `town figma comments --key <key>` is exit 1 with the provider's 403
+   in the shop's words; the audit says `shop-error`. `name` answers.
+2. The agent fixes its guidance to name both scopes and republishes with
+   the same definition: `published dimitri/figma 0.2.0; figma's
+   guidance is now dimitri/figma 0.2.0's`, and the person's grant
+   stands, the line ending `if the shop needs a new secret, town hall
+   request --shop dimitri/figma asks a person`. `townd admin type
+   approve`'s printout and `credential add`'s prompt now print the new
+   words. A shop that did not propose `figma`, publishing other guidance
+   beside the same definition, leaves the type's words as they are, and
+   its own permit shows its own.
+3. The agent tells the person to make a token with both scopes, and runs
+   `town hall request --shop dimitri/figma`. `townd admin permit show
+   <id>` prints the need with `dimitri's: credential_A`, the guidance in
+   the new words, and under `to do:` the line `or, to use a new secret
+   instead:` with `printf '%s\n' "$TOKEN" | townd admin credential add
+   --user dimitri --type figma --label figma --replace credential_A`,
+   then the approve line.
+4. Typed as printed, the replacement prints `credential_B` and
+   `grant_… at dimitri/figma now uses credential_B`; `credential ls`
+   shows `credential_A` `revoked (replaced by credential_B)`; the approve
+   line runs the shop's tests on `credential_B` and makes the grant; and
+   `town figma comments` answers.
+5. `--replace` of a revoked credential, of another type's, or of another
+   user's is refused naming which, and nothing is written. `credential
+   connect --replace` replaces an `oauth` credential the same way.
+
+Acceptance criteria:
+
+- The checklist is enough: a `command` test replays steps 1 to 4 against
+  a fake origin that answers `comments` only for a wide token, types
+  only the lines `permit show` printed, and ends with `comments`
+  answered.
+- After a replacement, no unrevoked grant reads a revoked credential,
+  and every grant that read the old one reads the new one with its
+  shop, commands, constraints, and source unchanged.
+- Every word a person is told about where to make a secret is still the
+  shop's and still names no host the type does not send to.

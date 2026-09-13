@@ -578,6 +578,57 @@ by the next.
   and `town.db`. One model session, well under a dollar, and one token
   the person revokes after.
 
+## The words that change and the token that falls short
+
+Consent phase 2's walk found two holes in the checklist, both on the
+path every first try at a new provider takes: the agent's guidance
+names too narrow a scope, the person makes that token, and a command
+answers 403. The agent can see why and fix its words; the person must
+then make a wider token and put it where the grant reads it. Neither
+reached the box as printed words.
+
+**A type's guidance follows its proposer.** The origin, header, and
+`oauth` fields are what a person approved, and a republish never moves
+them. The guidance is not: it says where a secret is made, and the
+shop that proposed the type is the one that learns it was wrong. So a
+publish, or `shop add`, of the shop named in `proposed_by`, with a
+matching definition and different guidance, writes the new guidance
+onto the type, held or proposed, and says so: `figma's guidance is now
+dimitri/figma 0.2.0's`. The host rule still holds for the new words. A
+shop that did not propose the type changes nothing of it; wherever a
+permit at that shop is shown (`permit show`, `requests`, `hall show`),
+the guidance printed is that shop's own manifest's, attributed to it,
+and falling back to the type's when its manifest writes none. `type
+approve`, `credential add`, and `connect` print the type's, since they
+have no shop in hand.
+
+**A credential is replaced, not removed and added.** `townd admin
+credential add … --replace <credential>`, and `credential connect …
+--replace <credential>`, seal the new credential and, in one
+transaction, point every unrevoked grant bound to the old one at the
+new one and revoke the old one, `revoked_why` `replaced by <new id>`.
+It prints the new id on stdout and, on stderr, each grant moved:
+`grant_… at dimitri/figma now uses credential_…`. It is refused when the
+old credential is revoked, of another type, or another user's, naming
+which. A grant never changes shop, commands, constraints, or source by
+it; only the credential it reads, which is the thing the person just
+made.
+
+**The checklist offers the replacement.** For a need the permit's user
+already holds a credential of, `permit show` prints, above the approve
+line, one unmarked line headed `or, to use a new secret instead:` with
+the `credential add … --replace <id>` (or `connect … --replace <id>`)
+command filled in. It is never required and never marked `done`; the
+approve line binds whichever credential holds the type when it runs, so
+typed as printed, the replacement then the approval, the tests run on
+the new secret. A refused `permit approve` prints it too.
+
+**The agent is told how to ask again.** A republish that leaves a
+person's grant standing ends its line `…and this publish asked for
+none; if the shop needs a new secret, town hall request --shop <shop>
+asks a person`, so an agent that has told the person to make a wider
+token has a permit to point them at.
+
 ## What this does not do, on purpose
 
 - **The Square.** `permit show`'s checklist is its one screen, verb

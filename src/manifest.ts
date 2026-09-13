@@ -4,6 +4,7 @@
 
 import { parse as parseYaml } from "yaml";
 import { parseArgs, splitWords } from "./args.js";
+import { validateNeeds } from "./needs.js";
 
 export type ArgType = "string" | "int" | "bool" | "enum";
 export type Effect = "read" | "write" | "destructive";
@@ -103,7 +104,6 @@ const COMMAND_FIELDS = ["name", "summary", "effect", "args", "output"];
 const ARG_FIELDS = ["name", "type", "required", "doc", "default", "values", "constrainable"];
 const TEST_FIELDS = ["name", "run", "expect"];
 const EXPECT_FIELDS = ["contains", "equals", "exit"];
-const NEED_FIELDS = ["type"];
 const DEPENDENCY_FIELDS = ["shop", "commands"];
 
 const SHOP_NAME = /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/;
@@ -118,11 +118,11 @@ export const RESERVED_SHOP_WORDS: readonly string[] = ["serve", "admin", "spec"]
 /** Flags the agent's binary takes wherever they stand: no argument may be named one (spec §4). */
 export const RESERVED_ARG_NAMES: readonly string[] = ["json", "grant", "help"];
 
-function refusal(field: string, wrong: string, instead: string, section: number): string {
+export function refusal(field: string, wrong: string, instead: string, section: number): string {
   return `${field}: ${wrong}; write ${instead} instead (spec §${section})`;
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
@@ -231,40 +231,6 @@ function validateProse(m: Record<string, unknown>, out: string[]): void {
   }
 }
 
-/** `credentials`: a list of `{ type }`, one per type, each a type the town holds (spec §8). */
-function validateNeeds(needs: unknown, types: readonly string[] | undefined, out: string[]): void {
-  if (needs === undefined || needs === null) return;
-  if (!Array.isArray(needs)) {
-    out.push(refusal("credentials", "is not a list", "a list of needs like - type: github-token, or leave credentials out", 8));
-    return;
-  }
-  const seen = new Set<string>();
-  needs.forEach((n, i) => {
-    const at = `credentials[${i}]`;
-    if (!isRecord(n)) {
-      out.push(refusal(at, "is not a mapping", "a need like { type: github-token }", 8));
-      return;
-    }
-    for (const key of Object.keys(n)) {
-      if (!NEED_FIELDS.includes(key)) out.push(refusal(`${at}.${key}`, "is not a need field", `only ${NEED_FIELDS.join(", ")}`, 8));
-    }
-    if (typeof n.type !== "string" || n.type === "") {
-      out.push(refusal(`${at}.type`, describe(n.type, "a type name"), "a type like github-token", 8));
-      return;
-    }
-    if (seen.has(n.type)) {
-      out.push(refusal(`${at}.type`, `repeats the type ${n.type}`, "each type once", 8));
-      return;
-    }
-    seen.add(n.type);
-    if (types === undefined) {
-      out.push(refusal(`${at}.type`, `'${n.type}' cannot be checked with no data directory at hand`, "the verb again with --data <dir>, so the town's types are read,", 8));
-    } else if (!types.includes(n.type)) {
-      out.push(refusal(`${at}.type`, `'${n.type}' is not a type this town holds`, `one of (${types.join(", ")})`, 8));
-    }
-  });
-}
-
 /**
  * `depends`: a list of `{ shop, commands }`, one per shop, never the shop
  * itself, each a shop the town holds and each command one it has now
@@ -329,7 +295,7 @@ function validateDepends(depends: unknown, self: string | null, shops: readonly 
   });
 }
 
-function describe(v: unknown, what: string): string {
+export function describe(v: unknown, what: string): string {
   if (v === undefined) return "is missing";
   return `is not ${what}`;
 }

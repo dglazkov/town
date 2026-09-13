@@ -186,7 +186,7 @@ describe("the gate, over the hall", () => {
     const firstId = /^requested (prm_[0-9a-f]{16}); a person decides at the box, and town --help shows the answer\n/.exec(first.stdout)![1]!;
     expect(first).toMatchObject({ exit: 0, result: "ok", detail: `requested ${firstId}` });
     // It leaves out recall, which the pass holds: the answer says an approval drops it.
-    expect(first.stdout.split("\n")[1]).toBe("approved, it replaces your grant at town/memory and drops recall; name them to keep them");
+    expect(first.stdout.split("\n")[1]).toBe("if approved, this replaces your grant at town/memory and drops recall; name them to keep them");
     const second = await hall(token, "request", "--shop", "town/memory", "--commands", "remember,recall", "--constraint", "remember.key prefix notes/; recall.key prefix notes/");
     const secondId = /^requested (prm_[0-9a-f]{16});/.exec(second.stdout)![1]!;
     expect(store.listPermits(pass.id).map((p) => [p.id, p.commands, p.constraints, p.why])).toEqual([
@@ -223,10 +223,10 @@ describe("the gate, over the hall", () => {
       exit: 0,
       result: "ok",
       detail: `requested ${dropId}`,
-      stdout: `requested ${dropId}; a person decides at the box, and town --help shows the answer\napproved, it replaces your grant at town/memory and drops remember, list; name them to keep them\n`,
+      stdout: `requested ${dropId}; a person decides at the box, and town --help shows the answer\nif approved, this replaces your grant at town/memory and drops remember, list; name them to keep them\n`,
     });
     const alone = await hall(token, "request", "--shop", "town/memory", "--commands", "list,forget,recall");
-    expect(alone.stdout.split("\n")[1]).toBe("approved, it replaces your grant at town/memory and drops remember; name them to keep them");
+    expect(alone.stdout.split("\n")[1]).toBe("if approved, this replaces your grant at town/memory and drops remember; name them to keep them");
     const keeping = await hall(token, "request", "--shop", "town/memory", "--commands", "remember,recall,list,forget");
     const keepId = answer.exec(keeping.stdout)![1]!;
     expect(keeping).toMatchObject({ exit: 0, result: "ok", detail: `requested ${keepId}`, stdout: `requested ${keepId}; a person decides at the box, and town --help shows the answer\n` });

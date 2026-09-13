@@ -278,7 +278,7 @@ it("walks journey 1 steps 1 to 7: help, search and show, spec, validate, test, p
   const first = answer.exec(alone.stdout)?.[1];
   expect(first, alone.stdout + alone.stderr).toBeDefined();
   expect(alone).toEqual({
-    stdout: `requested ${first}; a person decides at the box, and town --help shows the answer\napproved, it replaces your grant at town/memory and drops remember, recall, list; name them to keep them\n`,
+    stdout: `requested ${first}; a person decides at the box, and town --help shows the answer\nif approved, this replaces your grant at town/memory and drops remember, recall, list; name them to keep them\n`,
     stderr: "",
     exit: 0,
   });
@@ -300,7 +300,7 @@ it("walks journey 1 steps 1 to 7: help, search and show, spec, validate, test, p
   expect(say(typed(a, "town hall requests")).stdout).toMatch(new RegExp(`^${permit}\\s.*\\sapproved as ${granted}$`, "m"));
   const narrower = say(typed(a, 'town hall request --shop town/memory --commands remember,recall,list --why "forget no more"'));
   const second = answer.exec(narrower.stdout)![1]!;
-  expect(narrower.stdout.split("\n")[1]).toBe("approved, it replaces your grant at town/memory and drops forget; name them to keep them");
+  expect(narrower.stdout.split("\n")[1]).toBe("if approved, this replaces your grant at town/memory and drops forget; name them to keep them");
   expect(town.admin("permit", "deny", second)).toMatchObject({ exit: 0, stdout: `denied ${second}\n` });
   expect(say(typed(a, "town hall requests")).stdout).toMatch(new RegExp(`^${second}\\s.*\\sdenied$`, "m"));
   expect(say(typed(a, "town --help")).stdout).toBe(helped);

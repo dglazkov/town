@@ -1,6 +1,6 @@
 # Hall — the design
 
-**12 September 2026.** Planned: nothing built. The project's status lives
+**12 September 2026.** Built and walked: all three phases of hall are closed. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §9, §12.1, and §16 in

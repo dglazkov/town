@@ -157,10 +157,10 @@ export async function runHall(deps: HallDeps, call: HallCall): Promise<HallOutco
       }
       if (Array.isArray(checked)) return refused(checked.map((r) => `request refused: ${r}`), "request refused");
       const permit = store.newPermit({ passId: call.pass.id, shop: name, commands: checked.commands, constraints: checked.constraints, why: text("why") ?? "" }, now);
-      // A permit is a whole grant: approved, it replaces the pass's grant at the shop, so what it leaves out is said.
+      // A permit is a whole grant: if approved, it replaces the pass's grant at the shop, so the answer says what it would drop.
       const held = heldAt(checked.manifest, store.grantsForPass(call.pass.id, now));
       const dropped = held.filter((c) => !checked.commands.includes(c));
-      const drops = dropped.length ? `approved, it replaces your grant at ${name} and drops ${dropped.join(", ")}; name them to keep them\n` : "";
+      const drops = dropped.length ? `if approved, this replaces your grant at ${name} and drops ${dropped.join(", ")}; name them to keep them\n` : "";
       return ok(`requested ${permit.id}; a person decides at the box, and town --help shows the answer\n${drops}`, `requested ${permit.id}`);
     }
     case "requests":

@@ -21,6 +21,7 @@ node bin/townd.js admin grant new --pass <id> --shop town/memory --commands reme
 # grant new at a shop with a need binds the user's one credential of its type, or the one named with --credential <id>
 # grant new at a composed shop (one whose manifest depends on others) needs the pass's grants at each dependency, covering the commands it calls, made first
 node bin/townd.js admin grant new --pass <id> --shop town/hall   # the hall, in every town: the agent finds shops, reads the spec, and asks for grants; narrow it with --commands like any shop
+# with a hall grant the agent puts in a shop it wrote, named for its user and held by its pass alone: tar --format ustar -cf - -C todo . | town hall publish
 node bin/townd.js admin permit ls               # what agents asked for with town hall request: pass, user, shop, commands, constraints, why, state
 node bin/townd.js admin permit approve <id> --commands recall --expires 30d   # makes the grant, as asked or narrower, never wider; replaces the pass's grant at the shop, and names it
 node bin/townd.js admin permit deny <id>        # a decided permit is not decided again; the agent sees the answer in town --help and town hall requests

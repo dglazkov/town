@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 since: 2026-09-12
 see: hall
-note: "written 12 Sep 2026, the day compose closed: the town's hall, where an agent finds, writes, publishes, and asks for shops, as a shop the town is born with. Hall phase 0 closed the same day: town/hall in every store, and the admin's permit verbs. Hall phase 1 closed that evening: a shop sent as a tar on stdin, validated, tested as the agent, and published under its user's name, a request that says what its approval drops, journeys 1 to 3 walked in both rings and by hand. Hall phase 2, the walk with a real agent, is next."
+note: "written 12 Sep 2026, the day compose closed: the town's hall, where an agent finds, writes, publishes, and asks for shops, as a shop the town is born with. All three phases closed the same day: town/hall in every store and the permit verbs (hall phase 0); a shop sent as a tar, tested as the agent, and published under its user's name (hall phase 1); and a real Claude Code session that wrote a to-do shop through three validates and one publish, used it, then asked for forget with request and used it once approved (hall phase 2)."
 ---
 
 # Hall — the journeys

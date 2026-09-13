@@ -28,14 +28,13 @@ names no shop.
 
 ---
 
-**Where we are: hall phase 1 closed, 12 September 2026.** Next is
-hall phase 2, the walk, which waits on nothing: the conductor drives a
-real Claude Code session at the cost of one model session, with no
-token, cloud resource, or hand. An agent's shop now crosses the wire
-as a ustar tar on stdin, is validated, tested as the agent in scratch,
-and published under its user's name with a grant at it; a request says
-what its approval would drop; and every journey step but the walk's is
-proved in both rings and walked by hand against a real town.
+**Where we are: hall done, 12 September 2026.** Every phase of hall
+is closed and nothing waits: next is the next project, which the design
+names as containers. A real Claude Code session read the hall's help and
+spec, wrote a to-do shop, sent it three times to `validate`, once to
+`test`, and once to `publish`, and used it. Asked to clear notes its
+grant could not forget, it asked with `request`, and after approval it
+did it. The pass's token was in no file searched but the grant file.
 
 The order is dependency order. Phase 0 is the hall in the town: the
 store's fourth schema with the hall's row, permits, owners, and
@@ -310,4 +309,35 @@ measure. `grep -r` for the pass's token over the transcript, the
 scratch directory, and the published shop's directory under the data
 directory finds it only in the grant file.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 12 Sep 2026. `pnpm test` exit 0 at 442 tests, and
+the walk held: one `published dimitri/todo 0.1.0`, its calls `ok`, no
+row denied before the second ask, then one `requested`, one grant with
+source `permit`, and three `forget` calls `ok`; the token only in the
+grant file.
+
+**Findings:**
+
+- **2026-09-12 — The walk: 16 rows, 0 denied, then 16, 5 denied.**
+  Three of the later rows were the conductor's seeding. Sonnet 5, Bash alone, three prompts and 62 turns, $0.80. Before the
+  first `published`: three `validate` (two refused), one `test` at 3/3,
+  one `publish`.
+- **2026-09-12 — Every refusal was §2's: help names no command.** The
+  first send refused summary and guidance, the second the summary; the
+  agent reworded twice and passed. No other section was refused.
+- **2026-09-12 — The agent read "approved, it replaces" as approved.**
+  It said so and called `forget` three times into denials before reading
+  `requests`. The line now opens "if approved, this replaces" (600d79e).
+- **2026-09-12 — Warned, the agent still asked for `forget` alone,** at
+  `notes/`. Approved as asked, memory held `forget` alone, and its
+  `list` to check was denied; it offered to ask again.
+- **2026-09-12 — Claude Code refuses a heredoc with a brace and a
+  quote.** The agent wrote `main.mjs` in `printf` escapes, about half of
+  the first ask's 48 turns. `node` was not allowed, so the hall's `test`
+  was its only test.
+- **2026-09-12 — The agent's shop kept its state in `TOWN_STATE`,** with
+  no dependency, so a real agent's shop ran under the contract, and no
+  test tree was walked for real.
+- **2026-09-12 — The conductor seeded three notes** as the agent's pass
+  before the second ask, so there was something to clear. The agent's
+  probes of `~/.town` and `find /` were refused by Claude Code.
+- **2026-09-12 — The phase took twelve minutes of wall clock.**

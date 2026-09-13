@@ -24,6 +24,10 @@ the call's windows, and nothing else on the box. The sixth is
 [project consent](docs/projects/consent/design.md): a credential type
 proposed by an agent's manifest, approved by a person who reads its
 origin, connected at that person's terminal, and bound by a permit.
+The seventh is [project box](docs/projects/box/design.md): the town off
+the laptop as one Cloudflare Worker, a shop in an isolate whose only way
+out is the window the town made for the call, the operator's verbs over
+the wire, and `runtime: worker` so one shop runs on both boxes.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

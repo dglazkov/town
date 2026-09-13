@@ -1,0 +1,9 @@
+{
+  "name": "town-spike-box",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [{ "name": "TOWN", "class_name": "Town" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Town"] }],
+  "worker_loaders": [{ "binding": "LOADER" }]
+}

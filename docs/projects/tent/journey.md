@@ -72,10 +72,12 @@ as it does today, and no Worker on the account named for this commit.
 5. The same with `--yes` and no terminal, from a script: no ask, exit 0.
    Without `--yes` and no terminal: refused before the pitch, exit 2,
    naming `--yes`.
-6. A run whose conformance fails, a check broken on purpose by the
-   walk's harness given `env BROKEN=<mode>` in place of the binary:
-   `not conformant`, the strike run anyway, the listing the same, the
-   directory kept and named, exit 1. The tent is not on the account.
+6. A run whose conformance fails, a check broken on purpose by
+   conformance's broken harness given after the ring's words, `--
+   env BROKEN=<mode> node test/fixtures/broken-harness.mjs`, in place of
+   the binary: `not conformant`, the strike run anyway, the listing the
+   same, the directory kept and named, exit 1. The tent is not on the
+   account.
 7. Without `CLOUDFLARE_API_TOKEN`: box's own refusal, nothing read,
    exit 2. With `--name town`: refused by name, nothing read. With a
    name the listing already holds: refused before the pitch, naming

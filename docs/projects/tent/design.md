@@ -63,7 +63,9 @@ crosses repos names the other repo's commit in its findings.
 Read from `scripts/box.mjs`, `scripts/conform.mjs`, `scripts/walk.mjs`,
 and sheep's `scripts/drove.mjs` at town `473687e` and sheep-drove
 `fe5170a`. The ring runs these and changes none of them, save one refusal
-it must route around.
+it must route around and one function it must import: the listing, which
+box's delete reads inside itself with GETs, exported from `scripts/box.mjs`
+for the ring, the delete's behavior unchanged.
 
 - **`pnpm box deploy [--name <worker>]`** deploys the checkout as a
   Worker named `town` or `--name`, the build stamped as the commit plus
@@ -146,7 +148,7 @@ stderr, so `test/hermetic.test.ts` drives every path with fakes and the
 real ones are the children below. Its usage block is the whole of it:
 
 ```
-pnpm hermetic --ring account [--name <worker>] [--yes] [--dry-run] [--keep]
+pnpm hermetic --ring account [--name <worker>] [--yes] [--dry-run] [--keep] [-- <harness command…>]
 pnpm hermetic --ring agent --sheep <dir> --repo <owner/name> --issue <n> [--kennel <dir>] [--user <name>] [--name <worker>] [--yes] [--dry-run] [--keep] < <token file>
 pnpm hermetic --strike <worker> [--yes]
 pnpm hermetic --list
@@ -194,8 +196,12 @@ deployed nothing, exit 0.
    the environment through; its stdout read for the workers.dev address
    and the build, which must be this run's sha with or without `-dirty`;
    its exit read.
-2. The walk: `node scripts/conform.mjs --town <address> -- node
-   bin/town.js` as a child under the same HOME, its lines to
+2. The walk: `node scripts/conform.mjs --town <address> -- <harness>`
+   as a child under the same HOME, the harness `node bin/town.js`
+   unless the words after the ring's `--` give one, as conformance's own
+   `--` does, so a check can be broken on purpose with conformance's
+   broken harness and the ring's failure path walked; the harness is
+   named in `ring.json` and the closing block. Its lines to
    `conform.txt` and to the terminal as they come, its exit read; green
    is `conformant: 30 checks` and 0. The count is not fixed in the ring;
    the verdict line is.

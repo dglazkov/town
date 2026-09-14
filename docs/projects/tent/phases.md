@@ -52,11 +52,13 @@ runs against the standing box.
 
 **Work:** `scripts/hermetic.mjs`: the usage block from the design; the
 words (`--ring account`, `--name`, `--yes`, `--dry-run`, `--keep`,
-`--strike <worker>`, `--list`), each refused in a sentence when wrong;
+`--strike <worker>`, `--list`, and `-- <harness command…>` defaulting
+to `node bin/town.js`), each refused in a sentence when wrong;
 `main(words, deps)` with the world in `deps`, the real ones spawning
 `scripts/box.mjs` and `scripts/conform.mjs` as children under the ring's
-HOME with `TOWN_OPERATOR` unset, and the listing read with the GET
-`scripts/box.mjs` already makes, imported from it; the ring's directory
+HOME with `TOWN_OPERATOR` unset, and the listing read with the GETs
+`scripts/box.mjs`'s delete already makes, exported from it for the ring
+with the delete's behavior unchanged; the ring's directory
 and `ring.json`; the preflight, the ask, and the `--dry-run` stop; the
 pitch with the build checked against the sha; conformance's lines
 through to the terminal and to `conform.txt`, the verdict line read;
@@ -86,8 +88,8 @@ listing before and after:
 3. Journey 1 step 4: `--keep`, the directory searched for the operator's
    token and `home/.town/operator` the only hit, then `--strike`.
 4. Journey 1 steps 5 to 7 on fakes in the test, and step 6 once for
-   real with the broken harness's `env BROKEN=<mode>` as the harness,
-   exit 1 and the tent gone.
+   real with `-- env BROKEN=<mode> node test/fixtures/broken-harness.mjs`
+   as the harness, exit 1 and the tent gone.
 
 Falsified by one mutation with `scripts/mutate.mjs`: the strike's call
 removed from the failure path, seen by the test's failed-check case,

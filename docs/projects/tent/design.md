@@ -85,7 +85,9 @@ for the ring, the delete's behavior unchanged.
   box stands, so box's deploy, not the ring, changes: when it made the
   operator's token it also waits, within the same ninety seconds, for the
   door to take that token (`POST /admin` with it answering 400, as the
-  delete already asks), and says so. The ring adds no retry; a step it
+  delete already asks) five times running, a second apart, and says so:
+  the third real run saw one 400 and then a 404 to `user ls`, a fresh
+  name not yet everywhere, so one answer is not the box standing. The ring adds no retry; a step it
   retried would be a step of its own.
 - **`pnpm box delete --name <worker>`** lists what goes with GETs, asks
   for the name on a terminal or takes one line of stdin, deletes with

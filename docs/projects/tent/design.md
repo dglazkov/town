@@ -50,7 +50,7 @@ crosses repos names the other repo's commit in its findings.
 | the tent | a box of the ring's own: `pnpm box deploy --name town-hermetic-<sha>` under a HOME the ring made, healthy when `GET /` answers with the build and the door takes the operator's token box made | the ring's directory, `home/` |
 | the pitch | the deploy, and the wait for the build in `x-town-build` and for the door to take the new operator's token | `scripts/box.mjs`, run by the ring |
 | the strike | `pnpm box delete --name <tent>` with the name on stdin, on every exit of a ring unless `--keep`; `--strike <name>` alone for a tent a killed run left | `scripts/box.mjs`, run by the ring |
-| the listing | the account's Workers by name, read before the pitch and after the strike, which must be the same set | the API's GET, as `box delete` reads it |
+| the listing | the account's Workers by name, read before the pitch and after the strike; the ring's own names, `town-hermetic-*` and the tent's, must be the same set, and another's that came or went is named | the API's GET, as `box delete` reads it |
 | the account ring | the tent pitched, conformance over the wire, the tent struck | `pnpm hermetic --ring account` |
 | the furnishing | what the tent holds before a stranger walks: a user, a `github-token` credential from the ring's stdin, `town/memory` and `town/github` from the checkout's `shops/` | the ring, each verb `townd admin --town` |
 | the stranger | the agent ring: the tent pitched and furnished, drove's stage run against it in a kennel that names a standing station, its report read, the tent struck | `pnpm hermetic --ring agent --sheep <dir>` |
@@ -221,7 +221,14 @@ deployed nothing, exit 0.
    the verdict line is.
 3. The strike: `node scripts/box.mjs delete --name <name>` under the
    same HOME with the name on stdin, its exit read.
-4. The listing after, which must equal the listing before.
+4. The listing after, whose ring's own names, those starting
+   `town-hermetic-` and the tent's, must equal the listing before's.
+   The account is shared: tent phase 1's first real run was green in
+   every step and exit 1 on the listing, since sheep's own ring had
+   deployed `sheep-hermetic-cc475fb-c-t-collie` mid-run. A Worker of
+   another's that came or went is named in the closing block and
+   `ring.json` as another's and does not fail the run; the ring
+   neither made it nor may strike it.
 
 Exit 0 is every step at 0 and the listings equal; 1 is any other run,
 the strike attempted whatever step failed, unless `--keep`, which leaves

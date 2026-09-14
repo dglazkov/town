@@ -38,7 +38,10 @@ drove's:
 - **The furnishing**: what the tent holds before the stranger walks: a
   user, a `github-token` credential, `town/memory`, and `town/github`.
 - **The listing**: the account's Workers by name, read before the
-  pitch and after the strike.
+  pitch and after the strike. The account is shared with other rings,
+  sheep's among them, so "the same" is said of the ring's own names,
+  `town-hermetic-*` and the tent's, and a Worker of another's that came
+  or went is named and not held against the run.
 - **The strike**: `box delete` of the tent, and `home/.town/operator`
   gone with it.
 
@@ -123,8 +126,7 @@ open issue on that repository.
    `--status`. Exit 0. The issue has one new comment. The station's
    `sheep ls` shows no sheep of the run's.
 4. The same run again: a second comment, exit 0.
-5. A run whose stage fails, the issue closed so `github reply` is
-   refused, or the kennel naming no station: the stage's report with
+5. A run whose stage fails, the kennel naming no station: the stage's report with
    its exit, the strike run anyway, the listing the same, the ring's
    directory kept with `drove.txt` in it, exit 1.
 6. The ring's search, falsified: a copy of the ring given a

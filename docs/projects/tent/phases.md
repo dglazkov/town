@@ -110,7 +110,7 @@ and put back.
 - **2026-09-14 — The standing box was not called.** Its audit's last row is 21:46:40Z, before the first run.
 - **2026-09-14 — The terminal's ask was walked on fakes only.** The conductor's shell has no terminal; real runs answered `--yes`, journey 1 step 5.
 - **2026-09-14 — Cost: 43 minutes, eleven deploys, cents.** Eight ring runs and three throwaway probes, each deleted.
-- **2026-09-14 — Open: the listing is the whole account's.** Sheep's ring deployed `sheep-hermetic-*` Workers there during these runs; one landing mid-run reads as unequal, exit 1. Waits on tent phase 1 or 2 to decide.
+- **2026-09-14 — The listing was the whole account's.** Sheep's ring deployed `sheep-hermetic-*` Workers there during these runs; tent phase 1 compares the ring's own names and names another's.
 
 ## Phase 1: The stranger
 
@@ -153,8 +153,8 @@ station's name:
 2. Journey 2 steps 3 and 4: green twice, two comments on the issue,
    the station's `sheep ls` empty of the run's sheep after, the listing
    the same, the stage's root named and its `--status` read once.
-3. Journey 2 step 5 once for real: the issue closed before the run,
-   exit 1, the tent gone, `drove.txt` kept; the issue reopened after.
+3. Journey 2 step 5 once for real: `--kennel` a directory whose config
+   names no station, exit 1, the tent gone, `drove.txt` kept.
 4. Journey 2's third criterion: `grep -rn sheep scripts/hermetic.mjs`
    read aloud in the findings.
 

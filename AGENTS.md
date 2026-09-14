@@ -8,14 +8,16 @@ runs anything, so there is nothing to sign into and nothing granted that
 a person did not approve. The draft that argues the whole of it is
 [docs/drafts/town-design-doc.md](docs/drafts/town-design-doc.md); the
 projects under [docs/projects/](docs/projects/README.md) are how it gets
-built, one short body of work at a time. Three further drafts sketch
+built, one short body of work at a time. Four further drafts sketch
 possible futures beside the seven projects below, each a shape and not a
 decision: [docs/drafts/sheep-constellation.md](docs/drafts/sheep-constellation.md),
 the town aligned with sheep and usable without it;
 [docs/drafts/growth-constellation.md](docs/drafts/growth-constellation.md),
 the seams between shops as project boundaries agents grow independently;
-and [docs/drafts/infra-constellation.md](docs/drafts/infra-constellation.md),
-the repo's own build, with hermetic rings as its spine. The first was
+[docs/drafts/infra-constellation.md](docs/drafts/infra-constellation.md),
+the repo's own build, with hermetic rings as its spine; and
+[docs/drafts/square-constellation.md](docs/drafts/square-constellation.md),
+the person's one surface rendered from the manifests, and `town wait`. The first was
 [project gate](docs/projects/gate/design.md): a grant file in a
 directory, the `town` command, and one shop, on one box. The second is
 [project vault](docs/projects/vault/design.md): a credential sealed in

@@ -24,14 +24,13 @@ told not to read it.
 
 ---
 
-**Where we are: road phases 0 and 1 closed, 14 September 2026.**
-`TOWN_GRANT` carries the grant itself or a path; `docs/harness.md` is
-the wire in ten sections, and `scripts/conform.mjs` runs thirty checks
-citing them, the laptop binary conformant. Next is road phase 2, the
-walk. No phase needs a person: there are
-no provision steps, and road phase 2's box walk reaches the operator's
-existing box with the token already in `~/.town/operator`, as box
-phase 4's walk did.
+**Where we are: done, 14 September 2026.** Road phases 0 to 2 are
+closed. `TOWN_GRANT` carries the grant itself or a path;
+`docs/harness.md` is the wire in ten sections and `scripts/conform.mjs`
+its thirty checks. A Python harness an agent wrote from the doc alone
+was conformant on the laptop at its first run and on the box, and the
+laptop binary was conformant on the box twice. Nothing waits on a
+person or on work; drove, sheep's `town`, is next in the night sky.
 
 The order is the order of dependence. Road phase 0 is the grant value,
 since every check hands a harness its grant that way. Road phase 1 is
@@ -208,4 +207,29 @@ after them no live pass labelled by the script and no `test/conform` in
 `shop ls`. If anything was fixed, `pnpm build && pnpm test && pnpm
 typecheck` exit 0 after the fix, and the laptop run `conformant` again.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. Walked by the conductor: the
+stranger's Python harness `conformant: 30 checks` on the laptop and
+twice on the box, its five tool calls reading `harness.md` and its own
+files alone; the laptop binary `conformant` twice on the box, no live
+pass of the script's and no `test/conform` after; after the contract's
+fixes `pnpm build`, `pnpm test` (734 tests), and `pnpm typecheck` exit 0.
+
+**Findings:**
+
+- **2026-09-14 — The contract was enough:** a fresh agent wrote a
+  213-line Python `town`, standard library only, in fifteen minutes from
+  `harness.md` alone, and it passed all thirty checks at its first run,
+  with no failure sent back.
+- **2026-09-14 — On the box it first failed twenty-four checks,** not for
+  the contract: this Mac's python.org Python has no CA bundle, and its
+  `SSLCertVerificationError`, a `ValueError`, was caught as a bad token.
+  With `SSL_CERT_FILE=/etc/ssl/cert.pem`, conformant twice.
+- **2026-09-14 — Three silences fixed in `harness.md`:** a `town` is an
+  origin, never posted under its path; an empty `TOWN_GRANT` holds no
+  grant; the grant is refused before stdin is read. The stranger chose
+  differently only on the path.
+- **2026-09-14 — The box was on build d2cb955,** older than road, and
+  conformant as it stood: road changed the agent's binary alone, so the
+  box's words were the town's already.
+- **2026-09-14 — The walk took six minutes of wall clock,** three of them
+  the stranger's; a box run takes five seconds.

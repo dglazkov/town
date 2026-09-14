@@ -1,9 +1,9 @@
 # Road — the design
 
-**14 September 2026.** Road phases 0 and 1 are built: `TOWN_GRANT`
-holds the grant itself or a path, and a bad one is refused without
-printing it; `docs/harness.md` is the contract and `scripts/conform.mjs`
-its thirty checks, the laptop binary conformant. The walk is not. The project's status lives in
+**14 September 2026.** Done: all three phases closed. `TOWN_GRANT`
+holds the grant itself or a path; `docs/harness.md` is the contract and
+`scripts/conform.mjs` its thirty checks; a Python harness written from
+the doc alone and the laptop binary are both conformant on the box. The project's status lives in
 [journey.md](journey.md)'s front matter. The journeys are the acceptance
 suite, this doc is the argument, and [phases.md](phases.md) is the walk.
 It is the star **road** cut from the

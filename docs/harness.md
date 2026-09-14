@@ -56,15 +56,17 @@ holding the grant itself:
 
 - `TOWN_GRANT` holds a grant when its first character that is not white
   space is `{` and it parses as a JSON object whose `town` is a URL and
-  whose `token` is a string.
+  whose `token` is a non-empty string. A town's `town` is always an
+  origin: `http` or `https`, a host, a port when it is not the scheme's
+  own, and at most a trailing `/`.
 - White space, newlines included, may surround the JSON: the operator's
   `townd admin pass new` prints it indented, with a newline after, and
   `TOWN_GRANT="$(townd admin pass new …)"` is how it is handed over.
 - No `TOWN_GRANT`, and no grant from anywhere else the harness looks
   (§10): refuse, exit 3 (§7).
 - A `TOWN_GRANT` that holds no grant, whether JSON that is not one (a
-  `town` that is not a URL, say) or a bare token pasted where the grant
-  was meant: refuse, exit 3 (§7). The refusal **never prints what `TOWN_GRANT`
+  `town` that is not a URL, say), a bare token pasted where the grant
+  was meant, or the empty string: refuse, exit 3 (§7). The refusal **never prints what `TOWN_GRANT`
   holds**, nor any part of it, on either stream, with or without
   `--json`: what it holds is very likely a token.
 
@@ -144,10 +146,12 @@ content-type: application/json
 {"argv":["conform","echo","--text","hello"],"stdin":null,"json":false}
 ```
 
-- `<town>` is the grant's `town`. The path is `/call` at that address,
+- `<town>` is the grant's `town`. The path is `/call` at that origin,
   whether the grant writes it with a trailing slash or without:
   `http://127.0.0.1:7000` and `http://127.0.0.1:7000/` both post to
-  `http://127.0.0.1:7000/call`.
+  `http://127.0.0.1:7000/call`. A `town` holding more than an origin is
+  no town's; a harness may refuse it (§2) or post to `/call` at its
+  origin, as the laptop's harness does, but never under its path.
 - `<token>` is the grant's `token`, as it is.
 - The body is a JSON object of `argv` (§3), an array of strings;
   `stdin` (§4), a string or `null`; and `json` (§3), a boolean.
@@ -189,6 +193,8 @@ Four refusals are the harness's, made without an answer from the town:
 | stdin that is not UTF-8 (§4), before any request | 1 |
 | a town that did not answer (§6) | 1 |
 
+- The grant is found before stdin is read: with no grant and stdin that
+  is not UTF-8, the refusal is the grant's, exit 3.
 - Each is one line on stderr, and nothing on stdout. Its words are the
   harness's own; a refusal of `TOWN_GRANT` never holds its contents (§2).
 - With `--json` anywhere in the words, the line goes instead into an

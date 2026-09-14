@@ -85,9 +85,12 @@ for the ring, the delete's behavior unchanged.
   box stands, so box's deploy, not the ring, changes: when it made the
   operator's token it also waits, within the same ninety seconds, for the
   door to take that token (`POST /admin` with it answering 400, as the
-  delete already asks) five times running, a second apart, and says so:
-  the third real run saw one 400 and then a 404 to `user ls`, a fresh
-  name not yet everywhere, so one answer is not the box standing. The ring adds no retry; a step it
+  delete already asks, the answer stamped with the build) fifteen times
+  running, a second apart, each on a connection of its own, and says so.
+  One answer was not enough, nor five on one kept-alive connection: two
+  real runs then got a 404 to `user ls`, and a probe of a fresh tent
+  saw, in its first seconds, 500, Cloudflare's 404 `error code: 1042`
+  with no build, the build's 401 before the secret, and then 200 only. The ring adds no retry; a step it
   retried would be a step of its own.
 - **`pnpm box delete --name <worker>`** lists what goes with GETs, asks
   for the name on a terminal or takes one line of stdin, deletes with

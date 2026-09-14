@@ -63,6 +63,16 @@ roster, and a lint of the docs' own rules.
 /Users/dimitriglazkov/Documents/code/town/.claude/skills/conduct/status.sh <project>
 ```
 
+Then the brief script, for the phase you will conduct, into the
+scratchpad; §1 is what to do with what it writes. It refuses a phase
+whose status is not NOT STARTED, printing the word, unless `--any`, and
+refuses a journey the phase names that `journey.md` lacks, which is the
+first gate below, found early.
+
+```sh
+/Users/dimitriglazkov/Documents/code/town/.claude/skills/conduct/brief.sh <project> <N> > <scratchpad>/brief.md
+```
+
 Then read, in this order: the phase's section in `phases.md`; every
 journey it names, in `journey.md`; the parts of `design.md` those cite;
 the Findings of the phases before it (they are the things the design
@@ -92,44 +102,29 @@ a phase cost.
 ## 1. Brief
 
 Write the brief to a file in the scratchpad so it can be reread, reused
-if the subagent must be restarted, and quoted in the commit. The brief
-is the phase's section verbatim plus what the subagent needs to not
-guess:
+if the subagent must be restarted, and quoted in the commit. The script
+writes it (§0) and the conductor edits it: the brief is the phase's
+section verbatim plus what the subagent needs to not guess, and the
+script copies every part of that the docs hold, by the same conventions
+`status.sh` reads them by:
 
 ```
-# <project> phase <N>: <title>
+# <project> phase <N>: <title> — briefed <date> at <commit>
 
+## Asked before the phase starts   (the phase's ⚑ steps, or none)
 ## The phase                       (phases.md section, verbatim)
-## The journeys it closes          (journey.md sections, verbatim)
-## The mechanism                   (the design.md parts they cite; paths, not paraphrase)
-## Findings so far that bind you   (from earlier phases: each a one-liner and why it matters here)
+## The journeys it closes          (every journey its **Closes:** names, whole)
+## The mechanism                   (design.md's names table; every heading as a sed -n line)
+## Findings so far that bind you   (every earlier phase's, verbatim; then the Open roster)
 ## House rules                     (AGENTS.md, verbatim; the project's own rules paragraph, verbatim)
-
-## What you own
-Files under <paths the phase names>. Nothing under docs/projects/: the
-conductor writes the record. Nothing under vendor/ or any vendored
-dependency unless the phase says that is the work. No other project's
-code.
-
-## Where you stop
-- At each ⚑ step without a yes above: build up to it, report.
-- When the proof would need a facade: something that passes the named
-  test but is not the thing (a fixture that cannot fail, a shim that
-  answers the test's question and no other). Stop and say so; that is a
-  finding, not a failure.
-- When the design turns out wrong: stop, say what you found and what
-  you would change. The conductor changes the design, not you.
-
-## What you return
-1. What was built: files, and one paragraph of how it works.
-2. The proof, as exact commands from the repo root, with the output you
-   saw, exit codes included. Not "tests pass": the command and the line
-   that says so.
-3. What you could not do and why, and where you stopped.
-4. Candidate findings: dated one-liners, one claim each, about forty
-   words. The conductor keeps, rewrites, or drops them.
-5. Anything a later phase should know that the docs do not say.
+## What you own                    (the paths the phase names; then the tail)
 ```
+
+The conductor then pastes into the mechanism the design sections the
+phase leans on, and anywhere the brief needs it what the docs do not
+say, and gives it to the subagent. The tail, what the subagent owns,
+where it stops, and what it returns, is `brief.sh`'s, and this skill
+no longer quotes it.
 
 Spawn with the Agent tool (`general-purpose`). Parallel subagents belong
 inside a phase, splitting its Work list by file ownership, never across

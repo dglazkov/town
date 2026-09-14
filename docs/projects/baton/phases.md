@@ -20,11 +20,12 @@ what the conductor still had to do by hand is a finding, not a failure.
 
 ---
 
-**Where we are: planned, 13 September 2026.** Nothing built; baton
-phase 0 is next. No phase has a ⚑ step and nothing waits on a person.
-The first star cut from the infra constellation, placed before the
-sheep constellation's road in the night sky because it costs a day and
-every phase after it is briefed by it.
+**Where we are: under way, 13 September 2026.** Baton phase 0 is
+closed: `brief.sh` writes a phase's brief from the docs. Baton phase 1,
+the selector, is next, briefed by it. No phase has a ⚑ step and nothing
+waits on a person. The first star cut from the infra constellation,
+placed before the sheep constellation's road in the night sky because
+it costs a day and every phase after it is briefed by it.
 
 The order is the order of use. Phase 0 is the brief, so the two phases
 after it are briefed by it. Phase 1 is the selector, since the mutation
@@ -74,7 +75,29 @@ Falsified by at least one mutation: a journey number dropped from the
 tail's text changed in the script alone (the test comparing the tail to
 the skill's one sentence and the script's text fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (46 files, 692 tests, three rings, baton's in
+checkout's 29), and `pnpm typecheck` exit 0; `brief.sh box 4 --any`
+matched box's docs section by section, exit 1 without `--any`, exit 2
+for phase 9; both named mutations failed the fixture test.
+
+**Findings:**
+
+- **2026-09-13 — The phase took fifteen minutes of wall clock,** ten of
+  them the builder's; the brief was the last written by hand, and no
+  return to the builder was needed.
+- **2026-09-13 — The owned list over-claims, as the design writes it.**
+  Every path the section names counts, so baton phase 1's list carries
+  `src/args.ts` from its Proof; the conductor prunes it when editing.
+- **2026-09-13 — `brief.sh` briefs every phase of all eight projects
+  with `--any`,** every `**Closes:**` parsed and every journey found, so
+  the docs already keep the conventions `status.sh` reads.
+- **2026-09-13 — The Open roster repeats an Open** already printed under
+  its phase's findings, and the names section prints the table's lines
+  alone, leaving out a paragraph that follows it, as box's design has.
+- **2026-09-13 — A `<project>` holding a `/` is a directory,** which is
+  how the test reaches the fixture and how a later phase can brief a
+  project outside `docs/projects/`.
 
 ---
 

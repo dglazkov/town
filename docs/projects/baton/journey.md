@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 since: 2026-09-13
 see: baton
-note: "written 13 Sep 2026, the night the four constellations were drafted: the conductor's tools, the first star of the infra constellation and the first project of the night sky. Baton phase 0 closed 13 Sep 2026: brief.sh writes a phase's brief from the docs, tested against a fixture project and read against box phase 4. Baton phase 1 closed the same night: pnpm test takes a ring, a file, --list, or --watch, building only when dist/ is stale. The mutation is next."
+note: "written 13 Sep 2026, the night the four constellations were drafted: the conductor's tools, the first star of the infra constellation and the first project of the night sky. Baton phase 0 closed 13 Sep 2026: brief.sh writes a phase's brief from the docs, tested against a fixture project and read against box phase 4. Baton phase 1 closed the same night: pnpm test takes a ring, a file, --list, or --watch, building only when dist/ is stale. Baton phase 2 closed it: mutate.mjs backs a file up, runs a command against its mutation, and restores it by copy, verified in a dirty tree and on itself, with no git checkout typed. Done 13 Sep 2026."
 ---
 
 # Baton — the journeys

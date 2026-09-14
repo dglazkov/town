@@ -15,10 +15,14 @@
 // selector, scripts/test.mjs, is tested by what runs nothing: `--list`
 // prints each ring, what it needs, and testFilesOfRing's files for it, all
 // three or the one named, and `--watch` with another ring is one line of
-// refusal; test/rings.test.ts reads the rest of its ring handling.
+// refusal; test/rings.test.ts reads the rest of its ring handling. The
+// mutation, scripts/mutate.mjs, is tested against a copy of
+// test/fixtures/baton-mutant.txt and a `node -e` command: killed, survived,
+// the count refused, SIGINT, a restore that fails, and its source read for
+// the word git.
 
-import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
@@ -248,4 +252,152 @@ it("pnpm test --watch with the command or box ring refuses in one line saying wh
   const nope = selector("--ring", "checkout,nope");
   expect(nope.code).toBe(2);
   expect(nope.stderr).toBe('no ring "nope": the rings are checkout, command, box\n');
+});
+
+// The mutation, scripts/mutate.mjs, run by plain node on a copy of
+// test/fixtures/baton-mutant.txt in a directory of the test's own, with
+// TMPDIR a second directory so the backup's path is known and its removal
+// seen. The command is `node -e` that prints the line it read and the
+// file's mtime, then exits 1 when "at dusk" is gone from it: a mutation to
+// "at dawn" is killed, one that keeps "at dusk" and adds a comment survives.
+// Journey 2's four steps, each with the file's bytes after.
+
+const MUTATE = path.join(ROOT, "scripts/mutate.mjs");
+const MUTANT = path.join(ROOT, "test/fixtures/baton-mutant.txt");
+const FROM = "counts the flock at dusk";
+const CHECK =
+  'const fs = require("fs"); const t = fs.readFileSync(process.argv[1], "utf8"); ' +
+  'console.log("the command read: " + t.split("\\n")[3]); console.log("mtime " + fs.statSync(process.argv[1]).mtimeMs); ' +
+  'process.exit(t.includes("at dusk") ? 0 : 1)';
+
+function mutantScratch() {
+  const dir = mkdtempSync(path.join(tmpdir(), "baton-mutant-"));
+  const tmp = path.join(dir, "tmp");
+  mkdirSync(tmp);
+  const target = path.join(dir, "baton-mutant.txt");
+  writeFileSync(target, readFileSync(MUTANT));
+  return { dir, tmp, target, done: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+function mutate(tmp: string, args: string[]) {
+  const r = spawnSync(process.execPath, [MUTATE, ...args], { cwd: ROOT, encoding: "utf8", env: { ...process.env, TMPDIR: tmp } });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+it("mutate.mjs: a mutation the command catches prints the backup first, the command's output, the file put back, and `mutation killed by`, exit 0", () => {
+  const s = mutantScratch();
+  try {
+    const command = [process.execPath, "-e", CHECK, s.target];
+    const r = mutate(s.tmp, [s.target, "--from", FROM, "--to", "counts the flock at dawn", "--", ...command]);
+    expect(r.stderr).toBe("");
+    const out = r.stdout.trimEnd().split("\n");
+    expect(out[0]).toMatch(/^backup: /);
+    const backup = out[0]!.slice("backup: ".length);
+    expect(path.dirname(path.dirname(backup)), "the backup is in a directory of its own under the temporary directory").toBe(s.tmp);
+    expect(out[1], "the command ran against the mutated file, its output on mutate's stdout").toBe(
+      "the command read: The shepherd counts the flock at dawn — every one of them.",
+    );
+    expect(out[3]).toBe(`mutation killed by ${command.join(" ")} (exit 1)`);
+    expect(out).toHaveLength(4);
+    expect(r.code).toBe(0);
+    expect(readFileSync(s.target).equals(readFileSync(MUTANT)), "the file's bytes are the fixture's").toBe(true);
+    expect(readdirSync(s.tmp), "the backup is removed").toEqual([]);
+    expect(readdirSync(s.dir).sort(), "no other file was written").toEqual(["baton-mutant.txt", "tmp"]);
+    const mutated = Number(out[2]!.slice("mtime ".length));
+    expect(statSync(s.target).mtimeMs, "the restore takes a new mtime, later than the mutation's, so a build of the mutation reads stale").toBeGreaterThan(mutated);
+  } finally {
+    s.done();
+  }
+});
+
+it("mutate.mjs: a mutation the command does not catch ends on `mutation survived`, exit 1, the file put back all the same", () => {
+  const s = mutantScratch();
+  try {
+    const command = [process.execPath, "-e", CHECK, s.target];
+    const r = mutate(s.tmp, [s.target, "--from", FROM, "--to", `${FROM} /* a comment */`, "--", ...command]);
+    expect(r.stderr).toBe("");
+    const out = r.stdout.trimEnd().split("\n");
+    expect(out[0]).toMatch(new RegExp(`^backup: ${s.tmp}/mutate-[^/]+/baton-mutant\\.txt$`));
+    expect(out[1]).toBe("the command read: The shepherd counts the flock at dusk /* a comment */ — every one of them.");
+    expect(out[3]).toBe(`mutation survived ${command.join(" ")} (exit 0)`);
+    expect(r.code).toBe(1);
+    expect(readFileSync(s.target).equals(readFileSync(MUTANT))).toBe(true);
+    expect(readdirSync(s.tmp)).toEqual([]);
+  } finally {
+    s.done();
+  }
+});
+
+it("mutate.mjs: a --from that occurs twice, or not at all, is refused with the count before any copy, exit 2", () => {
+  const s = mutantScratch();
+  try {
+    for (const [from, count] of [["gate on the", 2], ["at noon", 0]] as const) {
+      const r = mutate(s.tmp, [s.target, "--from", from, "--to", "a wall", "--", process.execPath, "-e", CHECK, s.target]);
+      expect(r.code, from).toBe(2);
+      expect(r.stdout, "no backup line, and the command never ran").toBe("");
+      expect(r.stderr).toBe(`"${from}" occurs ${count} times in ${s.target}, not once; nothing was copied or changed\n`);
+      expect(readdirSync(s.tmp), "no backup was made").toEqual([]);
+      expect(readFileSync(s.target).equals(readFileSync(MUTANT))).toBe(true);
+    }
+  } finally {
+    s.done();
+  }
+});
+
+it.each([
+  ["to mutate.mjs alone, the command still running", false],
+  ["to the process group, as ^C at a terminal, the command stopping too", true],
+])("mutate.mjs: SIGINT %s puts the file back, removes the backup, and exits 130", async (_, group) => {
+  const s = mutantScratch();
+  try {
+    const hold = 'const t = require("fs").readFileSync(process.argv[1], "utf8"); console.log("running on: " + t.split("\\n")[3]); setTimeout(() => {}, 60000)';
+    const p = spawn(process.execPath, [MUTATE, s.target, "--from", FROM, "--to", "counts the flock at dawn", "--", process.execPath, "-e", hold, s.target], {
+      cwd: ROOT,
+      env: { ...process.env, TMPDIR: s.tmp },
+      detached: group,
+    });
+    let stdout = "";
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d));
+    const closed = new Promise<number | null>((resolve) => p.on("close", (code) => resolve(code)));
+    await new Promise<void>((resolve) =>
+      p.stdout.on("data", (d) => {
+        stdout += d;
+        if (stdout.includes("running on: ")) resolve();
+      }),
+    );
+    expect(stdout).toContain("running on: The shepherd counts the flock at dawn");
+    expect(readFileSync(s.target).equals(readFileSync(MUTANT)), "the mutation is in place while the command runs").toBe(false);
+    process.kill(group ? -p.pid! : p.pid!, "SIGINT");
+    const code = await closed;
+    expect(stderr).toBe("");
+    expect(code).toBe(130);
+    expect(stdout.trimEnd().split("\n").at(-1)).toMatch(/^mutation interrupted/);
+    expect(readFileSync(s.target).equals(readFileSync(MUTANT)), "the file's bytes are the fixture's").toBe(true);
+    expect(readdirSync(s.tmp), "the backup is removed").toEqual([]);
+  } finally {
+    s.done();
+  }
+});
+
+it("mutate.mjs: a restore that fails is exit 3, the backup kept and its path in the last line", () => {
+  const s = mutantScratch();
+  try {
+    const clobber = 'const fs = require("fs"); fs.rmSync(process.argv[1]); fs.mkdirSync(process.argv[1])';
+    const r = mutate(s.tmp, [s.target, "--from", FROM, "--to", "counts the flock at dawn", "--", process.execPath, "-e", clobber, s.target]);
+    expect(r.code).toBe(3);
+    const backup = r.stdout.split("\n")[0]!.slice("backup: ".length);
+    expect(r.stdout).toBe(`backup: ${backup}\n`);
+    expect(r.stderr.trimEnd().split("\n").at(-1)).toBe(`${s.target} may still hold the mutation; its original is at ${backup}`);
+    expect(r.stderr).toMatch(/^restore failed: .*EISDIR/);
+    expect(readFileSync(backup).equals(readFileSync(MUTANT)), "the backup holds the original bytes").toBe(true);
+  } finally {
+    s.done();
+  }
+});
+
+it("mutate.mjs contains no invocation of git: the word appears nowhere in its source, comments included", () => {
+  const source = readFileSync(MUTATE, "utf8");
+  expect(source).toContain("spawn(");
+  expect(source.match(/\bgit\b/gi)).toBeNull();
 });

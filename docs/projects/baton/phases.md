@@ -20,14 +20,12 @@ what the conductor still had to do by hand is a finding, not a failure.
 
 ---
 
-**Where we are: under way, 13 September 2026.** Baton phases 0 and 1
-are closed: `brief.sh` writes a phase's brief from the docs, and `pnpm
-test` takes a ring, a file, `--list`, or `--watch`. Baton phase 2, the
-mutation, is next, briefed by the one and run through the other. No
-phase has a ⚑ step and nothing waits on a person. The first star cut
-from the infra constellation, placed before the sheep constellation's
-road in the night sky because it costs a day and every phase after it
-is briefed by it.
+**Where we are: done, 13 September 2026.** Baton phases 0 to 2 are
+closed: `brief.sh` writes a phase's brief from the docs, `pnpm test`
+takes a ring, a file, `--list`, or `--watch`, and `mutate.mjs` checks a
+mutation by copy in a dirty tree. The last two phases were briefed by
+the first tool and the last verified by itself. Nothing waits on a
+person; two Opens are test gaps found on the way, owed to work.
 
 The order is the order of use. Phase 0 is the brief, so the two phases
 after it are briefed by it. Phase 1 is the selector, since the mutation
@@ -197,4 +195,34 @@ count, exit 2. The conductor verifies this phase's own `test/baton.test.ts`
 mutation with `mutate.mjs` and types no `git checkout`; the memory rule
 about reverting by backup is then the script's, recorded as a finding.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (46 files, 701 tests, three rings), and
+`pnpm typecheck` exit 0; in a tree dirtied on purpose a mutation of
+`src/args.ts` was killed, exit 0, a comment survived, exit 1, `return`
+was refused with 15, exit 2, `git status` the same throughout; and
+`mutate.mjs` checked itself.
+
+**Findings:**
+
+- **2026-09-13 — Briefed by `brief.sh baton 2`; the conductor added by
+  hand** the owned list pruned of `src/args.ts` and given the skill, the
+  design sections, and four risks: a restore keeping old mtimes, `^C`
+  reaching the child, provoking a failed restore, `git` in comments.
+- **2026-09-13 — The phase took forty minutes of wall clock,** seven of
+  them the builder's; the rest was the Proof's own fix, a flake's rerun,
+  and the walk.
+- **2026-09-13 — The Proof's `--from 'import'` was allowed, rightly:**
+  `src/args.ts` has one import. The Proof now names `return`, fifteen
+  times, fixed as its own commit before the proof ran.
+- **2026-09-13 — The restore writes bytes, never metadata,** so the file
+  is newer than any build of the mutation and `dist/` reads stale; a
+  test pins the mtime, and `SIGTERM` restores too, exit 143.
+- **2026-09-13 — Reverting by backup is now the script's.** The
+  conductor mutated `src/args.ts` and `mutate.mjs` itself through it,
+  both back byte for byte, and typed no `git checkout`.
+- **2026-09-13 — Open: `test/args.test.ts` never tries an int with
+  trailing text.** The `$` dropped from the int pattern survived it.
+  Waits on work, in whichever phase next touches `src/args.ts`.
+- **2026-09-13 — Open: `test/dev.test.ts` fails when a random user id
+  holds `ada`,** about one run in three hundred; the suite failed once
+  on it and passed on rerun. Waits on a word boundary in that assertion.

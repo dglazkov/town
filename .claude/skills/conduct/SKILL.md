@@ -150,6 +150,11 @@ The checklist, every phase:
   CI runs a subset, a green workflow is not the proof. If you ran a
   subset, name what you skipped in the report, or run it.
 - The named proof, command by command.
+- A mutation the Proof names, by `node scripts/mutate.mjs <file> --from
+  '<text>' --to '<text>' -- <command>`, which backs the file up, runs the
+  command, and puts the file back by copy: in box phase 0 a conductor
+  reverted a mutation with `git checkout` in a dirty tree and wiped the
+  builder's uncommitted work.
 - The walk, when the phase has one: against a real deployment, a real
   model, a real service, a real credential. Walks find what fixtures
   cannot. A phase with a walk is not CLOSED until the walk is walked.
@@ -243,8 +248,8 @@ thing a credential, money, or a hand? If not, it is yours.
 
 ## Things that have gone wrong before
 
-These are from sheep, the repo this skill came from. The pattern is the
-same here and so are the failure modes.
+These are from sheep, the repo this skill came from, and from town.
+The pattern is the same here and so are the failure modes.
 
 - A subagent said the suite passed; it had run `npm test | tail`, and
   six tests had failed. Read the exit code.
@@ -264,3 +269,7 @@ same here and so are the failure modes.
   merge lost a finding. The conductor owns the record.
 - The shell's cwd was inside a submodule and a relative `cd` chain did
   nothing. Absolute paths in every command you give a subagent.
+- In box phase 0 the conductor reverted a Proof's mutation with `git
+  checkout`, in a tree holding the builder's uncommitted work, and the
+  builder had to redo two files. Mutate by `scripts/mutate.mjs`, which
+  restores by copy, never by `git`.

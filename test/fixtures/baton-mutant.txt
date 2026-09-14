@@ -1,0 +1,6 @@
+A fixture for the mutation, scripts/mutate.mjs, which test/baton.test.ts
+copies to a directory of its own before each run and never edits here.
+
+The shepherd counts the flock at dusk — every one of them.
+A gate on the north field, and a gate on the south.
+The dog sleeps by the fire ⚑ until morning.

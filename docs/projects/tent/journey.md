@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-14
 see: tent
-note: "written 14 Sep 2026, the evening drove closed in sheep and the night sky's line was drawn: the town's tent, where the ladder's top two rungs become one script. `pnpm hermetic --ring account` pitches a box named for the commit under a HOME of its own, runs road's thirty checks over the wire, and strikes it, the account's listing the same before and after; `pnpm hermetic --ring agent --sheep <dir>` furnishes that box with a user, a credential from stdin, and the memory and github shops, and runs drove's stage against it as a program, a real sheep on the standing station, its report read and its exit the verdict. The fourth row of the night sky, the stars tent and stranger of the infra constellation cut together, and the first project past the line. Nothing built."
+note: "written 14 Sep 2026, the evening drove closed in sheep and the night sky's line was drawn: the town's tent, where the ladder's top two rungs become one script. `pnpm hermetic --ring account` pitches a box named for the commit under a HOME of its own, runs road's thirty checks over the wire, and strikes it, the account's listing the same before and after; `pnpm hermetic --ring agent --sheep <dir>` furnishes that box with a user, a credential from stdin, and the memory and github shops, and runs drove's stage against it as a program, a real sheep on the standing station, its report read and its exit the verdict. The fourth row of the night sky, the stars tent and stranger of the infra constellation cut together, and the first project past the line. Tent phase 0 closed 14 Sep 2026: the account ring walked on the operator's account, green twice at thirty `ok`, kept and struck, failing on purpose with the broken harness and struck, the listing the same each time; box's deploy now waits for its door to take the operator fifteen times running, since a fresh Worker's edge answers 1042 for seconds. The agent ring is next."
 ---
 
 # Tent — the journeys

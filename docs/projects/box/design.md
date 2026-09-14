@@ -399,6 +399,10 @@ shape changes and says the rest is the same.
    both.
 4. **The report.** The address, `GET /` answering `town`, the build,
    and the one line to type next, `townd admin --town <url> user add`.
+   Since tent phase 0, a deploy that made the operator's token also
+   waits for the door to take it, fifteen answers running stamped with
+   the build, each on a connection of its own: a fresh Worker's edge
+   answers 500 and 404 for seconds after `GET /` gives the build.
 
 `pnpm box delete [--name <worker>]` waits for the Worker's name typed
 on a terminal, as station's does, and deletes it; the object's rows go

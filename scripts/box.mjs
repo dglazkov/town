@@ -20,7 +20,14 @@
 // thirty-two random bytes as hex, and `TOWN_OPERATOR`, a token written to
 // ~/.town/operator with mode 600 and printed once, on one line. A redeploy
 // keeps both and says so. Then `GET /` at the address wrangler printed,
-// until it answers `town` with this build in `x-town-build`, and the report:
+// until it answers `town` with this build in `x-town-build`; when this deploy
+// made the operator's token, then its door, until `POST /admin` with that token
+// answers 400 stamped with this build fifteen times running, a second apart,
+// each on a connection of its own (`connection: close`, as the GETs are too,
+// so none rides a kept-alive one): a fresh Worker answers GET / from a version
+// before the one holding the secrets, and in its first seconds a fresh name
+// answers from Cloudflare's edge without a build as often as from the box;
+// both waits within ninety seconds. Then the report:
 // the address, the build, the consent redirect to register, and the line to
 // type next.
 //
@@ -68,6 +75,9 @@ export const PERMISSIONS = [
 const TOKENS_PAGE = "https://dash.cloudflare.com/profile/api-tokens";
 const PRICING_PAGE = "https://developers.cloudflare.com/workers/platform/pricing/";
 
+/** How many times running, a second apart and each on its own connection, a fresh box's door must take the operator's token, stamped with the build, before the box stands. */
+export const DOOR_RUN = 15;
+
 /** The two secrets the deploy makes once. */
 export const SECRETS = ["TOWN_VAULT_KEY", "TOWN_OPERATOR"];
 
@@ -76,6 +86,12 @@ export const USAGE = `usage: pnpm box deploy [--name <worker>]   the town as one
 Both need CLOUDFLARE_API_TOKEN in the environment.
 `;
 
+/** What the Worker uses and what it costs, two sentences, in the refusal without the token and in the ring's preflight. */
+export const PRICE = [
+  "The Worker uses Durable Objects with SQLite storage and the Worker Loader, on a workers.dev address.",
+  `It costs the account's Workers plan (Workers Paid is 5 USD a month) and what the box uses over it, cents a day for one operator: ${PRICING_PAGE}`,
+];
+
 /** The refusal without the token: what the verb needs, the permissions by name, what the Worker uses and costs. */
 export function tokenRefusal(verb) {
   const made = verb === "deploy" ? "nothing was made" : "nothing was deleted";
@@ -83,8 +99,7 @@ export function tokenRefusal(verb) {
     `box ${verb} needs CLOUDFLARE_API_TOKEN in the environment, and it is not there; ${made}, and wrangler's own login on this machine is not used in its place.`,
     `Make an API token at ${TOKENS_PAGE} for the account the box is on, with these permissions:`,
     ...PERMISSIONS.map(([name, why]) => `  ${name.padEnd(36)} ${why}`),
-    "The Worker uses Durable Objects with SQLite storage and the Worker Loader, on a workers.dev address.",
-    `It costs the account's Workers plan (Workers Paid is 5 USD a month) and what the box uses over it, cents a day for one operator: ${PRICING_PAGE}`,
+    ...PRICE,
     "Then, with the token in the environment and never as an argument:",
     `  pnpm box ${verb}${verb === "delete" ? " --name <worker>" : " [--name <worker>]"}`,
     "",
@@ -176,12 +191,22 @@ function addressIn(output, name) {
  * for anyone else, and runs nothing and writes no row either way.
  */
 async function isOperator(deps, address, token) {
+  const status = (await doorAnswer(deps, address, token))?.status;
+  return status === 400 ? "yes" : status === 401 ? "no" : "unknown";
+}
+
+/**
+ * What the box's door answers `POST /admin` with `token` and a body no verb
+ * reads: `{ status, build }`, the build its `x-town-build` or null, or null
+ * when it did not answer. `headers` are added to the request's.
+ */
+async function doorAnswer(deps, address, token, headers = {}) {
   try {
-    const res = await deps.fetch(new URL("/admin", address), { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10_000) });
+    const res = await deps.fetch(new URL("/admin", address), { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...headers }, body: "{}", signal: AbortSignal.timeout(10_000) });
     await res.body?.cancel();
-    return res.status === 400 ? "yes" : res.status === 401 ? "no" : "unknown";
+    return { status: res.status, build: res.headers.get("x-town-build") };
   } catch {
-    return "unknown";
+    return null;
   }
 }
 
@@ -259,12 +284,17 @@ async function deploy(name, token, deps) {
     }
   }
 
-  // 4. The report, once the address answers as this build.
+  // 4. The report, once the address answers as this build and, when this deploy made the operator's token, the door takes it:
+  // a fresh Worker's GET / answers from a version before the one holding the secrets, and its door meanwhile answers 500;
+  // a fresh name answers from Cloudflare's edge (404, `error code: 1042`, no build) as well as from the box, so one 400 is
+  // not the box standing, nor five on one kept-alive connection: DOOR_RUN of them running is, each on its own connection
+  // and stamped with the build.
   say(`waiting for GET / at ${address} to answer town as ${build}`);
+  const until = deps.now() + 90_000;
   let answered = null;
-  for (const until = deps.now() + 90_000; deps.now() < until; await deps.sleep(1_000)) {
+  for (; deps.now() < until; await deps.sleep(1_000)) {
     try {
-      const res = await deps.fetch(new URL("/", address), { signal: AbortSignal.timeout(10_000) });
+      const res = await deps.fetch(new URL("/", address), { headers: { connection: "close" }, signal: AbortSignal.timeout(10_000) });
       const text = await res.text();
       answered = { text, build: res.headers.get("x-town-build") };
       if (text === "town\n" && answered.build === build) break;
@@ -272,16 +302,36 @@ async function deploy(name, token, deps) {
       answered = null;
     }
   }
+  const built = answered !== null && answered.text === "town\n" && answered.build === build;
+  let door = null;
+  let run = 0;
+  let longest = 0;
+  if (built && operator !== null) {
+    say(`waiting for the door at ${address} to take the operator's token`);
+    for (; deps.now() < until; await deps.sleep(1_000)) {
+      door = await doorAnswer(deps, address, operator, { connection: "close" });
+      run = door?.status === 400 && door.build === build ? run + 1 : 0;
+      longest = Math.max(longest, run);
+      if (run === DOOR_RUN) break;
+    }
+  }
   const seconds = Math.round((deps.now() - started) / 1000);
   const out = (line) => deps.out(`${line}\n`);
   out(`${existed ? "redeployed" : "deployed"} ${name} in ${seconds}s: ${address}`);
   out(`secrets: ${SECRETS.map((s) => `${s} ${missing.includes(s) ? "made" : "kept"}`).join(", ")}${missing.length === 0 ? " (a redeploy keeps both)" : ""}`);
   if (operator !== null) out(`operator token, shown once${kept ? `, kept in ${kept} with mode 600` : ""}: ${operator}`);
-  if (!answered || answered.text !== "town\n" || answered.build !== build) {
+  if (!built) {
     deps.err(`box deploy: GET ${address} did not answer town with x-town-build ${build} within ninety seconds; it answered ${answered ? `${JSON.stringify(answered.text.slice(0, 80))} as ${answered.build ?? "no build"}` : "nothing"}\n`);
     return 1;
   }
   out(`GET / answers town; x-town-build ${answered.build}`);
+  if (operator !== null) {
+    if (run !== DOOR_RUN) {
+      deps.err(`box deploy: the door at ${address} did not take the operator's token ${DOOR_RUN} times running within ninety seconds; POST /admin with it answered ${door === null ? "nothing" : `${door.status} with ${door.build === null ? "no build" : `the build ${door.build}`}`} after ${longest} of ${DOOR_RUN} in a row, and 400 with the build ${build} is the operator's\n`);
+      return 1;
+    }
+    out("the door takes the operator's token");
+  }
   if (operator === null) {
     const held = heldToken(home);
     const mine = held === null ? "absent" : await isOperator(deps, address, held);
@@ -314,21 +364,34 @@ async function api(deps, token, route) {
   return { result: body.result };
 }
 
+/**
+ * The listing, with GETs alone and `deps.fetch` and `deps.env` of its world:
+ * the one account the token reaches (narrowed by CLOUDFLARE_ACCOUNT_ID), and
+ * the names of its Workers. `{ account, names }`, or `{ failed, code }` with
+ * the sentence; the delete reads it, and so does scripts/hermetic.mjs.
+ */
+export async function listing(deps, token) {
+  const accounts = await api(deps, token, "/accounts?per_page=50");
+  if (accounts.failed) return accounts;
+  const wanted = deps.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const reachable = (Array.isArray(accounts.result) ? accounts.result : []).filter((a) => !wanted || a.id === wanted);
+  if (reachable.length === 0) return { failed: wanted ? `the token reaches no account ${wanted}` : "the token reaches no account", code: 2 };
+  if (reachable.length > 1) return { failed: `the token reaches ${reachable.length} accounts (${reachable.map((a) => a.name).join(", ")}); set CLOUDFLARE_ACCOUNT_ID to the box's`, code: 2 };
+  const account = reachable[0];
+  const scripts = await api(deps, token, `/accounts/${account.id}/workers/scripts`);
+  if (scripts.failed) return scripts;
+  return { account, names: (Array.isArray(scripts.result) ? scripts.result : []).map((s) => s.id) };
+}
+
 async function remove(name, token, deps) {
   const home = deps.home;
   const refuse = (line, code = 2) => (deps.err(`box delete: ${line}; nothing was deleted\n`), code);
 
   // The listing, with GETs alone.
-  const accounts = await api(deps, token, "/accounts?per_page=50");
-  if (accounts.failed) return refuse(accounts.failed, accounts.code);
-  const wanted = deps.env.CLOUDFLARE_ACCOUNT_ID?.trim();
-  const reachable = (Array.isArray(accounts.result) ? accounts.result : []).filter((a) => !wanted || a.id === wanted);
-  if (reachable.length === 0) return refuse(wanted ? `the token reaches no account ${wanted}` : "the token reaches no account");
-  if (reachable.length > 1) return refuse(`the token reaches ${reachable.length} accounts (${reachable.map((a) => a.name).join(", ")}); set CLOUDFLARE_ACCOUNT_ID to the box's`);
-  const account = reachable[0];
-  const scripts = await api(deps, token, `/accounts/${account.id}/workers/scripts`);
-  if (scripts.failed) return refuse(scripts.failed, scripts.code);
-  if (!(Array.isArray(scripts.result) ? scripts.result : []).some((s) => s.id === name)) return refuse(`the account ${account.name} has no Worker named ${name}`);
+  const listed = await listing(deps, token);
+  if (listed.failed) return refuse(listed.failed, listed.code);
+  const { account, names } = listed;
+  if (!names.includes(name)) return refuse(`the account ${account.name} has no Worker named ${name}`);
   const subdomain = await api(deps, token, `/accounts/${account.id}/workers/subdomain`);
   const address = subdomain.result?.subdomain ? `https://${name}.${subdomain.result.subdomain}.workers.dev` : null;
   const held = heldToken(home);

@@ -25,13 +25,14 @@ const SCRIPT = path.join(ROOT, "scripts/box.mjs");
 /** What scripts/box.mjs exports, as this test reads it: the script is plain JavaScript with no declarations, so it is imported by a path typed as a string. */
 interface Box {
   CONFIG: string;
+  DOOR_RUN: number;
   DEFAULT_NAME: string;
   PERMISSIONS: [string, string][];
   main(argv: string[], deps: unknown): Promise<number>;
   parse(argv: string[]): { verb?: string; name?: string; help?: true; refused?: string };
   tokenRefusal(verb: string): string;
 }
-const { CONFIG, DEFAULT_NAME, PERMISSIONS, main, parse, tokenRefusal }: Box = await import(SCRIPT as string);
+const { CONFIG, DEFAULT_NAME, DOOR_RUN, PERMISSIONS, main, parse, tokenRefusal }: Box = await import(SCRIPT as string);
 const SPY = path.join(ROOT, "test/fixtures/spawn-spy.mjs");
 const BUILD = "0123456789abcdef0123456789abcdef01234567";
 const TOKEN = "cf-token-for-the-fake";
@@ -59,6 +60,8 @@ interface WorldOptions {
   existing?: Record<string, string>;
   typed?: { line: string; terminal: boolean };
   accounts?: { id: string; name: string }[];
+  /** What the door answers the nth POST /admin with, a status and the x-town-build if any, or undefined to answer as the box does: a fresh Worker's 500s, the edge's 404s and 400s with no build. */
+  door?: (poll: number) => { status: number; build?: string } | undefined;
 }
 
 /** The fake account, box, and wrangler, and every call made of them. */
@@ -66,11 +69,14 @@ function world(options: WorldOptions = {}) {
   const home = scratch("home");
   const calls: Call[] = [];
   const fetched: string[] = [];
+  /** The connection header each request to the box sent, "GET" or "POST" first. */
+  const connections: string[] = [];
   const out: string[] = [];
   const err: string[] = [];
   const worker = { deployed: options.existing !== undefined, secrets: { ...(options.existing ?? {}) } as Record<string, string>, build: "checkout" };
   const address = (name: string) => `https://${name}.fake-sub.workers.dev`;
   let clock = 0;
+  let doorPolls = 0;
   const deps = {
     env: { CLOUDFLARE_API_TOKEN: TOKEN, ...options.env },
     home,
@@ -113,18 +119,21 @@ function world(options: WorldOptions = {}) {
       if (url === `${api}/accounts/acc/workers/scripts`) return json(worker.deployed ? [{ id: "town-box-1" }, { id: "other" }] : [{ id: "other" }]);
       if (url === `${api}/accounts/acc/workers/subdomain`) return json({ subdomain: "fake-sub" });
       const box = /^https:\/\/([a-z0-9-]+)\.fake-sub\.workers\.dev(\/.*)$/.exec(url);
+      if (box) connections.push(`${init.method ?? "GET"} ${new Headers(init.headers).get("connection")}`);
       if (box && worker.deployed) {
         if (box[2] === "/" && (init.method ?? "GET") === "GET") return new Response("town\n", { headers: { "x-town-build": worker.build } });
         if (box[2] === "/admin" && init.method === "POST") {
+          const given = options.door?.(doorPolls++);
+          if (given !== undefined) return new Response("not the door's answer", { status: given.status, headers: given.build === undefined ? {} : { "x-town-build": given.build } });
           const bearer = new Headers(init.headers).get("authorization");
           const status = worker.secrets.TOWN_OPERATOR && bearer === `Bearer ${worker.secrets.TOWN_OPERATOR}` ? 400 : 401;
-          return new Response("{}", { status });
+          return new Response("{}", { status, headers: { "x-town-build": worker.build } });
         }
       }
       throw new Error(`the fake has no ${url}`);
     },
   };
-  return { deps, home, calls, fetched, out: () => out.join(""), err: () => err.join(""), worker, operator: path.join(home, ".town", "operator") };
+  return { deps, home, calls, fetched, connections, out: () => out.join(""), err: () => err.join(""), worker, operator: path.join(home, ".town", "operator") };
 }
 
 it("without CLOUDFLARE_API_TOKEN, absent or empty, both verbs refuse with the permissions by name and what the Worker uses and costs, exit 2, and run nothing", async () => {
@@ -232,12 +241,15 @@ it("deploy: the secrets read, the Worker deployed with the commit, each secret m
   expect(`${w.out()}${w.err()}`).not.toContain(key);
   expect(w.err()).not.toContain(operator);
   expect(`${w.out()}${w.err()}`).not.toContain(TOKEN);
-  expect(w.out()).toContain("deployed town-box-1 in 0s: https://town-box-1.fake-sub.workers.dev\n");
+  expect(w.out()).toContain("deployed town-box-1 in 14s: https://town-box-1.fake-sub.workers.dev\n");
   expect(w.out()).toContain("secrets: TOWN_VAULT_KEY made, TOWN_OPERATOR made\n");
-  expect(w.out()).toContain(`GET / answers town; x-town-build ${BUILD}\n`);
+  expect(w.out()).toContain(`GET / answers town; x-town-build ${BUILD}\nthe door takes the operator's token\n`);
+  expect(w.err()).toContain("box: waiting for the door at https://town-box-1.fake-sub.workers.dev to take the operator's token\n");
   expect(w.out()).toContain("consent redirect URI, to register with a provider's web client: https://town-box-1.fake-sub.workers.dev/consent\n");
   expect(w.out()).toContain("next: node bin/townd.js admin --town https://town-box-1.fake-sub.workers.dev user add <name>\n");
-  expect(w.fetched).toEqual(["GET https://town-box-1.fake-sub.workers.dev/"]);
+  expect(DOOR_RUN).toBe(15);
+  expect(w.fetched).toEqual(["GET https://town-box-1.fake-sub.workers.dev/", ...Array(DOOR_RUN).fill("POST https://town-box-1.fake-sub.workers.dev/admin")]);
+  expect(w.connections, "every request to the box asks for a connection of its own").toEqual(["GET close", ...Array(DOOR_RUN).fill("POST close")]);
 
   // Run again: the same Worker, redeployed, both secrets kept, no token made or printed, the file as it was.
   const again = world({ existing: { ...w.worker.secrets } });
@@ -248,8 +260,53 @@ it("deploy: the secrets read, the Worker deployed with the commit, each secret m
   expect(again.out()).toContain("redeployed town-box-1 in 0s:");
   expect(again.out()).toContain("secrets: TOWN_VAULT_KEY kept, TOWN_OPERATOR kept (a redeploy keeps both)\n");
   expect(again.out()).toContain(`${again.operator}: holds town-box-1's token\n`);
+  expect(again.out()).not.toContain("the door takes");
+  expect(again.err()).not.toContain("waiting for the door");
   expect(`${again.out()}${again.err()}`).not.toContain(operator);
   expect(readFileSync(again.operator, "utf8")).toBe(`${operator}\n`);
+});
+
+it("deploy: a fresh Worker's door is waited through until it takes the operator's token, stamped with the build, fifteen times running, a second apart, each on its own connection, within the ninety seconds; any other answer starts the run again; never is exit 1, the token on its one line alone", async () => {
+  const w = world({ door: (n) => (n < 12 ? { status: 500 } : undefined) });
+  expect(await main(["deploy", "--name", "town-box-1"], w.deps), w.err()).toBe(0);
+  const door = "POST https://town-box-1.fake-sub.workers.dev/admin";
+  expect(w.fetched).toEqual(["GET https://town-box-1.fake-sub.workers.dev/", ...Array(12 + 15).fill(door)]);
+  expect(w.connections.filter((c) => c.startsWith("POST "))).toEqual(Array(12 + 15).fill("POST close"));
+  expect(w.out()).toContain("deployed town-box-1 in 26s: https://town-box-1.fake-sub.workers.dev\n");
+  expect(w.out()).toContain("the door takes the operator's token\n");
+  expect(w.err()).toBe(w.err().split("\n").filter((l) => l.startsWith("box: ")).map((l) => `${l}\n`).join(""));
+
+  // 400, 400, a fresh name's 404 from the edge, then the box's 400s: the run starts again after the 404, and fifteen more are waited for.
+  const restart = world({ door: (n) => [{ status: 400, build: BUILD }, { status: 400, build: BUILD }, { status: 404 }][n] });
+  expect(await main(["deploy", "--name", "town-box-1"], restart.deps), restart.err()).toBe(0);
+  expect(restart.fetched).toEqual(["GET https://town-box-1.fake-sub.workers.dev/", ...Array(3 + 15).fill(door)]);
+  expect(restart.out()).toContain("deployed town-box-1 in 17s:");
+  expect(restart.out()).toContain("the door takes the operator's token\n");
+
+  // 400s with no x-town-build, then 400s stamped with another build: neither counts, and fifteen of the box's are waited for after.
+  const unstamped = world({ door: (n) => (n < 10 ? { status: 400 } : n < 15 ? { status: 400, build: "another-build" } : undefined) });
+  expect(await main(["deploy", "--name", "town-box-1"], unstamped.deps), unstamped.err()).toBe(0);
+  expect(unstamped.fetched).toEqual(["GET https://town-box-1.fake-sub.workers.dev/", ...Array(15 + 15).fill(door)]);
+  expect(unstamped.out()).toContain("the door takes the operator's token\n");
+  const bare = world({ door: () => ({ status: 400 }) });
+  expect(await main(["deploy", "--name", "town-box-1"], bare.deps)).toBe(1);
+  expect(bare.err()).toContain(`POST /admin with it answered 400 with no build after 0 of 15 in a row, and 400 with the build ${BUILD} is the operator's\n`);
+
+  // Fourteen of the box's 400s and an edge 404, over and over: never fifteen running, exit 1, naming the last answer and the longest run.
+  const flaky = world({ door: (n) => (n % 15 === 14 ? { status: 404 } : undefined) });
+  expect(await main(["deploy", "--name", "town-box-1"], flaky.deps)).toBe(1);
+  expect(flaky.err()).toMatch(new RegExp(`did not take the operator's token 15 times running within ninety seconds; POST /admin with it answered (400 with the build ${BUILD}|404 with no build) after 14 of 15 in a row, and 400 with the build ${BUILD} is the operator's\n$`));
+
+  const never = world({ door: () => ({ status: 500 }) });
+  expect(await main(["deploy", "--name", "town-box-1"], never.deps)).toBe(1);
+  const operator = never.worker.secrets.TOWN_OPERATOR!;
+  expect(never.fetched.filter((f) => f === door).length).toBeGreaterThanOrEqual(89);
+  expect(never.fetched.filter((f) => f === door).length).toBeLessThanOrEqual(91);
+  expect(never.err()).toContain(`box deploy: the door at https://town-box-1.fake-sub.workers.dev did not take the operator's token 15 times running within ninety seconds; POST /admin with it answered 500 with no build after 0 of 15 in a row, and 400 with the build ${BUILD} is the operator's\n`);
+  expect(never.err()).not.toContain(operator);
+  expect(never.out().split("\n").filter((l) => l.includes(operator))).toEqual([`operator token, shown once, kept in ${never.operator} with mode 600: ${operator}`]);
+  expect(never.out()).not.toContain("the door takes");
+  expect(readFileSync(never.operator, "utf8")).toBe(`${operator}\n`);
 });
 
 it("deploy: a Worker to be given an operator's token over a ~/.town/operator that holds one is refused, exit 2, after the read alone", async () => {

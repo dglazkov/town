@@ -25,12 +25,16 @@ wrote has found the bug.
 
 ---
 
-**Where we are: planned, 14 September 2026; tent phase 0 is next.**
-Nothing built. The ring's script does not exist; the standing station
-`sheep-drove` stands at sheep-drove `b589052` from drove phase 2, and
-the checkout's `pnpm box deploy`, `scripts/conform.mjs --town`, and
-drove's stage are what the rings will run. Nothing waits on a person
-until a phase's ⚑ step.
+**Where we are: tent phase 0 closed, 14 September 2026; tent phase 1 is next.**
+`pnpm hermetic --ring account` pitches `town-hermetic-<sha>` under a
+HOME of its own, runs road's thirty checks over the wire, and strikes
+it, walked on the operator's account green twice, kept and struck, and
+failing on purpose; box's deploy now waits for its door, fifteen
+answers running, before it says the box stands. Tent phase 1's ⚑ steps
+were asked and answered yes on 14 Sep 2026: `TOWN_WALK_TOKEN` from the
+checkout's `.env` as the github token, `dglazkov/town#6` as the issue,
+the standing station `sheep-drove` from `../sheep-drove`. Nothing waits
+on a person.
 
 The order is the order of dependence. Tent phase 0 is the ring's shape
 and the account ring, since the tent is what the stranger walks into.
@@ -97,9 +101,16 @@ Falsified by one mutation with `scripts/mutate.mjs`: the strike's call
 removed from the failure path, seen by the test's failed-check case,
 and put back.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. The account ring walked on the account: green twice, kept and struck, failing on purpose and struck; the listing and `~/.town/operator` the same each time.
 
 **Findings:**
+
+- **2026-09-14 — Journey 1 steps 1 to 4 and 6 held for real.** Dry-run deployed nothing; two green runs, thirty `ok`, 40s and 31s; `--keep`'s token in `home/.town/operator` alone, mode 600; `--strike` exit 0; `BROKEN=no-stdin` 6 of 30 failed, struck, exit 1. Listing unchanged; `~/.town/operator` shasum `7b8242b2b725` throughout.
+- **2026-09-14 — Box's deploy called a fresh box ready too early.** Its door answered 500 for seconds after `GET /` gave the build, and Cloudflare's 404 `error code: 1042` after five 400s on one connection. Box now waits for fifteen build-stamped 400s, each `connection: close`; pitches take 22 to 32s.
+- **2026-09-14 — The standing box was not called.** Its audit's last row is 21:46:40Z, before the first run.
+- **2026-09-14 — The terminal's ask was walked on fakes only.** The conductor's shell has no terminal; real runs answered `--yes`, journey 1 step 5.
+- **2026-09-14 — Cost: 43 minutes, eleven deploys, cents.** Eight ring runs and three throwaway probes, each deleted.
+- **2026-09-14 — Open: the listing is the whole account's.** Sheep's ring deployed `sheep-hermetic-*` Workers there during these runs; one landing mid-run reads as unequal, exit 1. Waits on tent phase 1 or 2 to decide.
 
 ## Phase 1: The stranger
 

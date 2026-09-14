@@ -1,6 +1,8 @@
 # Road — the design
 
-**14 September 2026.** Nothing built. The project's status lives in
+**14 September 2026.** Road phase 0 is built: `TOWN_GRANT` holds the
+grant itself or a path, and a bad one is refused without printing it;
+the contract, conformance, and the walk are not. The project's status lives in
 [journey.md](journey.md)'s front matter. The journeys are the acceptance
 suite, this doc is the argument, and [phases.md](phases.md) is the walk.
 It is the star **road** cut from the
@@ -108,8 +110,12 @@ The refusal of a value is the one place this project must be careful.
 Today's line for a bad file names the file, which is fair to read aloud;
 a bad value holds, very likely, a token. So the line names the variable
 and prints nothing of what it holds: `error: $TOWN_GRANT holds no grant
-of the form { "town": <url>, "token": <token> }`, exit 3, a new entry in
-`src/denials.ts`. The no-grant line grows to say `$TOWN_GRANT` is read
+of the form { "town": <url>, "token": <token> }, nor the path of a file
+holding one`, exit 3, a new entry in `src/denials.ts`. The same care reaches the path: a `TOWN_GRANT` that
+does not begin with `{` and names no grant file may be a bare token
+pasted where the grant was meant, and today's line would print it, so
+that refusal is the same line, naming `$TOWN_GRANT` and not its text; a path given to
+`--grant` is on argv already and is still named. The no-grant line grows to say `$TOWN_GRANT` is read
 as a grant or as a path to one. `--grant` stays a path: a value on argv
 is in the model's own command, its transcript, and the process table,
 which is what the value exists to avoid.

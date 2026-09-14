@@ -49,14 +49,14 @@ by the conductor, recorded, committed whole.
   source for the name of any shop, command, or argument and fails if it
   finds one.
 - **Two binaries, one per audience.** `town` is the agent's: it reads
-  the grant file, posts argv, prints what comes back, and is the whole
-  of what an agent is handed. `townd` is the operator's: `serve`,
-  `admin`, `spec`, over the data directory. Nothing of the operator's
-  is in the agent's binary, and nothing puts `townd` on an agent's
-  PATH. On one box the agent's filesystem reaches the data directory
-  anyway; that is colocation, the harness's authority and not the
-  town's, and the rule is that the data directory is never under a
-  directory an agent works in.
+  the grant file, or `TOWN_GRANT` holding the grant itself, posts argv,
+  prints what comes back, and is the whole of what an agent is handed.
+  `townd` is the operator's: `serve`, `admin`, `spec`, over the data
+  directory. Nothing of the operator's is in the agent's binary, and
+  nothing puts `townd` on an agent's PATH. On one box the agent's
+  filesystem reaches the data directory anyway; that is colocation, the
+  harness's authority and not the town's, and the rule is that the data
+  directory is never under a directory an agent works in.
 - **Nothing an agent can see holds a secret.** A grant file holds a
   bearer token that a person can revoke from the town at once, and
   nothing else. A shop never receives a credential; the town uses them

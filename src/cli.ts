@@ -1,10 +1,20 @@
-// town, the agent's binary: a pipe. It finds the grant file, posts what
-// it was typed and its stdin (when stdin is a pipe or a file, and is text)
-// to the town, prints what comes back, and exits with the code it was
-// given. Its two flags, --json and --grant,
-// are taken wherever they stand; every other word goes to the town as
-// typed. It knows no shop, no command, no argument, and no verb of the
-// operator's; the town answers for all of them.
+// town, the agent's binary: a pipe. It finds the grant, posts what it was
+// typed and its stdin (when stdin is a pipe or a file, and is text) to the
+// town, prints what comes back, and exits with the code it was given. Its
+// two flags, --json and --grant, are taken wherever they stand; every
+// other word goes to the town as typed. It knows no shop, no command, no
+// argument, and no verb of the operator's; the town answers for all of
+// them.
+//
+// The grant is found in this order: --grant <path>, then $TOWN_GRANT, then
+// .town/grant here or in a directory above, then ~/.town/grant. $TOWN_GRANT
+// holds the grant itself when its first character that is not white space
+// is `{`, checked as a grant file's contents are, and a path to a grant
+// file otherwise. A $TOWN_GRANT that yields no grant, a value that is not
+// one or a path that names no grant file, empty included, is refused in a
+// line that names the variable and prints nothing of what it holds, since
+// what it holds may be a token. A path typed to --grant, or found by the
+// walk, is on argv or on disk already, and its refusal names it.
 
 import { existsSync, fstatSync, readFileSync } from "node:fs";
 import os from "node:os";
@@ -30,10 +40,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     else words.push(w);
   }
 
-  const file = grantPath ?? process.env.TOWN_GRANT ?? findGrantFile(process.cwd());
-  if (!file) return say(json, denials.noGrantFile(), 3);
-  const grant = readGrantFile(file);
-  if (!grant) return say(json, denials.badGrantFile(file), 3);
+  const fromEnv = grantPath === undefined ? process.env.TOWN_GRANT : undefined;
+  let grant: GrantFile | null;
+  if (fromEnv !== undefined) {
+    // What $TOWN_GRANT holds is never printed: a value, or a path, may be a token.
+    grant = isGrantValue(fromEnv) ? parseGrant(fromEnv) : readGrantFile(fromEnv);
+    if (!grant) return say(json, denials.badGrantValue(), 3);
+  } else {
+    const file = grantPath ?? findGrantFile(process.cwd());
+    if (!file) return say(json, denials.noGrantFile(), 3);
+    grant = readGrantFile(file);
+    if (!grant) return say(json, denials.badGrantFile(file), 3);
+  }
 
   let stdin: string | null = null;
   if (stdinIsData()) {
@@ -79,10 +97,24 @@ function findGrantFile(dir: string): string | undefined {
   return existsSync(home) ? home : undefined;
 }
 
+/** Whether $TOWN_GRANT holds the grant itself: its first character that is not white space is `{`. */
+function isGrantValue(text: string): boolean {
+  return text.trimStart().startsWith("{");
+}
+
 function readGrantFile(file: string): GrantFile | null {
   try {
-    const v = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-    if (typeof v.town !== "string" || typeof v.token !== "string" || v.token === "") return null;
+    return parseGrant(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** A grant file's contents, or $TOWN_GRANT's value, as a grant: `town` a URL and `token` a non-empty string; null otherwise. */
+function parseGrant(text: string): GrantFile | null {
+  try {
+    const v = JSON.parse(text) as Record<string, unknown> | null;
+    if (v === null || typeof v !== "object" || typeof v.town !== "string" || typeof v.token !== "string" || v.token === "") return null;
     new URL(v.town);
     return { town: v.town, token: v.token };
   } catch {

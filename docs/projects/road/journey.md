@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-14
 see: road
-note: "written 14 Sep 2026, the morning after baton closed: the town's road, where the wire `bin/town.js` speaks becomes a contract any harness may implement. `TOWN_GRANT` carries the grant itself as well as the path of a file holding one; `docs/harness.md` says what a `town` posts, prints, and refuses; and `scripts/conform.mjs` proves a harness against a town it sets up, on a laptop or over a box. The second project of the night sky and the first star of the sheep constellation, cut so the first thing built toward the line is the proof that town stays usable without sheep. Nothing built."
+note: "written 14 Sep 2026, the morning after baton closed: the town's road, where the wire `bin/town.js` speaks becomes a contract any harness may implement. `TOWN_GRANT` carries the grant itself as well as the path of a file holding one; `docs/harness.md` says what a `town` posts, prints, and refuses; and `scripts/conform.mjs` proves a harness against a town it sets up, on a laptop or over a box. The second project of the night sky and the first star of the sheep constellation, cut so the first thing built toward the line is the proof that town stays usable without sheep. Road phase 0 closed journey 2 the same morning: `TOWN_GRANT` holding the JSON `pass new` prints is the grant, anything else a path, and whatever in it yields no grant, a bad value, a bare token, a missing path, is refused in a line naming the variable and never its text; `--grant` and the walk up unchanged, twenty-six command tests."
 ---
 
 # Road — the journeys
@@ -113,6 +113,10 @@ harness's secret, a container's environment, a CI job.
    JSON syntax error or a grant missing its token, is refused, exit 3,
    in one line that says `$TOWN_GRANT` does not hold a grant and prints
    none of what it holds; with `--json`, the same line in the envelope.
+   `TOWN_GRANT` holding anything else that is not a path to a grant
+   file, a bare token pasted where a grant was meant, is refused the
+   same way, exit 3, in a line that names `$TOWN_GRANT` and not its
+   text; `--grant <path>`, typed on argv, is still named.
 4. `town` with no grant anywhere says, in its one line, that it reads
    `$TOWN_GRANT` as a grant or a path to one.
 

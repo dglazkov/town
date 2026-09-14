@@ -24,8 +24,10 @@ told not to read it.
 
 ---
 
-**Where we are: planned, 14 September 2026.** Nothing built. Next is
-road phase 0, the grant as a value. No phase needs a person: there are
+**Where we are: road phase 0 closed, 14 September 2026.** `TOWN_GRANT`
+carries the grant itself or a path, and a bad one is refused without
+printing what it holds. Next is road phase 1, the contract and its
+conformance. No phase needs a person: there are
 no provision steps, and road phase 2's box walk reaches the operator's
 existing box with the token already in `~/.town/operator`, as box
 phase 4's walk did.
@@ -76,7 +78,30 @@ Falsified by at least one mutation, by `scripts/mutate.mjs`: the value
 branch's `{` test inverted (journey 2 step 1's test fails), the refusal
 made to interpolate the value (the token-absence assertion fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (47 files, 728 tests, three rings), and `pnpm
+typecheck` exit 0; the value gave help and the bad value exit 3 with no
+`sekrit` on either stream; `src/` changed in `cli.ts` and `denials.ts`
+alone; both mutations killed by `mutate.mjs`, the tree unchanged.
+
+**Findings:**
+
+- **2026-09-14 — A bare token in `TOWN_GRANT` was printed.** Read as a
+  path, its refusal named it; found reading the diff, sent back, and now
+  any `TOWN_GRANT` that yields no grant is refused naming the variable.
+  Journey 2 step 3 and the design grew to say so.
+- **2026-09-14 — Once set without `--grant`, `TOWN_GRANT` is the source
+  whatever it holds;** the walk up is not tried after it fails, and
+  `--grant` wins over a bad value without reading it.
+- **2026-09-14 — `cleanEnv(home, extra)` deletes `TOWN_GRANT` after
+  merging `extra`,** so a test handing it that way silently runs with
+  none; the new test sets it on the returned environment.
+- **2026-09-14 — The phase took eleven minutes of wall clock,** seven of
+  them the builder's across two passes, one return for the leak.
+- **2026-09-14 — Briefed by `brief.sh road 0`; the conductor added by
+  hand** the owned list pruned of `src/runtime.ts`, `bin/town.js`, and
+  `scripts/`, `test/gate.test.ts`'s denial samples, `cleanEnv`'s
+  deletion, the precedence test's two passes, and the CLI guard.
 
 ---
 

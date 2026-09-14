@@ -21,6 +21,7 @@ node bin/townd.js admin shop add <dir> --user dimitri   # a shop that needs a cr
 node bin/townd.js admin type add figma --origin https://api.figma.com --header 'X-Figma-Token: {token}' --guidance "Make a personal access token at Figma > Settings > Security."   # a type of the operator's; type ls shows kind, state, and who proposed it
 node bin/townd.js admin shop add shops/watch --user dimitri   # a shop over others, github and memory added first: its tests run through them, on dimitri's
 node bin/townd.js admin pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the token, shown once; the id on stderr
+# or hand the grant as a value where no file can be put: export TOWN_GRANT="$(node bin/townd.js admin pass new --user dimitri --label ci)"; town reads TOWN_GRANT as the grant itself when it begins with {, as a path otherwise
 node bin/townd.js admin grant new --pass <id> --shop town/memory --commands remember,recall,list --constraint 'remember.key prefix notes/' --expires 30d
 # grant new at a shop with a need binds the user's one credential of its type, or the one named with --credential <id>
 # grant new at a composed shop (one whose manifest depends on others) needs the pass's grants at each dependency, covering the commands it calls, made first
@@ -64,7 +65,7 @@ export TOWN_OPERATOR=<token>                    # or keep it in ~/.town/operator
 node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb posted to <url>/admin with its stdin when the verb reads one (a shop as -, a secret, a client secret), what comes back printed; a token the box refuses prints: the operator token is refused
 tar --format ustar -cf - -C shops/memory . | node bin/townd.js admin --town <url> shop add -   # a shop comes from stdin as - for its directory; shop add <dir> over --town is refused printing this pipe, and shop test - is the same
 # the box runs a shop in an isolate and runs runtime: worker alone: shop add - and the hall's publish refuse runtime: subprocess; the audit's wall column says isolate
-node bin/townd.js admin --town <url> pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the grant file's town is <url>
+node bin/townd.js admin --town <url> pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the grant file's town is <url>; TOWN_GRANT="$(… pass new …)" hands the same grant as a value
 node bin/townd.js admin --town <url> credential connect --user dimitri --type google-oauth   # the redirect lands at <url>/consent, and the pipe waits for the id; register the client with that redirect URI
 # --data and --town together are refused; --wall over --town is refused, since the box's wall is not the operator's to choose
 node scripts/walk.mjs --shop hall --town <url>   # the hall's walk staged on the box over the wire: memory added when missing, dimitri reused, a pass and its grant file naming <url>, the agent's project settings

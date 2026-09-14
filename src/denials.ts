@@ -64,10 +64,13 @@ export const denials = {
 
   /** Exit 3, from the agent's binary. */
   noGrantFile: () =>
-    "error: no grant file: this command reads --grant <path>, $TOWN_GRANT, .town/grant here or in a directory above, or ~/.town/grant",
+    "error: no grant file: this command reads --grant <path>, $TOWN_GRANT as a grant or a path to one, .town/grant here or in a directory above, or ~/.town/grant",
 
   /** Exit 3, from the agent's binary. */
   badGrantFile: (file: string) => `error: ${file} is not a grant file of the form { "town": <url>, "token": <token> }`,
+
+  /** Exit 3, from the agent's binary. $TOWN_GRANT is neither a grant nor the path of a grant file; what it holds, which may be a token, is never printed. */
+  badGrantValue: () => `error: $TOWN_GRANT holds no grant of the form { "town": <url>, "token": <token> }, nor the path of a file holding one`,
 
   /** Exit 1, from the agent's binary. */
   flagNeedsValue: (flag: string) => `error: ${flag} needs a value`,

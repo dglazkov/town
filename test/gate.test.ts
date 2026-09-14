@@ -327,6 +327,7 @@ describe("denials.ts", () => {
     townFailed: () => denials.townFailed(),
     noGrantFile: () => denials.noGrantFile(),
     badGrantFile: () => denials.badGrantFile(".town/grant"),
+    badGrantValue: () => denials.badGrantValue(),
     flagNeedsValue: () => denials.flagNeedsValue("--grant"),
     townUnreachable: () => denials.townUnreachable(),
     stdinNotText: () => denials.stdinNotText(),

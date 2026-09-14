@@ -5,7 +5,10 @@ project, [baton](../projects/baton/design.md), was cut and closed the
 same night, so the order is being walked; each later row is a decision
 only when its project is cut. [Road](../projects/road/design.md) was cut
 and closed on 14 Sep 2026, after this page was read through against all
-four drafts the same morning. Drove is next.
+four drafts the same morning. Drove was planned the same day in a
+clone of sheep, `../sheep-drove`, on branch `drove`, since collie holds
+`../sheep`; it lands on sheep's `main` after collie's, and its walk runs
+on a second station of its own, deployed from that checkout's kennel.
 **Date:** 2026-09-13
 
 Four drafts sketch what the town could do after its first seven projects

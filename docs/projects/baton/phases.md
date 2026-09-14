@@ -192,7 +192,7 @@ scripts/mutate.mjs src/args.ts --from '<a line the conductor picks>'
 --to '<its mutation>' -- pnpm test test/args.test.ts` ends on `mutation
 killed`, exit 0, and `git status --short` is the same before and after;
 the same with `--to` equal to `--from`'s text plus a comment ends on
-`mutation survived`, exit 1; a `--from` of `import` is refused with its
+`mutation survived`, exit 1; a `--from` of `return` is refused with its
 count, exit 2. The conductor verifies this phase's own `test/baton.test.ts`
 mutation with `mutate.mjs` and types no `git checkout`; the memory rule
 about reverting by backup is then the script's, recorded as a finding.

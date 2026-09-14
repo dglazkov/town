@@ -16,7 +16,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "tsc -p tsconfig.build.json && vitest run",
-    "typecheck": "tsc -p tsconfig.json && mkdir -p .wrangler/types && wrangler types .wrangler/types/worker.d.ts --include-env=false > /dev/null && tsc -p tsconfig.worker.json"
+    "typecheck": "tsc -p tsconfig.json && mkdir -p .wrangler/types && wrangler types .wrangler/types/worker.d.ts --include-env=false > /dev/null && tsc -p tsconfig.worker.json",
+    "box": "node scripts/box.mjs"
   },
   "dependencies": {
     "yaml": "^2.9.1"

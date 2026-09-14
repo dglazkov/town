@@ -386,11 +386,13 @@ shape changes and says the rest is the same.
    what the command needs, the token's permissions by name, that
    Durable Objects with SQLite and the Worker Loader are what the
    Worker uses, and exit 2. This is station's rule and its sentence.
-2. **The deploy.** `wrangler deploy` from the checkout over
+2. **The deploy.** First `wrangler secret list`, so a box that would
+   make an operator's token over a `~/.town/operator` holding another
+   box's is refused with nothing made; then `wrangler deploy` from the checkout over
    `wrangler.jsonc`, the Worker named `town` or `--name`, the build's
    commit defined in. Wrangler is a devDependency and bundles the
    Worker itself; the deploy pulls no image and builds nothing native.
-3. **The secrets, once.** When `wrangler secret list` shows none:
+3. **The secrets, once.** When that list showed none:
    thirty-two random bytes as hex to `TOWN_VAULT_KEY`, and a token to
    `TOWN_OPERATOR`, each on stdin; the operator's token written to
    `~/.town/operator` with mode 600 and printed once. A redeploy keeps

@@ -56,6 +56,10 @@ Put `bin/town.js` on the agent's PATH as `town`, and never `townd`.
 The town as one Cloudflare Worker (`wrangler.jsonc`, `src/box.ts`): the same verbs, typed at this laptop, run in the box's object. Every verb not below prints and refuses as it does at a laptop.
 
 ```sh
+CLOUDFLARE_API_TOKEN=… pnpm box deploy --name town   # the Worker, named town unless --name says, from this checkout's commit; without the token it prints the permissions and what it costs, and makes nothing
+# the token needs Account > Workers Scripts > Edit and Account > Account Settings > Read; the deploy makes TOWN_VAULT_KEY and TOWN_OPERATOR once, each on stdin,
+# writes the operator's token to ~/.town/operator with mode 600 and prints it once, reads GET / at the address, and names the consent redirect: <url>/consent. Run again, it redeploys and keeps both
+CLOUDFLARE_API_TOKEN=… pnpm box delete --name town   # lists what goes, waits for the name typed, deletes the Worker and its object's rows, and removes ~/.town/operator when it was this box's
 export TOWN_OPERATOR=<token>                    # or keep it in ~/.town/operator; --town without either is refused naming both
 node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb and its stdin posted to <url>/admin, what comes back printed; a token the box refuses prints: the operator token is refused
 tar --format ustar -cf - -C shops/memory . | node bin/townd.js admin --town <url> shop add -   # a shop comes from stdin as - for its directory; shop add <dir> over --town is refused printing this pipe, and shop test - is the same

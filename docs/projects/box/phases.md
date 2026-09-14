@@ -38,13 +38,13 @@ never load it.
 
 ---
 
-**Where we are: box phase 2 closed, 13 September 2026.** Next is box
-phase 3, the deploy and a consent from afar, whose ⚑ steps wait on the
-operator: a Cloudflare API token, a Google OAuth client of the web
-kind, and cents of the Workers plan. The town runs as a Worker under
-`wrangler dev` with no account: the object holds the store, the shelf,
-and the state as rows; the door, the wire, the clerk's host, and the
-landing answer; 676 tests green on three rings.
+**Where we are: box phase 3 part-done, 13 September 2026.** Box phase
+3's by-hand proof is next, and box phase 4, the walk, after it; both
+wait on the operator: a Cloudflare API token in the environment, a yes
+to the Workers plan's cost, a Google OAuth client of the web kind, and
+for the walk one model session. Box phases 0 to 2 are closed, and `pnpm
+box deploy` and `delete` are built and refuse without the token, 682
+tests green on three rings.
 
 The order is dependency order. Phase 0 is the seams, on the laptop
 alone: the store over `Sql`, the shelf, the key source, the window's
@@ -371,7 +371,36 @@ which stays for box phase 4. The deploy under two minutes, and the
 secrets in no argument and no line the deploy printed but the one
 that shows the operator's token.
 
-**Status: NOT STARTED.**
+**Status: PART-DONE.** 13 Sep 2026. `pnpm test` exit 0 (44 files, 682
+tests); `pnpm box deploy` and `delete` without the token exit 2 with
+wrangler never spawned, and the token check removed fails both refusal
+tests. The deploy, the consent, and the delete by hand wait on the
+operator.
+
+**Findings:**
+
+- **2026-09-13 — The script took fourteen minutes to build,** no return
+  to the builder; nothing contacted Cloudflare, and wrangler ran only
+  locally, a `deploy --dry-run` with a scratch home and no token.
+- **2026-09-13 — This laptop holds a cached `wrangler login`,** so the
+  script refuses without `CLOUDFLARE_API_TOKEN` whatever wrangler's own
+  login says, and spawns wrangler with the token alone.
+- **2026-09-13 — The deploy reads the Worker's secrets before it
+  deploys,** not after as the design had it, so a new operator token
+  over a `~/.town/operator` holding another box's is refused with
+  nothing made.
+- **2026-09-13 — Wrangler loads the checkout's `.env` for every command,**
+  not only `dev`; the script passes `--env-file /dev/null` too.
+- **2026-09-13 — The delete tells whose `~/.town/operator` it is by the
+  door:** `POST /admin` with `{}` answers 400 to the operator and 401 to
+  anyone else, no verb and no row either way.
+- **2026-09-13 — The token's permissions and the plan's price are named,
+  not proved:** Workers Scripts Edit and Account Settings Read, and
+  Workers Paid at five dollars a month. The by-hand deploy decides both.
+- **2026-09-13 — Open: the deploy, journey 1 steps 2 to 10 and journey 4
+  steps 2, 3, and 5 by hand.** Waits on the operator's
+  `CLOUDFLARE_API_TOKEN`, a yes to the plan's cost, and a Google OAuth
+  client of the web kind registered with `https://<box>/consent`.
 
 ## Phase 4: The walk
 

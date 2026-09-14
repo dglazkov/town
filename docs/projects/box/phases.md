@@ -38,12 +38,12 @@ never load it.
 
 ---
 
-**Where we are: box phase 3 closed, 13 September 2026.** Next is box
-phase 4, the walk, authorized by the operator: one model session
-against the operator's own box, `https://town.dglazkov.workers.dev`,
-which holds dimitri, `town/gdocs`, and a real Google consent. Box
-phases 0 to 3 are closed; a throwaway box was deployed, walked, and
-deleted, and the wire's stdin waits on a fix.
+**Where we are: done, 13 September 2026.** Box phases 0 to 4 are
+closed. The operator's box, `https://town.dglazkov.workers.dev`, stays,
+holding dimitri, `town/gdocs` on a real Google consent, and the walk's
+`dimitri/lookout`; a real agent wrote a worker shop there from spec §7,
+asked for a permit approved over the wire, and read a document. Nothing
+waits; the two Opens left are words, and the sheep walk is next.
 
 The order is dependency order. Phase 0 is the seams, on the laptop
 alone: the store over `Sql`, the shelf, the key source, the window's
@@ -398,9 +398,9 @@ consent and read a document through `town/gdocs`.
 - **2026-09-13 — `townd admin --town` waited on an open stdin for every
   verb;** in a harness `pass new` hung. `readsStdin` beside the verbs now
   decides, and a test runs all 32 argvs at a laptop and in the object.
-- **2026-09-13 — Open: the refresh at Google an hour on,** journey 4
-  step 3's last sentence, not yet seen by hand; box phase 4's walk reads
-  it in the audit.
+- **2026-09-13 — The refresh at Google an hour on held:** the first
+  read after the hour said `refreshed google-oauth`, read in box phase
+  4.
 
 ## Phase 4: The walk
 
@@ -436,4 +436,38 @@ transcript and the directory finds none. How the agent read §7's new
 paragraph, how many round trips `validate` took, the count of
 `isolate` rows, and the day's cost, recorded as findings.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The walk was walked on the operator's
+box: `pnpm test` exit 0 (45 files, 687 tests); a real Claude Code
+session wrote, validated, tested, published, and ran a worker shop,
+asked for `town/gdocs` by a permit approved over the wire and read the
+document's first line, and said its shops cannot reach the web; a
+spinning shop was ended by the platform's CPU limit; no token beyond
+the grant file in any transcript or file searched.
+
+**Findings:**
+
+- **2026-09-13 — The walk cost $1.99 of model and the box 67 requests
+  for the day,** inside the Workers plan; $1.21 of it went on two false
+  starts before the agent published anything.
+- **2026-09-13 — Headless Claude Code ignores an untrusted directory's
+  project settings;** the walk's allow list went on the command line,
+  with `--strict-mcp-config` to keep the operator's connectors out.
+- **2026-09-13 — Bash alone cannot write a worker shop cheaply:**
+  Claude Code refuses a command holding a brace and a quote, which every
+  `import { … } from "…"` is, and the agent spent $1 splitting files
+  around it. A later walk gives file tools.
+- **2026-09-13 — The agent wrote `runtime: worker` from §7 unprompted,**
+  took two `validate` round trips (guidance naming a command), and
+  called the isolate "a minimal Linux container", as the runtime
+  describes itself.
+- **2026-09-13 — Isolate rows: three since the walk began,** the shop's
+  call, the document's read, and the spinning shop; the hall's test and
+  publish ran isolates under rows saying `-`.
+- **2026-09-13 — The CPU limit ended a `while (true) {}` in 14 s** with
+  `Worker exceeded CPU time limit.`, exit 1, `shop-error`; the row's `ms`
+  said 43.
+- **2026-09-13 — `permit show` over the wire prints its to-do lines
+  without `--town`,** and the walk's stage granted `town/gdocs` outright;
+  the conductor revoked it so the agent asked.
+- **2026-09-13 — The agent said its shops reach only "signed loopback
+  URLs",** §7's word for a laptop's window.

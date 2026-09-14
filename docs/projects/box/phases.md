@@ -38,13 +38,12 @@ never load it.
 
 ---
 
-**Where we are: box phase 3 part-done, 13 September 2026.** Box phase
-3's by-hand proof is next, and box phase 4, the walk, after it; both
-wait on the operator: a Cloudflare API token in the environment, a yes
-to the Workers plan's cost, a Google OAuth client of the web kind, and
-for the walk one model session. Box phases 0 to 2 are closed, and `pnpm
-box deploy` and `delete` are built and refuse without the token, 682
-tests green on three rings.
+**Where we are: box phase 3 closed, 13 September 2026.** Next is box
+phase 4, the walk, authorized by the operator: one model session
+against the operator's own box, `https://town.dglazkov.workers.dev`,
+which holds dimitri, `town/gdocs`, and a real Google consent. Box
+phases 0 to 3 are closed; a throwaway box was deployed, walked, and
+deleted, and the wire's stdin waits on a fix.
 
 The order is dependency order. Phase 0 is the seams, on the laptop
 alone: the store over `Sql`, the shelf, the key source, the window's
@@ -363,44 +362,45 @@ its argument parsing, with wrangler never run.
 **Proof:** `pnpm test` exit 0. Then by hand, from this checkout: `pnpm
 box deploy --name town-box-<sha>` on the operator's account, journey 1
 steps 2 to 9 typed against it from this laptop with the built
-binaries, journey 4 steps 2 and 3 on the real registration and a real
-document, `pnpm box delete` with the name typed, and the account's
+binaries, `pnpm box delete` with the name typed, and the account's
 listing read before and after. Then `pnpm box deploy` for the
-operator's own box, `town`, with `town/gdocs` added on a real consent,
+operator's own box, `town`, with journey 4 steps 2 and 3 walked there,
+`town/gdocs` added on a real consent,
 which stays for box phase 4. The deploy under two minutes, and the
 secrets in no argument and no line the deploy printed but the one
 that shows the operator's token.
 
-**Status: PART-DONE.** 13 Sep 2026. `pnpm test` exit 0 (44 files, 682
-tests); `pnpm box deploy` and `delete` without the token exit 2 with
-wrangler never spawned, and the token check removed fails both refusal
-tests. The deploy, the consent, and the delete by hand wait on the
-operator.
+**Status: CLOSED.** 13 Sep 2026. The proof held, by hand on the
+operator's account: `town-box-d2cb955` deployed in 8 s and redeployed in
+4 s keeping both secrets; journey 1 steps 3 to 9 held against it on real
+GitHub; it was deleted by its typed name; and `town` took a real Google
+consent and read a document through `town/gdocs`.
 
 **Findings:**
 
-- **2026-09-13 — The script took fourteen minutes to build,** no return
-  to the builder; nothing contacted Cloudflare, and wrangler ran only
-  locally, a `deploy --dry-run` with a scratch home and no token.
-- **2026-09-13 — This laptop holds a cached `wrangler login`,** so the
-  script refuses without `CLOUDFLARE_API_TOKEN` whatever wrangler's own
-  login says, and spawns wrangler with the token alone.
-- **2026-09-13 — The deploy reads the Worker's secrets before it
-  deploys,** not after as the design had it, so a new operator token
-  over a `~/.town/operator` holding another box's is refused with
+- **2026-09-13 — The by-hand run took about an hour,** most of it
+  waiting on a Google web client the conductor asked for without giving
+  its redirect URI where the operator could read it.
+- **2026-09-13 — This laptop holds a cached `wrangler login`;** the
+  script refuses without `CLOUDFLARE_API_TOKEN` whatever it says, spawns
+  wrangler with the token alone, and passes `--env-file /dev/null`.
+- **2026-09-13 — The deploy reads the Worker's secrets first,** so a new
+  operator token over another box's `~/.town/operator` is refused with
   nothing made.
-- **2026-09-13 — Wrangler loads the checkout's `.env` for every command,**
-  not only `dev`; the script passes `--env-file /dev/null` too.
-- **2026-09-13 — The delete tells whose `~/.town/operator` it is by the
-  door:** `POST /admin` with `{}` answers 400 to the operator and 401 to
-  anyone else, no verb and no row either way.
-- **2026-09-13 — The token's permissions and the plan's price are named,
-  not proved:** Workers Scripts Edit and Account Settings Read, and
-  Workers Paid at five dollars a month. The by-hand deploy decides both.
-- **2026-09-13 — Open: the deploy, journey 1 steps 2 to 10 and journey 4
-  steps 2, 3, and 5 by hand.** Waits on the operator's
-  `CLOUDFLARE_API_TOKEN`, a yes to the plan's cost, and a Google OAuth
-  client of the web kind registered with `https://<box>/consent`.
+- **2026-09-13 — Sheep's own token deployed and deleted a box;** the
+  listing before and after was `learner`, `polymath-remixed`, `sheep-2`,
+  and the delete took the Durable Object's namespace too.
+- **2026-09-13 — A real consent landed at the box in 43 s,** one audit
+  row; `town/gdocs` read 207 lines through an isolate, and the client
+  secret was in no answer the wire returned.
+- **2026-09-13 — The consent was walked on `town`, not the throwaway,**
+  so the web client carries one redirect URI; the Proof says so.
+- **2026-09-13 — Open: `townd admin --town` waits on an open stdin for
+  every verb,** where `--data` reads it only for verbs that take it; in a
+  harness `pass new` hung until stdin was `/dev/null`. Waits on a fix.
+- **2026-09-13 — Open: the refresh at Google an hour on,** journey 4
+  step 3's last sentence, not yet seen by hand; box phase 4's walk reads
+  it in the audit.
 
 ## Phase 4: The walk
 

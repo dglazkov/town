@@ -11,29 +11,36 @@
 //                                            the same over an existing data directory, served as it is: memory added only
 //                                            when missing, dimitri reused, and a grant at town/gdocs read when the town holds
 //                                            it and dimitri a live google-oauth credential; the directory is never removed
+//   node scripts/walk.mjs --shop hall --town <url>
+//                                            the same over a deployed box, every verb `townd admin --town <url>` with the
+//                                            operator's token from $TOWN_OPERATOR or ~/.town/operator: memory added as a tar
+//                                            on stdin when missing, and the agent's directory holding the project settings
+//                                            the earlier walks ran under; no town is started, and nothing on the box is removed
 //   node scripts/walk.mjs --status <root>    the walk pass's grants, its audit as a tree by parent, rows by result and by wall, credentials served,
 //                                            and the hall's rows by command and detail with the grants' sources; since the
-//                                            walk began, publishes that asked a permit, approvals with their tests, consents,
-//                                            and refreshes
+//                                            walk began, rows by wall, publishes that asked a permit, approvals with their
+//                                            tests, consents, and refreshes; over a box, every one read over the wire
 //   node scripts/walk.mjs --search <root> [<path>...] < <token file>
 //                                            files under the root and the paths holding the token's bytes
 //   node scripts/walk.mjs --search-sealed <root> [<path>...]
 //                                            every secret the town holds sealed, opened with its key in this process, and
 //                                            the files under the root, the paths, and the data directory holding its bytes,
-//                                            named and never printed
-//   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root, never a data directory given
+//                                            named and never printed; refused over a box, whose key is the platform's secret
+//   node scripts/walk.mjs --teardown <root>  stops the town and removes the walk root, never a data directory given; over a
+//                                            box, revokes the walk's pass there and removes the root, and nothing else
 //
 // The token is read from stdin, a pipe or a file and never a terminal,
 // and goes nowhere but the stdin of `townd admin credential add`: not
 // argv, not any child's environment, not walk.json, not stdout. A sealed
-// secret `--search-sealed` opens stays in its process's memory.
+// secret `--search-sealed` opens stays in its process's memory. The
+// operator's token is townd's to read, and this script never reads it.
 //
 // The walk root, under the system's temporary directory, holds three
-// siblings: data/ (the town's, unless --data names one elsewhere), agent/
-// (the agent's, with .town/grant), and shim/ (a `town` for the agent's
-// PATH, and nothing else). Plain Node, no dependency; it runs the built
-// binaries, and `--data` and `--search-sealed` import dist/store.js and
-// dist/vault.js, so build first.
+// siblings: data/ (the town's, unless --data names one elsewhere, and
+// none over a box), agent/ (the agent's, with .town/grant), and shim/ (a
+// `town` for the agent's PATH, and nothing else). Plain Node, no
+// dependency; it runs the built binaries, and `--data` and
+// `--search-sealed` import dist/store.js and dist/vault.js, so build first.
 
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -131,24 +138,48 @@ function operatorEnv() {
   return env;
 }
 
-/** `townd admin --data <data> ...args`; `secret`, when given, is its stdin and nothing else of it. */
-function adminWith(secret, data, ...args) {
+/** Where the operator's verbs go: `--town <url>` for a walk over a box, else `--data <dir>`. */
+const at = (walk) => (walk.town ? ["--town", walk.town] : ["--data", walk.data]);
+
+/** `townd admin <where> ...args`, `where` as `at` makes it; `secret`, when given, is its stdin and nothing else of it. */
+function adminWith(secret, where, ...args) {
   const stdin = secret === undefined ? "ignore" : "pipe";
-  const r = spawnSync(process.execPath, [TOWND, "admin", "--data", data, ...args], { env: operatorEnv(), encoding: "utf8", stdio: [stdin, "pipe", "pipe"], timeout: 120_000, ...(secret === undefined ? {} : { input: secret }) });
+  const r = spawnSync(process.execPath, [TOWND, "admin", ...where, ...args], { env: operatorEnv(), encoding: "utf8", stdio: [stdin, "pipe", "pipe"], timeout: 600_000, maxBuffer: 64 * 1024 * 1024, ...(secret === undefined ? {} : { input: secret }) });
   return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit: r.status ?? -1 };
 }
 
-const admin = (data, ...args) => adminWith(undefined, data, ...args);
+const admin = (where, ...args) => adminWith(undefined, where, ...args);
 
-function mustAdmin(data, ...args) {
-  return mustAdminWith(undefined, data, ...args);
+function mustAdmin(where, ...args) {
+  return mustAdminWith(undefined, where, ...args);
 }
 
-function mustAdminWith(secret, data, ...args) {
-  const r = adminWith(secret, data, ...args);
+function mustAdminWith(secret, where, ...args) {
+  const r = adminWith(secret, where, ...args);
   if (r.exit !== 0) throw new Error(`townd admin ${args.join(" ")} exited ${r.exit}:\n${r.stderr}${r.stdout}`);
   return r;
 }
+
+/** A shop's directory as the bytes `tar --format ustar -cf - -C <dir> .` makes, the pipe the box takes a shop through. */
+function tarOf(dir) {
+  const r = spawnSync("tar", ["--format", "ustar", "-cf", "-", "-C", dir, "."], { env: { ...operatorEnv(), COPYFILE_DISABLE: "1" }, maxBuffer: 16 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`tar of ${dir} exited ${r.status}:\n${r.stderr}`);
+  return r.stdout;
+}
+
+/**
+ * The project settings the agent's harness reads in its directory, as the
+ * earlier walks ran it: Bash allowed for town and the few commands a shop
+ * is written with, edits accepted. The rest is the command line's: Bash its
+ * only tool, and the project's settings alone.
+ */
+const AGENT_SETTINGS = {
+  permissions: {
+    allow: ["town", "tar", "mkdir", "cat", "ls", "printf", "echo", "chmod"].map((c) => `Bash(${c}:*)`),
+    defaultMode: "acceptEdits",
+  },
+};
+const HARNESS = "claude --tools Bash --setting-sources project";
 
 /**
  * The token: the whole of stdin, less one trailing newline, as `townd admin
@@ -288,71 +319,107 @@ async function givenData(dir) {
   return data;
 }
 
-async function setUp(plan, given) {
+/**
+ * `--town <url>`: a deployed box's origin, or a refusal before anything is
+ * made: not an http(s) URL, no town answering at it, or the operator's
+ * verbs refused there, in townd's words.
+ */
+async function givenTown(url) {
+  let origin;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("not http");
+    origin = u.origin;
+  } catch {
+    die(`--town ${url} is not a box's address; write its URL, like https://town.example.workers.dev; nothing was made`);
+  }
+  const answer = await fetch(origin, { signal: AbortSignal.timeout(15_000) }).then((r) => r.text(), () => null);
+  if (answer !== "town\n") die(`no town answers at ${origin}; nothing was made`);
+  const r = admin(["--town", origin], "user", "ls");
+  if (r.exit !== 0) die(`townd admin --town ${origin} user ls exited ${r.exit}: ${r.stderr.trim().split("\n")[0]}; nothing was made`);
+  return origin;
+}
+
+async function setUp(plan, given = {}) {
   assertBuilt();
   const said = sentence();
+  const overBox = given.town !== undefined;
   const root = mkdtempSync(path.join(os.tmpdir(), "town-walk-"));
-  const data = given ?? path.join(root, "data");
+  const data = overBox ? null : (given.data ?? path.join(root, "data"));
+  const where = overBox ? ["--town", given.town] : ["--data", data];
+  const existing = overBox || given.data !== undefined;
   const agent = path.join(root, "agent");
   const shim = path.join(root, "shim");
   let town = null;
+  let madePass = null;
   try {
-    const above = grantAbove(data);
+    const above = overBox ? null : grantAbove(data);
     if (above) throw new Error(`${above} makes ${data} an agent's directory; set TMPDIR to a directory with no .town/grant in it or above it`);
-    if (given === undefined) mkdirSync(data);
+    if (!existing) mkdirSync(data);
     mkdirSync(path.join(agent, ".town"), { recursive: true });
     mkdirSync(shim);
-    if (!path.relative(realpathSync(agent), realpathSync(data)).startsWith("..")) throw new Error(`the data directory ${data} is under the agent's directory ${agent}`);
+    if (!overBox && !path.relative(realpathSync(agent), realpathSync(data)).startsWith("..")) throw new Error(`the data directory ${data} is under the agent's directory ${agent}`);
     writeFileSync(path.join(shim, "town"), `#!/bin/sh\nexec '${process.execPath}' '${TOWN}' "$@"\n`);
     chmodSync(path.join(shim, "town"), 0o755);
+    if (overBox) {
+      mkdirSync(path.join(agent, ".claude"));
+      writeFileSync(path.join(agent, ".claude", "settings.json"), `${JSON.stringify(AGENT_SETTINGS, null, 2)}\n`);
+    }
 
     // The rows a given town recorded before the walk: the audit lists them first, and --status counts past them.
-    const auditBefore = given === undefined ? 0 : column(mustAdmin(data, "audit").stdout, "call").length;
+    const auditBefore = existing ? column(mustAdmin(where, "audit").stdout, "call").length : 0;
     const startedAt = Date.now();
-    town = await startTown(root, data);
+    // Over a box the town is already running there, and its shops run in isolates.
+    town = overBox ? { address: given.town, wall: "isolate", pid: null } : await startTown(root, data);
     const user = plan.user ?? "walker";
-    // Over a given directory, what the town already holds is kept: its user, and its shops.
+    // Over a given directory or a box, what the town already holds is kept: its user, and its shops.
     const kept = [];
     const added = [];
-    if (given !== undefined && column(mustAdmin(data, "user", "ls").stdout, "name").includes(user)) kept.push(`user ${user}`);
+    if (existing && column(mustAdmin(where, "user", "ls").stdout, "name").includes(user)) kept.push(`user ${user}`);
     else {
-      mustAdmin(data, "user", "add", user);
+      mustAdmin(where, "user", "add", user);
       added.push(`user ${user}`);
     }
-    if (plan.token !== undefined) mustAdminWith(`${plan.token}\n`, data, "credential", "add", "--user", user, "--type", "github-token", "--label", "walk");
-    const held = given === undefined ? [] : column(mustAdmin(data, "shop", "ls").stdout, "name");
+    if (plan.token !== undefined) mustAdminWith(`${plan.token}\n`, where, "credential", "add", "--user", user, "--type", "github-token", "--label", "walk");
+    const held = existing ? column(mustAdmin(where, "shop", "ls").stdout, "name") : [];
     for (const shop of plan.shops) {
       if (shop.name && held.includes(shop.name)) {
         kept.push(`shop ${shop.name}`);
         continue;
       }
       // A shop marked `user` runs its tests through a teller against GitHub, on the walker's token, its dependencies' tests included.
-      const addedShop = mustAdmin(data, "shop", "add", shop.dir, ...(shop.user ? ["--user", user] : []));
+      const withUser = shop.user ? ["--user", user] : [];
+      const addedShop = overBox ? mustAdminWith(tarOf(shop.dir), where, "shop", "add", "-", ...withUser) : mustAdmin(where, "shop", "add", shop.dir, ...withUser);
       if (shop.name) added.push(`shop ${shop.name}`);
       if (plan.token !== undefined) process.stdout.write(addedShop.stdout);
     }
-    const pass = mustAdmin(data, "pass", "new", "--user", user, "--label", "walk");
+    const pass = mustAdmin(where, "pass", "new", "--user", user, "--label", "walk");
     const passId = pass.stderr.trim();
+    madePass = passId;
+    if (overBox) {
+      const named = JSON.parse(pass.stdout).town;
+      if (named !== given.town) throw new Error(`the pass's grant file names ${named}, not the box at ${given.town}`);
+    }
     const grantFile = path.join(agent, ".town", "grant");
     writeFileSync(grantFile, pass.stdout, { mode: 0o600 });
     const grantArgs = (shop, commands, constraints) => ["--pass", passId, "--shop", shop, "--commands", commands, ...constraints.flatMap((c) => ["--constraint", c]), "--expires", plan.expires];
     const grants = {};
-    for (const g of plan.grants) grants[g.shop] = mustAdmin(data, "grant", "new", ...grantArgs(g.shop, g.commands, g.constraints)).stdout.trim();
+    for (const g of plan.grants) grants[g.shop] = mustAdmin(where, "grant", "new", ...grantArgs(g.shop, g.commands, g.constraints)).stdout.trim();
     const grantId = grants[plan.shop];
-    const reader = given !== undefined && plan.reader ? readerGrant(data, user, plan.reader, (credential) => [...grantArgs(plan.reader.shop, plan.reader.commands, []), "--credential", credential]) : null;
+    const reader = existing && plan.reader ? readerGrant(where, user, plan.reader, (credential) => [...grantArgs(plan.reader.shop, plan.reader.commands, []), "--credential", credential]) : null;
     if (reader?.grant) grants[plan.reader.shop] = reader.grant;
-    if (grantAbove(data)) throw new Error(`the data directory ${data} is under a grant file; the walk root is laid out wrong`);
+    if (!overBox && grantAbove(data)) throw new Error(`the data directory ${data} is under a grant file; the walk root is laid out wrong`);
 
     const walk = {
       root,
-      data,
-      ...(given === undefined ? {} : { dataGiven: true }),
+      ...(overBox ? { town: given.town } : { data }),
+      ...(given.data === undefined ? {} : { dataGiven: true }),
       agent,
       shim,
       grantFile,
       address: town.address,
       wall: town.wall,
-      pid: town.pid,
+      ...(overBox ? {} : { pid: town.pid }),
       startedAt,
       auditBefore,
       passId,
@@ -365,53 +432,60 @@ async function setUp(plan, given) {
     };
     writeFileSync(path.join(root, "walk.json"), `${JSON.stringify(walk, null, 2)}\n`);
     const quote = (w) => (/^[A-Za-z0-9_./:,=-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
+    // Over a box every admin line names it; over a directory, $TOWN_DATA does.
+    const townd = `node ${TOWND} admin${overBox ? ` --town ${given.town}` : ""}`;
     const n = plan.narrowed;
     const narrowing = n
       ? [
           `to narrow the grant at ${n.shop} to ${n.commands.replace(/,([^,]*)$/, " and $1").replace(/,/g, ", ")}, under the running agent:`,
-          `  node ${TOWND} admin grant revoke ${grants[n.shop]}`,
-          `  node ${TOWND} admin grant new ${grantArgs(n.shop, n.commands, n.constraints).map(quote).join(" ")}`,
+          `  ${townd} grant revoke ${grants[n.shop]}`,
+          `  ${townd} grant new ${grantArgs(n.shop, n.commands, n.constraints).map(quote).join(" ")}`,
           ``,
         ]
       : [];
     const permits = plan.permits
-      ? [`to decide what the agent asks for, at the box:`, `  node ${TOWND} admin permit ls --pass ${passId}`, `  node ${TOWND} admin permit show <id>`, `  node ${TOWND} admin permit approve <id>`, ``]
+      ? [`to decide what the agent asks for, at the box:`, `  ${townd} permit ls --pass ${passId}`, `  ${townd} permit show <id>`, `  ${townd} permit approve <id>`, ``]
       : [];
+    const keeps = `${[kept.length ? `kept ${kept.join(", ")}` : "", added.length ? `added ${added.join(", ")}` : ""].filter(Boolean).join("; ")}`;
 
     process.stdout.write(
       [
         `walk ready: ${root}`,
         ``,
-        `the town:    ${town.address} (pid ${town.pid}), pass ${passId}, shops walled by ${town.wall}`,
-        ...(given === undefined ? [] : [`the data:    ${data}, given, and kept at teardown; ${[kept.length ? `kept ${kept.join(", ")}` : "", added.length ? `added ${added.join(", ")}` : ""].filter(Boolean).join("; ")}`]),
+        overBox ? `the town:    ${town.address}, a box over the wire, pass ${passId}, shops run in an ${town.wall}` : `the town:    ${town.address} (pid ${town.pid}), pass ${passId}, shops walled by ${town.wall}`,
+        ...(given.data === undefined ? [] : [`the data:    ${data}, given, and kept at teardown; ${keeps}`]),
+        ...(overBox ? [`the box:     ${given.town}, kept at teardown but for the walk's pass; ${keeps}`] : []),
         ...plan.grants.map((g, i) => `${(i === 0 ? "the grants:" : "").padEnd(13)}${grants[g.shop]} ${g.shop} ${g.commands}; ${g.constraints.length ? g.constraints.join("; ") : "no constraints"}; expires ${plan.expires}`),
         ...(reader ? [`${"".padEnd(13)}${reader.said}`] : []),
         ``,
         `start the agent in:`,
         `  cd ${agent}`,
         `  export PATH="${shim}:$PATH"`,
+        ...(overBox ? [`  ${HARNESS}`, `  (${path.join(agent, ".claude", "settings.json")} allows Bash for ${AGENT_SETTINGS.permissions.allow.map((a) => a.slice(5, -3)).join(", ")}, in ${AGENT_SETTINGS.permissions.defaultMode})`] : []),
         ``,
         `the sentence:`,
         `  ${said}`,
         ``,
         `for admin commands:`,
-        `  export TOWN_DATA=${data}`,
-        `  node ${TOWND} admin grant ls --pass ${passId}`,
+        ...(overBox ? [] : [`  export TOWN_DATA=${data}`]),
+        `  ${townd} grant ls --pass ${passId}`,
         ``,
         ...narrowing,
         ...permits,
         `status:      node ${SELF} --status ${root}`,
-        ...(plan.token === undefined ? [] : [`search:      node ${SELF} --search ${root} <transcript> < <token file>`]),
-        ...(given === undefined ? [] : [`search:      node ${SELF} --search-sealed ${root} <transcript> <scratch>...`]),
+        ...(plan.token === undefined && !overBox ? [] : [`search:      node ${SELF} --search ${root} <transcript> < <token file>`]),
+        ...(given.data === undefined ? [] : [`search:      node ${SELF} --search-sealed ${root} <transcript> <scratch>...`]),
         `teardown:    node ${SELF} --teardown ${root}`,
         ``,
       ].join("\n"),
     );
   } catch (err) {
-    if (town && alive(town.pid)) {
+    if (town?.pid && alive(town.pid)) {
       process.kill(town.pid, "SIGTERM");
       await waitGone(town.pid, 5000);
     }
+    // A pass made on a box before the failure is revoked there; the box keeps everything else.
+    if (overBox && madePass) admin(where, "pass", "revoke", madePass);
     // The walk root alone: a given data directory is never under it, and is never removed.
     rmSync(root, { recursive: true, force: true });
     die(err.message);
@@ -423,14 +497,14 @@ async function setUp(plan, given) {
  * and `user` a live credential of `reader.type`, bound to the newest; else
  * no grant, and why. What to print either way.
  */
-function readerGrant(data, user, reader, argsFor) {
-  if (!column(mustAdmin(data, "shop", "ls").stdout, "name").includes(reader.shop)) return { said: `no grant at ${reader.shop}: the town holds no ${reader.shop}` };
-  const creds = mustAdmin(data, "credential", "ls", "--user", user).stdout;
+function readerGrant(where, user, reader, argsFor) {
+  if (!column(mustAdmin(where, "shop", "ls").stdout, "name").includes(reader.shop)) return { said: `no grant at ${reader.shop}: the town holds no ${reader.shop}` };
+  const creds = mustAdmin(where, "credential", "ls", "--user", user).stdout;
   const [ids, types, states] = ["id", "type", "state"].map((c) => column(creds, c));
   const live = ids.filter((_, i) => types[i] === reader.type && states[i] === "active");
   if (live.length === 0) return { said: `no grant at ${reader.shop}: ${user} holds no live ${reader.type} credential` };
   const credential = live.at(-1);
-  const grant = mustAdmin(data, "grant", "new", ...argsFor(credential)).stdout.trim();
+  const grant = mustAdmin(where, "grant", "new", ...argsFor(credential)).stdout.trim();
   return { grant, credential, said: `${grant} ${reader.shop} ${reader.commands}; no constraints; bound to ${credential}, ${user}'s ${reader.type}${live.length > 1 ? `, the newest of ${live.length}` : ""}` };
 }
 
@@ -452,22 +526,34 @@ function column(table, name) {
   return rows.map((r) => r.slice(start, end).trim());
 }
 
-function status(root) {
+/** Rows counted by the wall column, the kind a call's code ran within, `-` when none ran (denied, refused, the hall's own): seatbelt, none, isolate, then `-`, those with none left out. */
+function byWall(cells) {
+  const walls = new Map([["seatbelt", 0], ["none", 0], ["isolate", 0], ["-", 0]]);
+  for (const w of cells) walls.set(w, (walls.get(w) ?? 0) + 1);
+  return [...walls].filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`).join(", ") || "none";
+}
+
+async function status(root) {
   const walk = readWalk(root);
-  const up = alive(walk.pid) && commandOf(walk.pid).includes(walk.data);
-  process.stdout.write(`walk ${walk.root}\nthe town: ${walk.address}, pid ${walk.pid} ${up ? "running" : "not running"}\n\n`);
-  const grants = admin(walk.data, "grant", "ls", "--pass", walk.passId);
-  const audit = admin(walk.data, "audit", "--pass", walk.passId);
+  if (walk.town) {
+    const answer = await fetch(walk.town, { signal: AbortSignal.timeout(15_000) }).then((r) => r.text(), () => null);
+    process.stdout.write(`walk ${walk.root}\nthe town: ${walk.town}, a box over the wire, ${answer === "town\n" ? "answering" : "not answering"}\n\n`);
+  } else {
+    const up = alive(walk.pid) && commandOf(walk.pid).includes(walk.data);
+    process.stdout.write(`walk ${walk.root}\nthe town: ${walk.address}, pid ${walk.pid} ${up ? "running" : "not running"}\n\n`);
+  }
+  const grants = admin(at(walk), "grant", "ls", "--pass", walk.passId);
+  const audit = admin(at(walk), "audit", "--pass", walk.passId);
   if (grants.exit !== 0 || audit.exit !== 0) die(`townd admin failed:\n${grants.stderr}${audit.stderr}`);
   process.stdout.write(`grants of ${walk.passId}:\n${grants.stdout}\naudit of ${walk.passId}, as a tree by parent:\n${tree(audit.stdout)}\n`);
   const counts = new Map([["ok", 0], ["denied", 0]]);
   for (const r of column(audit.stdout, "result")) counts.set(r, (counts.get(r) ?? 0) + 1);
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows: ${total}; ${[...counts].map(([k, v]) => `${k} ${v}`).join(", ")}\n`);
-  // The wall column: the kind a call's process ran within, `-` when none ran (denied, refused, the hall's own).
-  const walls = new Map([["seatbelt", 0], ["none", 0], ["-", 0]]);
-  for (const w of column(audit.stdout, "wall")) walls.set(w, (walls.get(w) ?? 0) + 1);
-  process.stdout.write(`rows by wall: ${[...walls].filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}\n`);
+  process.stdout.write(`rows by wall: ${byWall(column(audit.stdout, "wall"))}\n`);
+  // The hall's walk reads every row since it began, under any pass or none: a publish's tests and an approval's run under none.
+  const since = walk.shop === "town/hall" ? sinceWalk(walk) : null;
+  if (since) process.stdout.write(`rows by wall since the walk began, under any pass: ${since.walls}\n`);
 
   // The credentials column: `<type>:<requests>` comma-separated, or `-` when none was served.
   const shop = walk.shop ?? "town/memory";
@@ -497,7 +583,7 @@ function status(root) {
   for (const [type, t] of types) process.stdout.write(`credentials: ${type} ${t.requests} requests over ${t.rows} rows, ${t.none} of them with none\n`);
   const bareTotal = [...bare.values()].reduce((a, b) => a + b, 0);
   process.stdout.write(`rows for ${shop} with no credential served: ${bareTotal}${bareTotal ? `; ${[...bare].map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}\n`);
-  if (shop === "town/hall") process.stdout.write(hallCounts(audit.stdout, grants.stdout) + sinceWalk(walk));
+  if (since) process.stdout.write(hallCounts(audit.stdout, grants.stdout) + since.text);
 }
 
 /** An audit table's rows as objects of the named columns. */
@@ -515,11 +601,11 @@ function rowsOf(table, names) {
  * orders rows by their times to the millisecond.
  */
 function sinceWalk(walk) {
-  const audit = admin(walk.data, "audit");
-  const permits = admin(walk.data, "permit", "ls", "--pass", walk.passId);
+  const audit = admin(at(walk), "audit");
+  const permits = admin(at(walk), "permit", "ls", "--pass", walk.passId);
   if (audit.exit !== 0 || permits.exit !== 0) die(`townd admin failed:\n${audit.stderr}${permits.stderr}`);
   const before = walk.auditBefore ?? 0;
-  const rows = rowsOf(audit.stdout, ["call", "at", "pass", "shop", "command", "result", "credentials", "parent", "detail"]).slice(before);
+  const rows = rowsOf(audit.stdout, ["call", "at", "pass", "shop", "command", "result", "credentials", "parent", "wall", "detail"]).slice(before);
   const ours = new Set(column(permits.stdout, "id"));
   const said = (m) => [...m].map(([k, v]) => `${k} ${v}`).join(", ");
   const tally = (m, k, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
@@ -560,7 +646,7 @@ function sinceWalk(walk) {
   const refreshed = new Map();
   for (const r of rows) for (const m of r.detail.matchAll(/(?:^|, )refreshed (\S+?)(?=,|$)/g)) tally(refreshed, m[1]);
   lines.push(`refreshes: ${[...refreshed.values()].reduce((a, b) => a + b, 0)}${refreshed.size ? `; ${said(refreshed)}` : ""}`);
-  return `${lines.join("\n")}\n`;
+  return { text: `${lines.join("\n")}\n`, walls: byWall(rows.map((r) => r.wall)) };
 }
 
 /**
@@ -728,6 +814,9 @@ async function searchSealed(root, paths) {
   if (!root) die("name the walk root: --search-sealed <root> [<path>...]", 2);
   if (!existsSync(path.join(path.resolve(root), "walk.json"))) die(`${root} has no walk.json; it is not a walk root, and nothing was searched`, 2);
   const walk = readWalk(root);
+  if (walk.town) {
+    die(`--search-sealed opens the town's sealed rows with its vault key, and ${walk.town} is a box whose key is a platform secret this laptop never holds, so nothing was searched; search for a value you hold with --search ${walk.root} [<path>...] < <file holding it>`, 2);
+  }
   for (const p of paths) if (!existsSync(p)) die(`${p} does not exist; nothing was searched`, 2);
   assertBuilt();
   const secrets = await sealedSecrets(walk.data);
@@ -760,6 +849,16 @@ async function searchSealed(root, paths) {
 
 async function teardown(root) {
   const walk = readWalk(root);
+  if (walk.town) {
+    // The walk's pass revoked on the box first, and the root kept when it cannot be; the box and all else on it are the operator's.
+    const revoked = admin(at(walk), "pass", "revoke", walk.passId);
+    if (revoked.exit !== 0) die(`the walk's pass ${walk.passId} was not revoked at ${walk.town}: ${revoked.stderr.trim().split("\n")[0]}; ${walk.root} is kept`);
+    process.stdout.write(`revoked ${walk.passId} at ${walk.town}; the box and everything else on it are kept\n`);
+    rmSync(walk.root, { recursive: true, force: true });
+    if (existsSync(walk.root)) die(`${walk.root} is still there`);
+    process.stdout.write(`removed ${walk.root}\n`);
+    return;
+  }
   if (alive(walk.pid)) {
     const cmd = commandOf(walk.pid);
     if (!cmd.includes("serve") || !cmd.includes(walk.data)) die(`pid ${walk.pid} is not this walk's town (${cmd}); stop the town yourself, then tear down again`);
@@ -788,8 +887,11 @@ if (flag === undefined) await setUp(memoryPlan());
 else if (flag === "--shop" && words[0] === "hall") {
   const rest = words.slice(1);
   if (rest.length === 0) await setUp(hallPlan());
-  else if (rest[0] === "--data" && rest.length === 2) await setUp(hallPlan(), await givenData(rest[1]));
+  else if (rest[0] === "--data" && rest.length === 2) await setUp(hallPlan(), { data: await givenData(rest[1]) });
   else if (rest[0] === "--data" && rest.length === 1) die("--data needs a value, an existing town's data directory");
+  else if (rest[0] === "--town" && rest.length === 2) await setUp(hallPlan(), { town: await givenTown(rest[1]) });
+  else if (rest[0] === "--town" && rest.length === 1) die("--town needs a value, a deployed box's URL");
+  else if (rest.includes("--data") && rest.includes("--town")) die("--data and --town name two towns; write one or the other");
   else die("--shop hall takes no other flag but --data <dir>; it needs no repository and no token");
 } else if (flag === "--shop") {
   const opts = new Map();
@@ -810,6 +912,6 @@ else if (flag === "--shop" && words[0] === "hall") {
 else if (flag === "--search-sealed") await searchSealed(words[0], words.slice(1));
 else if (flag === "--status" || flag === "--teardown") {
   if (words.length > 1) die(`too many words: ${words.slice(1).join(" ")}`);
-  if (flag === "--status") status(words[0]);
+  if (flag === "--status") await status(words[0]);
   else await teardown(words[0]);
-} else die(`${flag} is not a walk flag; write nothing, --shop hall [--data <dir>], --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], --search-sealed <root> [<path>...], or --teardown <root>`);
+} else die(`${flag} is not a walk flag; write nothing, --shop hall [--data <dir> | --town <url>], --shop github|watch --repo <owner/name>, --status <root>, --search <root> [<path>...], --search-sealed <root> [<path>...], or --teardown <root>`);

@@ -10,13 +10,16 @@
 // remembered and recalled from two directories; the audit's `isolate`; a
 // grant revoked and a pass revoked; the operator's token absent, wrong,
 // and `--data` or `--wall` beside `--town` refused; and x-town-build on
-// every answer. Slow, since it starts wrangler, and alone in its file.
+// every answer. Then the wire's stdin: `user ls` over `--town` returns
+// with stdin an open pipe that never closes, and `credential add` still
+// reads its secret from a pipe that closes after it. Slow, since it starts
+// wrangler, and alone in its file.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { MEMORY, ROOT, agent, assertBuilt, cleanup, dev, tmp, type Agent, type Dev, type Ran } from "./helpers/town.js";
+import { MEMORY, ROOT, TOWND, agent, assertBuilt, cleanEnv, cleanup, dev, tmp, type Agent, type Dev, type Ran } from "./helpers/town.js";
 
 const GITHUB = path.join(ROOT, "shops/github");
 const WATCH = path.join(ROOT, "shops/watch");
@@ -178,3 +181,46 @@ it("walks journey 1 steps 3 to 9 through the built town and townd admin --town a
   // The agent's credential is in nothing the operator or the agent was printed.
   expect(JSON.stringify(rows)).not.toContain(SECRET);
 }, 240_000);
+
+/**
+ * `townd admin --town <box> ...args` with stdin a pipe this process holds:
+ * `input` written to it, and closed after when `close`; resolved when it
+ * exits, or after `ms` with exit -1, killed, when it has not.
+ */
+function overPipe(args: string[], input: string, close: boolean, ms = 15_000): Promise<Ran> {
+  const env = cleanEnv(box.home);
+  delete env.TOWN_OPERATOR;
+  const child = spawn(process.execPath, [TOWND, "admin", "--town", box.url, ...args], { env, stdio: ["pipe", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout!.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+  child.stderr!.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+  if (input) child.stdin!.write(input);
+  if (close) child.stdin!.end();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ stdout, stderr: `${stderr}(still waiting after ${ms} ms, killed)`, exit: -1 });
+    }, ms);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      child.stdin!.destroy();
+      resolve({ stdout, stderr, exit: code ?? -1 });
+    });
+  });
+}
+
+it("returns from a verb that reads no stdin with stdin an open pipe, and still reads the secret credential add is piped", async () => {
+  const listed = await overPipe(["user", "ls"], "", false);
+  expect(listed.exit, listed.stderr).toBe(0);
+  expect(listed.stdout).toMatch(/^id\s+name\s+created$/m);
+  const added = await overPipe(["user", "add", "piper"], "not for this verb\n", false);
+  expect([added.exit, added.stderr], added.stderr).toEqual([0, ""]);
+  const credential = await overPipe(["credential", "add", "--user", "piper", "--type", "github-token", "--label", "piped"], `${SECRET}-piped\n`, true);
+  expect(credential.exit, credential.stderr).toBe(0);
+  expect(credential.stdout).toMatch(/^credential_[0-9a-f]{16}\n$/);
+  expect(ok(box.admin(["credential", "ls", "--user", "piper"])).stdout).toMatch(new RegExp(`^${credential.stdout.trim()}\\s+piper\\s+github-token\\s+piped\\s`, "m"));
+  // Nothing piped and the pipe closed: the verb read, found none, and is refused in its own words.
+  const empty = await overPipe(["credential", "add", "--user", "piper", "--type", "github-token"], "", true);
+  expect([empty.exit, empty.stderr]).toEqual([1, "townd admin: credential add reads the secret on stdin, and there is none; pipe the secret in\n"]);
+}, 60_000);

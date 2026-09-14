@@ -3,7 +3,8 @@
 // node:http server on 127.0.0.1 at a free port. The authorization server
 // is strict where a provider is: `/authorize` answers a person's browser
 // with a redirect only for the registered client, `response_type=code`, a
-// loopback redirect, a state, and an S256 challenge, and remembers the
+// loopback redirect at `/` or the path it is told, a state, and an S256
+// challenge, and remembers the
 // challenge with the code; `/token` takes the registered client and
 // secret, trades a code once, for the same redirect, only when the
 // verifier hashes to the code's challenge, and trades a live refresh
@@ -46,6 +47,8 @@ export interface AuthControl {
   expiresIn: number;
   /** How long the token endpoint waits before it answers, in milliseconds. */
   tokenDelayMs: number;
+  /** The path a loopback redirect must have: a laptop's listener's `/`, or a box's `/consent` when a test's town is one. */
+  redirectPath: string;
 }
 
 export interface FakeAuth extends AuthControl {
@@ -118,6 +121,7 @@ export async function fakeAuthServer(opts: { clientId: string; clientSecret: str
     authorizeError: null,
     expiresIn: 3600,
     tokenDelayMs: 0,
+    redirectPath: "/",
     events: [],
     issued: { access: [], refresh: [] },
     live: (t) => (accessTokens.get(t) ?? 0) > Date.now(),
@@ -162,7 +166,7 @@ export async function fakeAuthServer(opts: { clientId: string; clientSecret: str
         const why =
           q.get("response_type") !== "code" ? "response_type" :
           q.get("client_id") !== opts.clientId ? "client_id" :
-          !redirectUrl || redirectUrl.protocol !== "http:" || redirectUrl.hostname !== "127.0.0.1" || redirectUrl.pathname !== "/" ? "redirect_uri" :
+          !redirectUrl || redirectUrl.protocol !== "http:" || redirectUrl.hostname !== "127.0.0.1" || redirectUrl.pathname !== auth.redirectPath ? "redirect_uri" :
           q.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(q.get("code_challenge") ?? "") ? "code_challenge" :
           !q.get("state") ? "state" :
           q.get("scope") !== auth.scopes.join(" ") ? "scope" :

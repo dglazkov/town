@@ -1,5 +1,6 @@
 // The wire, for the operator: `townd admin --town <url> <verb …>` as a
-// pipe. The verb's words and its stdin are posted to the box's `/admin`
+// pipe. The verb's words, and its stdin when src/admin.ts's `readsStdin`
+// says the verb reads it and null otherwise, are posted to the box's `/admin`
 // with the operator's token, from $TOWN_OPERATOR or ~/.town/operator, and
 // what comes back is printed as it came, the verb's exit its exit; the
 // verbs, their refusals, and their printouts are src/admin.ts's, run in
@@ -10,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Io } from "./admin.js";
+import { readsStdin, type Io } from "./admin.js";
 
 /** What the pipe prints, and the door answers, for a bearer that is not the operator's. */
 export const OPERATOR_REFUSED = "the operator token is refused";
@@ -70,8 +71,9 @@ export async function pipe(url: string, argv: string[], io: Io): Promise<number>
     io.err("townd admin: --town needs the operator's token, and neither $TOWN_OPERATOR nor ~/.town/operator holds one\n");
     return 1;
   }
+  // Stdin is read only for a verb that reads it, as the verb reads it at a laptop: another returns with stdin an open pipe.
   let stdin: string | null = null;
-  if (io.stdin && !io.stdin.isTTY) {
+  if (readsStdin(argv) && io.stdin && !io.stdin.isTTY) {
     const chunks: Buffer[] = [];
     for await (const chunk of io.stdin) chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
     stdin = chunks.length ? Buffer.concat(chunks).toString("utf8") : null;

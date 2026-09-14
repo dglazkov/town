@@ -61,12 +61,14 @@ CLOUDFLARE_API_TOKEN=… pnpm box deploy --name town   # the Worker, named town 
 # writes the operator's token to ~/.town/operator with mode 600 and prints it once, reads GET / at the address, and names the consent redirect: <url>/consent. Run again, it redeploys and keeps both
 CLOUDFLARE_API_TOKEN=… pnpm box delete --name town   # lists what goes, waits for the name typed, deletes the Worker and its object's rows, and removes ~/.town/operator when it was this box's
 export TOWN_OPERATOR=<token>                    # or keep it in ~/.town/operator; --town without either is refused naming both
-node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb and its stdin posted to <url>/admin, what comes back printed; a token the box refuses prints: the operator token is refused
+node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb posted to <url>/admin with its stdin when the verb reads one (a shop as -, a secret, a client secret), what comes back printed; a token the box refuses prints: the operator token is refused
 tar --format ustar -cf - -C shops/memory . | node bin/townd.js admin --town <url> shop add -   # a shop comes from stdin as - for its directory; shop add <dir> over --town is refused printing this pipe, and shop test - is the same
 # the box runs a shop in an isolate and runs runtime: worker alone: shop add - and the hall's publish refuse runtime: subprocess; the audit's wall column says isolate
 node bin/townd.js admin --town <url> pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the grant file's town is <url>
 node bin/townd.js admin --town <url> credential connect --user dimitri --type google-oauth   # the redirect lands at <url>/consent, and the pipe waits for the id; register the client with that redirect URI
 # --data and --town together are refused; --wall over --town is refused, since the box's wall is not the operator's to choose
+node scripts/walk.mjs --shop hall --town <url>   # the hall's walk staged on the box over the wire: memory added when missing, dimitri reused, a pass and its grant file naming <url>, the agent's project settings
+node scripts/walk.mjs --status <root>            # the walk's rows read over the wire, by wall with isolate counted; --teardown <root> revokes the walk's pass there and removes the root, and --search-sealed is refused, the box's key being the platform's
 ```
 
 ## The agent

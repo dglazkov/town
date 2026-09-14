@@ -395,9 +395,9 @@ consent and read a document through `town/gdocs`.
   secret was in no answer the wire returned.
 - **2026-09-13 — The consent was walked on `town`, not the throwaway,**
   so the web client carries one redirect URI; the Proof says so.
-- **2026-09-13 — Open: `townd admin --town` waits on an open stdin for
-  every verb,** where `--data` reads it only for verbs that take it; in a
-  harness `pass new` hung until stdin was `/dev/null`. Waits on a fix.
+- **2026-09-13 — `townd admin --town` waited on an open stdin for every
+  verb;** in a harness `pass new` hung. `readsStdin` beside the verbs now
+  decides, and a test runs all 32 argvs at a laptop and in the object.
 - **2026-09-13 — Open: the refresh at Google an hour on,** journey 4
   step 3's last sentence, not yet seen by hand; box phase 4's walk reads
   it in the audit.

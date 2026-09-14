@@ -107,6 +107,40 @@ function parse(argv: readonly string[]): Parsed {
   return { words, opts };
 }
 
+/**
+ * Whether the verb `argv` names reads stdin, run as far as its read: a
+ * shop given as `-` to `shop test` or `shop add`; the secret of
+ * `credential add`; and the client secret `--client-id` comes with, at
+ * `type add --kind oauth`, `type approve`, and `shop add` from a directory
+ * (`shop add -` with one is refused unread). A refusal before the read
+ * reads nothing whatever this says. The wire reads and sends stdin for
+ * these alone, so a verb that takes none returns with stdin an open pipe;
+ * test/stdin.test.ts runs every verb to hold the two together.
+ */
+export function readsStdin(argv: readonly string[]): boolean {
+  let p: Parsed;
+  try {
+    p = parse(argv);
+  } catch {
+    return false;
+  }
+  const [noun, verb, first] = p.words;
+  const client = p.opts.has("client-id");
+  switch (`${noun ?? ""} ${verb ?? ""}`) {
+    case "shop test":
+      return first === "-";
+    case "shop add":
+      return first === "-" ? !client : client;
+    case "credential add":
+      return true;
+    case "type add":
+      return client && p.opts.get("kind")?.at(-1) === "oauth";
+    case "type approve":
+      return client;
+  }
+  return false;
+}
+
 export function one(p: Parsed, name: string, required: true): string;
 export function one(p: Parsed, name: string, required?: false): string | undefined;
 export function one(p: Parsed, name: string, required = false): string | undefined {

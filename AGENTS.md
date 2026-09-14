@@ -35,7 +35,11 @@ the wire, and `runtime: worker` so one shop runs on both boxes. Past
 the seven come the night sky's: [project baton](docs/projects/baton/design.md),
 the conductor's tools, and [project road](docs/projects/road/design.md),
 the wire a `town` speaks named as a contract any harness may implement,
-with the script that proves one does.
+with the script that proves one does. After drove drew the line in
+sheep, [project tent](docs/projects/tent/design.md): the account ring
+and the agent ring as one script, a box pitched under the commit's
+name, road's conformance and drove's stage run against it, and the box
+struck.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

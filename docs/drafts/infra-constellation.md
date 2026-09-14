@@ -2,8 +2,10 @@
 
 **Status:** Draft. A possible future, not a decision, except its first
 star: [baton](../projects/baton/design.md) was cut and closed 13 Sep
-2026. The rest is unbuilt; [night-sky.md](night-sky.md) holds the order
-across all four constellations, and it moves this one's.
+2026, and its second: [tent](../projects/tent/design.md), the tent and
+stranger stars as one project, was cut 14 Sep 2026 after the line. The
+rest is unbuilt; [night-sky.md](night-sky.md) holds the order across
+all four constellations, and it moves this one's.
 **Date:** 2026-09-13
 
 Sketched the same evening as the [sheep](sheep-constellation.md) and

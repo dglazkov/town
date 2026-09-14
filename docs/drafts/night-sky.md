@@ -9,6 +9,10 @@ four drafts the same morning. Drove was planned the same day in a
 clone of sheep, `../sheep-drove`, on branch `drove`, since collie holds
 `../sheep`; it lands on sheep's `main` after collie's, and its walk runs
 on a second station of its own, deployed from that checkout's kennel.
+Drove closed the same evening, 14 Sep 2026, on sheep-drove `7c85374`:
+the line is drawn, and the standing station `sheep-drove` stays.
+[Tent](../projects/tent/design.md), row 4's tent and stranger as one
+project, was cut that night.
 **Date:** 2026-09-13
 
 Four drafts sketch what the town could do after its first seven projects
@@ -36,10 +40,10 @@ in the sheep draft; this page is the order across all four.
    before the line
    1  baton      infra    the conductor's tools: brief.sh, mutate.mjs, --ring   done 13 Sep
    2  road       sheep    the wire named, the grant from the environment, conformance   done 14 Sep
-   3  drove      sheep    town in the sheep's shell; the walk shipped as a script
+   3  drove      sheep    town in the sheep's shell; the walk shipped as a script   done 14 Sep
    ─────────────────────  the line: a dog mints a sheep that works memory and github on the box
    after the line
-   4  tent + stranger   infra    the account ring, deployed from the checkout; the agent ring as a sheep inside it
+   4  tent + stranger   infra    the account ring, deployed from the checkout; the agent ring as a sheep inside it   cut 14 Sep as tent
    5  street, wagon     sheep    a public origin; export and import      (small, in gaps)
    6  survey            growth   a republish runs its dependents' tests; walk 1 as a herd
    7  deputy            sheep    a narrower durable grant, the earmark its first home

@@ -58,7 +58,9 @@ to `node bin/town.js`), each refused in a sentence when wrong;
 `scripts/box.mjs` and `scripts/conform.mjs` as children under the ring's
 HOME with `TOWN_OPERATOR` unset, and the listing read with the GETs
 `scripts/box.mjs`'s delete already makes, exported from it for the ring
-with the delete's behavior unchanged; the ring's directory
+with the delete's behavior unchanged; box's deploy waiting for the door
+to take the operator's token it made, as the design's what-stands-today
+says, with its case in `test/deploy.test.ts`; the ring's directory
 and `ring.json`; the preflight, the ask, and the `--dry-run` stop; the
 pitch with the build checked against the sha; conformance's lines
 through to the terminal and to `conform.txt`, the verdict line read;

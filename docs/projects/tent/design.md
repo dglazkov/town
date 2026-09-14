@@ -47,8 +47,8 @@ crosses repos names the other repo's commit in its findings.
 | Word | What it is | Where it lives |
 | --- | --- | --- |
 | a ring | an environment this checkout's state cannot reach, chosen by name; the inner three are `pnpm test --ring`, the outer two this project's | `scripts/hermetic.mjs` |
-| the tent | a box of the ring's own: `pnpm box deploy --name town-hermetic-<sha>` under a HOME the ring made, healthy when `GET /` answers with the build | the ring's directory, `home/` |
-| the pitch | the deploy, and the wait for the build in `x-town-build` | `scripts/box.mjs`, run by the ring |
+| the tent | a box of the ring's own: `pnpm box deploy --name town-hermetic-<sha>` under a HOME the ring made, healthy when `GET /` answers with the build and the door takes the operator's token box made | the ring's directory, `home/` |
+| the pitch | the deploy, and the wait for the build in `x-town-build` and for the door to take the new operator's token | `scripts/box.mjs`, run by the ring |
 | the strike | `pnpm box delete --name <tent>` with the name on stdin, on every exit of a ring unless `--keep`; `--strike <name>` alone for a tent a killed run left | `scripts/box.mjs`, run by the ring |
 | the listing | the account's Workers by name, read before the pitch and after the strike, which must be the same set | the API's GET, as `box delete` reads it |
 | the account ring | the tent pitched, conformance over the wire, the tent struck | `pnpm hermetic --ring account` |
@@ -78,6 +78,15 @@ for the ring, the delete's behavior unchanged.
   so a deploy run with `HOME` set to a directory of the ring's own is
   refused by nothing, writes the tent's token there, and the shepherd's
   file is never read. This is the one fact the ring is built around.
+  **Found 14 Sep 2026, by tent phase 0's first real run:** a fresh
+  deploy's `GET /` answers with the build seconds before the version
+  holding the secrets serves, and `townd admin --town` meanwhile gets a
+  500, for ten to fifteen seconds. Box's wait was too early to say the
+  box stands, so box's deploy, not the ring, changes: when it made the
+  operator's token it also waits, within the same ninety seconds, for the
+  door to take that token (`POST /admin` with it answering 400, as the
+  delete already asks), and says so. The ring adds no retry; a step it
+  retried would be a step of its own.
 - **`pnpm box delete --name <worker>`** lists what goes with GETs, asks
   for the name on a terminal or takes one line of stdin, deletes with
   `wrangler delete --force`, and removes `$HOME/.town/operator` when it

@@ -69,6 +69,21 @@ fl=$(awk '
   END { flush(); if (sec && secw > 300) printf "   Findings of %s run %d words (rule: under three hundred)\n", sec, secw }
 ' "$PH")
 [ -n "$fl" ] && { echo "$fl"; n=$((n+1)); }
+# design.md's opening paragraph, the dated one, and journey.md's status: must agree:
+# planned says "Nothing built", partial says neither that nor "Done", done opens on "Done" or "Built"
+st=$(sed -n -E 's/^status: *([a-z]+).*/\1/p' "$J" | head -1)
+opener=$(awk '/^\*\*[0-9]+ [A-Z][a-z]+ [0-9]{4}\.\*\*/ {on=1} on && /^$/ {exit} on {printf "%s ", $0}' "$D/design.md" 2>/dev/null)
+said=$(printf '%s' "$opener" | cut -c1-90)
+if [ -z "$opener" ]; then
+  echo "   design.md has no dated opening paragraph (**D Month YYYY.**) to say where the project stands"; n=$((n+1))
+else
+  nothing=0; printf '%s' "$opener" | grep -q 'Nothing built' && nothing=1
+  case "$st" in
+    planned) [ $nothing = 1 ] || { echo "   journey.md says planned, and design.md's opener does not say Nothing built: ${said}…"; n=$((n+1)); } ;;
+    partial) { [ $nothing = 0 ] && ! printf '%s' "$opener" | grep -q -E '^\*\*[^*]+\*\* Done'; } || { echo "   journey.md says partial, and design.md's opener says Nothing built or Done: ${said}…"; n=$((n+1)); } ;;
+    done) printf '%s' "$opener" | grep -q -E '^\*\*[^*]+\*\* (Done|Built)' || { echo "   journey.md says done, and design.md's opener does not open on Done or Built: ${said}…"; n=$((n+1)); } ;;
+  esac
+fi
 # the where-we-are line and the Status lines must agree on what is next
 if [ -n "$NEXT" ]; then
   num=$(printf '%s' "$NEXT" | sed -E 's/^## Phase ([0-9]+).*/\1/')

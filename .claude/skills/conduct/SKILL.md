@@ -191,6 +191,9 @@ change, so the docs never disagree with each other:
   what waits on work.
 - **`journey.md` front matter**: `status:` (`planned`, `partial`,
   `done`) and the `note:` retold to include this phase.
+- **`design.md`'s opening line**, the dated one: `Nothing built` while
+  planned, what is built once a phase closes, `Done` when the project
+  is. The status script lints it against the front matter.
 - **The projects index**, `docs/projects/README.md`: the project's
   "where it stands" cell, which must not be more right than the docs
   it summarizes, and must not be less.

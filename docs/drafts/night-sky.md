@@ -1,7 +1,10 @@
 # The night sky — the four constellations in one sequence
 
-**Status:** Draft. The shepherd's lean of 13 Sep 2026, late; not a
-decision until a project is cut from it.
+**Status:** Draft. The shepherd's lean of 13 Sep 2026, late. Its first
+project, [baton](../projects/baton/design.md), was cut and closed the
+same night, so the order is being walked; each later row is a decision
+only when its project is cut. Road is next. Read through against all
+four drafts on 14 Sep 2026.
 **Date:** 2026-09-13
 
 Four drafts sketch what the town could do after its first seven projects
@@ -11,7 +14,7 @@ closed, each a constellation of proposed projects around one question:
 | --- | --- | --- |
 | [sheep](sheep-constellation.md) | where the town runs | drove, `town` in a sheep's shell |
 | [growth](growth-constellation.md) | how the town grows | survey, the graph as the build |
-| [infra](infra-constellation.md) | how the town is built | the ladder of hermetic rings |
+| [infra](infra-constellation.md) | how the town is built | stranger, the ladder's agent ring |
 | [square](square-constellation.md) | what the person sees | square, the one surface from the manifests |
 
 The lean is that **sheep is the cornerstone**, not because it is the
@@ -27,23 +30,23 @@ in the sheep draft; this page is the order across all four.
 
 ```
    before the line
-   1  baton      infra    the conductor's tools: brief.sh, mutate.mjs, --ring
+   1  baton      infra    the conductor's tools: brief.sh, mutate.mjs, --ring   done 13 Sep
    2  road       sheep    the wire named, the grant from the environment, conformance
    3  drove      sheep    town in the sheep's shell; the walk shipped as a script
    ─────────────────────  the line: a dog mints a sheep that works memory and github on the box
    after the line
-   4  tent + stranger   infra    the account ring, and the agent ring as a sheep inside it
+   4  tent + stranger   infra    the account ring, deployed from the checkout; the agent ring as a sheep inside it
    5  street, wagon     sheep    a public origin; export and import      (small, in gaps)
    6  survey            growth   a republish runs its dependents' tests; walk 1 as a herd
    7  deputy            sheep    a narrower durable grant, the earmark its first home
-   8  tempo, crate, yard infra   the suite's clock and CI; the release path; the machine ring
+   8  tempo, crate, yard infra   the suite's clock and CI; the release path, tent moved onto it; the machine ring
    9  ledger, plot, stall growth small and independent
   10  conduit           growth   the transitive hold; walk 2 as a herd
   11  square + visit    square   the one surface, and the pass a browser holds
   12  display, board    square   views from a closed set; a place to talk
-  13  citizen           all      a second person's own token, consents, permits
+  13  citizen           shared   a second person's own token, consents, permits; sheep's and growth's
   14  commons           growth   visibility between users; walk 3, two people
-  15  clock             growth   a shop that wakes on its own
+  15  clock             sheep    a shop that wakes on its own, on deputy's grant
   16  bell              square   town wait, as a park and as a summons
   17  window, relay     sheep    pen's broker replaced by a window the town opens
   18  sweep             infra    in the gaps, throughout
@@ -52,22 +55,31 @@ in the sheep draft; this page is the order across all four.
 
 ## Why this order
 
-- **Baton before road** because it costs a day and every phase after it
+- **Baton before road** because it cost a day and every phase after it
   is briefed by it.
 - **Nothing paid before the line but the line's own walk.** Road and
   drove are proven by a conformance script and one walk; every later
   walk is run by the script drove leaves.
 - **Tent and stranger right after the line** so the first project past
   it is proven by the ladder and not by hand, and because a sheep in a
-  cell can reach only a box.
+  cell can reach only a box. This takes the ladder's top two rungs
+  before its middle two, so tent's box is deployed from the checkout,
+  as `pnpm box deploy` does today, and `hermetic.mjs` is born in tent;
+  crate later moves the deploy onto the installed package, and yard adds
+  nothing stranger needs, since a sheep is not an image.
 - **Survey before deputy** because growth's first walk needs no
   narrowing, only two sheep on operator-made passes, and its finding, a
   change that did not land, is the one the town has never had.
-- **Citizen late but before commons, clock, and bell**, since all three
-  need a second person or a grant that outlives its caller, and citizen
-  is the star every constellation names.
+- **Citizen before commons**, since commons is the first star that
+  needs a second person, and citizen is the star the sheep and growth
+  constellations share and visit waits on. **Clock after deputy**, for
+  the grant it wakes with when its caller is gone. **Bell after clock
+  and after board**, since its summons half is clock's mechanism and its
+  walk speaks on the board.
 - **Window and relay last among the paid work**, the largest cross-repo
-  change, after the seam has been taught by drove and deputy.
+  change, after the seam has been taught by drove and deputy; the sheep
+  draft's own order had them before citizen and clock, and this page
+  moves them.
 
 ## The rules that hold across the sky
 

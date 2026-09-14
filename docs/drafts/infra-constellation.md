@@ -1,6 +1,9 @@
 # The infra constellation — a possible future
 
-**Status:** Draft. A possible future, not a decision. Nothing built.
+**Status:** Draft. A possible future, not a decision, except its first
+star: [baton](../projects/baton/design.md) was cut and closed 13 Sep
+2026. The rest is unbuilt; [night-sky.md](night-sky.md) holds the order
+across all four constellations, and it moves this one's.
 **Date:** 2026-09-13
 
 Sketched the same evening as the [sheep](sheep-constellation.md) and
@@ -62,6 +65,9 @@ for real thirty-second limits, which only the box has a test clock for.
 - **Nothing proves the town the way a user meets it.** Every proof runs
   from the checkout with `bin/townd.js`. Nobody has installed town.
 
+The first three were baton's, and closed with it on 13 Sep 2026. The
+last two are still true.
+
 ## The ladder
 
 Sheep's rule, restated for town: **the ring chooses the environment,
@@ -81,7 +87,9 @@ this constellation's.
               walked with the installed binaries                   seconds, free
    machine    the package ring in a container from node:24-slim, where
               there is no wall: --wall none, and the first line says so   a minute, Docker
-   agent      the machine ring's container with Claude Code in it, the
+   agent      after the sheep constellation's line, a sheep minted against
+              the account ring's box by drove's walk script; before it,
+              the machine ring's container with Claude Code in it, the
               skill from the root SKILL.md, a grant file, the allow list,
               no prompts, a budget, the journey's sentence; then the
               audit and the token search                          dollars, capped
@@ -102,31 +110,34 @@ the stage split from the environment.
 ## The constellation
 
 ```
+   ┌─────────┐
+   │  baton  │                   the conductor's tools              done 13 Sep 2026
+   └────┬────┘
+        │      ─ ─ ─ ─ ─ ─ ─ ─   the sheep constellation's line
+        ▼
+   ┌─────────┐   ┌──────────┐
+   │  tent   │ + │ stranger │    the account ring, a box pitched, walked, struck;
+   └────┬────┘   └──────────┘    the agent ring, a sheep inside that box
+        │
+        ▼
    ┌─────────┐   ┌─────────┐
-   │  baton  │   │  tempo  │      the conductor's tools; the suite's clock
-   └────┬────┘   └────┬────┘
-        └──────┬──────┘
-               ▼
-          ┌─────────┐
-          │  crate  │            the release path, and the package ring that proves it
-          └────┬────┘
-               ▼
-          ┌─────────┐
-          │  yard   │            the machine ring, and the Linux wall decided
-          └────┬────┘
-               ▼
-          ┌──────────┐
-          │ stranger │           the agent ring: a walk by an agent that never saw the checkout
-          └────┬─────┘
-               ▼
-          ┌─────────┐
-          │  tent   │            the account ring: a box pitched, walked, struck
-          └─────────┘
+   │  tempo  │   │  crate  │     the suite's clock and CI; the release path and
+   └─────────┘   └────┬────┘     the package ring, tent's deploy moved onto it
+                      ▼
+                 ┌─────────┐
+                 │  yard   │     the machine ring, and the Linux wall decided
+                 └─────────┘
 
-          ┌─────────┐
-          │  sweep  │            housekeeping, any time
-          └─────────┘
+   ┌─────────┐
+   │  sweep  │                   housekeeping, any time
+   └─────────┘
 ```
+
+The ladder is climbed out of order on purpose: its top two rungs first,
+so the first project past the line is proven by a ring and not by hand,
+and the middle two after. Tent can go first because `pnpm box deploy`
+already deploys from the checkout, and stranger can because a sheep
+needs no image.
 
 ## Each star in a sentence
 
@@ -154,11 +165,10 @@ the stage split from the environment.
   strips the checkout from PATH, serves a town over a fresh data
   directory, adds a shop, makes a pass and a grant, and runs the
   installed `town` from a fresh directory through help, a call, a
-  denial, and the audit row. The stage's steps move out of
-  `scripts/walk.mjs`'s modes into one walk the ring calls. Proof: the
-  package ring green on the release ref, with `which town` naming the
-  prefix and not the checkout. CI's second job runs it with the public
-  spec on a bare runner.
+  denial, and the audit row, and tent's deploy moved onto the same
+  install. Proof: the package ring green on the release ref, with
+  `which town` naming the prefix and not the checkout. CI's second job
+  runs it with the public spec on a bare runner.
 - **yard**. The package ring inside a container from `node:24-slim`,
   the ref exported as a bare repository and nothing mounted. There is no
   wall in the container, so the walk runs `--wall none` and the ring
@@ -183,12 +193,15 @@ the stage split from the environment.
   walk that closes the next project's first phase is run by this ring
   and not by hand.
 - **tent** (pitched and struck). The account ring: `pnpm box deploy
-  --name town-hermetic-<sha>` from the package ring's install, the hall
-  walk over the wire, `--status` read, `pnpm box delete` waiting on the
-  name typed unless `--yes`. The consent from afar needs a browser and
-  is skipped with one line, named at the end. A sheep in a cell cannot
-  reach a laptop's town, so stranger-as-a-sheep runs inside this ring's
-  box, which is why tent sits beside stranger and not after it. Proof:
+  --name town-hermetic-<sha>`, from the checkout at first and from the
+  package ring's install once crate exists, the hall walk over the
+  wire, `--status` read, `pnpm box delete` waiting on the name typed
+  unless `--yes`. `hermetic.mjs` and the stage split out of
+  `scripts/walk.mjs` are born here, since tent is the first ring built.
+  The consent from afar needs a browser and is skipped with one line,
+  named at the end. A sheep in a cell cannot reach a laptop's town, so
+  stranger-as-a-sheep runs inside this ring's box, which is why tent
+  sits beside stranger and not after it. Proof:
   the ring green on the operator's account, the listing before and
   after the same.
 - **sweep**. A formatter, Prettier being pure JavaScript and within the
@@ -203,11 +216,13 @@ the stage split from the environment.
 ## The sequence
 
 1. **baton**, before the sheep constellation's road, since it helps
-   build road and drove themselves and costs a day.
-2. **tempo**, **crate** with CI's second job, and **yard** deciding the
-   Linux wall, after the line, in that order.
-3. **tent** and **stranger** as one short project, the agent ring being
-   drove's walk script run inside tent's box.
+   build road and drove themselves and cost a day. Closed 13 Sep 2026.
+2. **tent** and **stranger** as one short project, right after the
+   line, the agent ring being drove's walk script run inside tent's
+   box.
+3. **tempo**, **crate** with CI's second job and tent's deploy moved
+   onto the install, and **yard** deciding the Linux wall, in that
+   order, with growth's survey and sheep's deputy between them and tent.
 4. **sweep**, in the gaps.
 
 The whole order across constellations is [night-sky.md](night-sky.md)'s.

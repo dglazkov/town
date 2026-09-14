@@ -167,8 +167,9 @@ narrowing matters. Two things drove owes so the line pays out:
   leaves a reusable stage, a mode of `scripts/walk.mjs` or a sibling,
   that makes the pass, mints the sheep with it, sends the sentence,
   waits, reads the log and the audit, runs the token search, revokes,
-  and removes. That script is the infra constellation's **stranger**,
-  delivered early.
+  and removes. That script is the heart of the infra constellation's
+  **stranger**, delivered early; stranger wraps it in a ring that runs
+  it against tent's box.
 - **The infra constellation's baton first.** The brief script, the
   mutation script, and the ring selector cost a day and help build road
   and drove themselves; they are the only infra worth doing before the
@@ -191,11 +192,12 @@ past the line runs against a box.
    findings settle.
 3. **deputy**. Its design is written knowing drove exists, since the
    earmark is the first place a deputy's grant lives.
-4. **window**, then **relay**. The point where town generalizes pen's
-   broker, and the largest cross-repo change, so it comes after two
-   smaller ones have taught the seam.
-5. **citizen** and **clock** after, in whichever order the pilot's needs
-   say.
+4. **citizen**, then **clock**, where the pilot's needs and the other
+   constellations' stars put them; clock waits on deputy for the grant
+   it wakes with.
+5. **window**, then **relay**, last. The point where town generalizes
+   pen's broker, and the largest cross-repo change, so it comes after
+   the smaller ones have taught the seam.
 
 Where the other constellations' stars fall between these is
 [night-sky.md](night-sky.md)'s to say.

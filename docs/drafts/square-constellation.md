@@ -13,7 +13,8 @@ woken by what the person does on the page. Town has the vocabulary
 already, per shop, in the manifest, and the engine, in the gate. What it
 lacks is the page and the event coming back. The projects named here do
 not exist; their names are proposals in the town's style, and one star,
-**visit**, leans on **citizen**, which every other constellation names.
+**visit**, leans on **citizen**, which the sheep and growth
+constellations share.
 
 ---
 
@@ -168,10 +169,10 @@ searched but the grant file and the visit.
 
 ## Crossings
 
-An agent that is not running when the bell rings needs the growth
-constellation's **clock** and **deputy**, or the sheep constellation's
-collie summoning a sheep. The person's own token is **citizen**, in
-every constellation. And the Square the draft describes (§11) turns
+An agent that is not running when the bell rings needs the sheep
+constellation's **clock** and **deputy**, or a dog summoning a sheep in
+collie's shape. The person's own token is **citizen**, shared by the
+sheep and growth constellations. And the Square the draft describes (§11) turns
 out to be this: the fronts of the shops the person holds, the board,
 and one page of the town's own, the approval.
 

@@ -25,16 +25,15 @@ wrote has found the bug.
 
 ---
 
-**Where we are: tent phase 0 closed, 14 September 2026; tent phase 1 is next.**
-`pnpm hermetic --ring account` pitches `town-hermetic-<sha>` under a
-HOME of its own, runs road's thirty checks over the wire, and strikes
-it, walked on the operator's account green twice, kept and struck, and
-failing on purpose; box's deploy now waits for its door, fifteen
-answers running, before it says the box stands. Tent phase 1's ⚑ steps
-were asked and answered yes on 14 Sep 2026: `TOWN_WALK_TOKEN` from the
-checkout's `.env` as the github token, `dglazkov/town#6` as the issue,
-the standing station `sheep-drove` from `../sheep-drove`. Nothing waits
-on a person.
+**Where we are: tent phases 0 and 1 closed, 14 September 2026; tent phase 2 is next.**
+`pnpm hermetic --ring account` and `--ring agent` both walk on the
+operator's account: the tent pitched under a HOME of its own,
+conformance or drove's stage run against it, the tent struck, the
+ring's own Workers the same before and after. The agent ring minted
+real sheep on the standing station `sheep-drove` (sheep-drove
+`fe5170a`) that commented on `dglazkov/town#6`. Tent phase 2 is docs,
+the ladder's two lists, and the listing mutation; it has no ⚑ step and
+nothing waits on a person.
 
 The order is the order of dependence. Tent phase 0 is the ring's shape
 and the account ring, since the tent is what the stranger walks into.
@@ -162,9 +161,18 @@ Falsified by one mutation with `scripts/mutate.mjs`: the ring's search
 made to skip `drove.txt`, seen by the test's planted-token case, and
 put back.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. The agent ring walked on the account and the standing station: green twice with a comment each, failing on purpose by the kennel and struck; the token in no file and no argument.
 
 **Findings:**
+
+- **2026-09-14 — Journey 2 steps 1 to 5 held for real, at sheep-drove `fe5170a`, station `sheep-drove`.** Dry-run named the stage's line; refusals exit 2 unread; two green runs, 60s and 56s, `dglazkov/town#6` comments 4 to 6, station `sheep ls` empty, `--status` read; an empty `--kennel` exit 1, struck, `drove.txt` kept.
+- **2026-09-14 — The token reached no file.** The ring's search and the conductor's `grep -rF` over the kept directory and both stage roots found nothing; the ring's terminal and `drove.txt` held no copy.
+- **2026-09-14 — A closed issue does not refuse `github reply`.** The first run, meant to fail on closed #6, walked green and commented; step 5 now fails by a kennel naming no station.
+- **2026-09-14 — The shared account broke a green run.** Sheep's ring pitched `sheep-hermetic-cc475fb-c-t-collie` mid-run; the listing now decides on `town-hermetic-*` and the tent, naming others'.
+- **2026-09-14 — `grep -rn sheep scripts/hermetic.mjs` finds usage, prose, the flag, the kennel default, the command line, and two `statSync` path checks.** Its imports are node's, `./box.mjs`, and `./stale.ts`. The search skipping `drove.txt` was killed by step 6's case.
+- **2026-09-14 — The agent ring's ask reads `/dev/tty`, walked on fakes only.** Its stdin is the token; the real runs answered `--yes`.
+- **2026-09-14 — `test/admin.test.ts`'s oauth-at-the-box case flaked twice under the full suite.** Its fake token endpoint answered 401 `invalid_client`; alone, and on the third full run, it passed.
+- **2026-09-14 — Cost: 30 minutes, five tents, three model turns, cents and under three dollars.**
 
 ## Phase 2: The ring as the proof
 

@@ -1,6 +1,6 @@
 # Tent — the design
 
-**14 September 2026.** Tent phase 0 built: `scripts/hermetic.mjs`'s account ring, `--strike`, and `--list`, walked on the account; the agent ring is not built. The project's status lives in
+**14 September 2026.** Tent phases 0 and 1 built: `scripts/hermetic.mjs`'s account and agent rings, `--strike`, and `--list`, walked on the account and the standing station; the docs and the ladder's lists are tent phase 2's. The project's status lives in
 [journey.md](journey.md)'s front matter. The journeys are the acceptance
 suite, this doc is the argument, and [phases.md](phases.md) is the walk.
 It is the stars **tent** and **stranger**, cut together from the

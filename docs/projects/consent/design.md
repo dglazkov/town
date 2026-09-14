@@ -1,6 +1,6 @@
 # Consent — the design
 
-**13 September 2026.** Design. Nothing built. The project's status lives
+**13 September 2026.** Done: all four phases closed. The project's status lives
 in [journey.md](journey.md)'s front matter. The journeys are the
 acceptance suite, this doc is the argument, and [phases.md](phases.md)
 is the walk. It is cut from the draft's §10 and §9.2 in

@@ -8,7 +8,10 @@ runs anything, so there is nothing to sign into and nothing granted that
 a person did not approve. The draft that argues the whole of it is
 [docs/drafts/town-design-doc.md](docs/drafts/town-design-doc.md); the
 projects under [docs/projects/](docs/projects/README.md) are how it gets
-built, one short body of work at a time. The first was
+built, one short body of work at a time. A second draft,
+[docs/drafts/sheep-constellation.md](docs/drafts/sheep-constellation.md),
+sketches one possible future beside the seven projects below, aligned
+with sheep and usable without it; it is a shape, not a decision. The first was
 [project gate](docs/projects/gate/design.md): a grant file in a
 directory, the `town` command, and one shop, on one box. The second is
 [project vault](docs/projects/vault/design.md): a credential sealed in

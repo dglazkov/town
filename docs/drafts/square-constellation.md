@@ -140,7 +140,12 @@ author could shape. The growth constellation says why.
 - **bell.** `town wait [--timeout <s>]`, held in the foreground,
   returning the next call by another actor at any shop the pass holds,
   or a board line, as JSON; exit 2 when nothing came. The rule of the
-  lap comes with it: a turn ends inside the wait. Proof: the walk.
+  lap comes with it: a turn ends inside the wait. For a sheep the bell
+  inverts: an idle cell costs nothing but a cell holding a wait is not
+  idle, so the sheep's bell is a summons, the board line waking a sheep
+  through a dog, which is collie's shape and clock's mechanism. Bell is
+  designed knowing both halves, the park for a laptop's agent and the
+  summons for a cell's. Proof: the walk.
 - **kiosk.** Shop-authored UI from an origin of its own under a visit,
   posting to the town as `town` does. Last, and only if display proves
   too small.

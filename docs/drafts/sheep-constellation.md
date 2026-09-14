@@ -1,6 +1,9 @@
 # The sheep constellation — a possible future
 
 **Status:** Draft. A possible future, not a decision. Nothing built.
+Later the same evening the shepherd leaned toward this one as the
+cornerstone, for the line it draws (below); [night-sky.md](night-sky.md)
+holds the sequence across all four constellations.
 **Date:** 2026-09-13
 
 Sketched the evening the seventh project, [box](../projects/box/design.md),
@@ -143,11 +146,47 @@ Three things on town's side, each small:
   of its own per shop and user. Depends on deputy for the grant it wakes
   with when its caller is gone.
 
+## The line
+
+The walk that closes drove is a line in the whole night sky: after it,
+every other constellation gets cheaper. What is true once a dog has
+minted a sheep with a grant from the operator's box and it has worked
+memory and github:
+
+- a real agent runs in a real environment with no checkout in sight;
+- it reaches the town over the wire and nothing else;
+- its transcript comes back through `sheep log --json` and its calls
+  through the audit, over the wire;
+- minting another costs one command.
+
+Nothing before that walk provides this, and deputy can wait until after
+it, since a dog can mint several sheep on operator-made passes until
+narrowing matters. Two things drove owes so the line pays out:
+
+- **The walk shipped as a script, not a sitting.** Drove's last phase
+  leaves a reusable stage, a mode of `scripts/walk.mjs` or a sibling,
+  that makes the pass, mints the sheep with it, sends the sentence,
+  waits, reads the log and the audit, runs the token search, revokes,
+  and removes. That script is the infra constellation's **stranger**,
+  delivered early.
+- **The infra constellation's baton first.** The brief script, the
+  mutation script, and the ring selector cost a day and help build road
+  and drove themselves; they are the only infra worth doing before the
+  line.
+
+What the line buys: infra's agent ring becomes a sheep against the box
+instead of Claude Code in a Docker image; growth's walks become herds,
+two or three sheep in a pasture with earmark grants, minted from one
+script; and square's bell inverts for a sheep, since a cell holding
+`town wait` is not idle, into a summons through a dog, which is collie's
+shape. A sheep in a cell cannot reach a laptop's town, so everything
+past the line runs against a box.
+
 ## The sequence
 
-1. **road**, then **drove**, then the walk closes drove. This is the
-   sheep walk decided on 13 Sep 2026, recut so the first thing built is
-   the proof that town stays usable without sheep.
+1. **road**, then **drove**, then the walk closes drove and draws the
+   line. This is the sheep walk decided on 13 Sep 2026, recut so the
+   first thing built is the proof that town stays usable without sheep.
 2. **street** and **wagon**, small, in the gap while drove's walk
    findings settle.
 3. **deputy**. Its design is written knowing drove exists, since the
@@ -157,6 +196,9 @@ Three things on town's side, each small:
    smaller ones have taught the seam.
 5. **citizen** and **clock** after, in whichever order the pilot's needs
    say.
+
+Where the other constellations' stars fall between these is
+[night-sky.md](night-sky.md)'s to say.
 
 ## Two rules, if this future is chosen
 

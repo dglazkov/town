@@ -169,23 +169,28 @@ the stage split from the environment.
 - **stranger** (a stranger comes to town). Phase 0 is the rehearsal, a
   scripted agent in the command ring that types the journey's commands
   against the stage, so help and permissions are proven before a model
-  is paid. Phase 1 is the agent ring: the machine ring's image with
-  Claude Code installed, the skill added from the root `SKILL.md`, a
-  grant file in a fresh working directory, `--allowedTools` for Bash and
-  the file tools, `--permission-prompts none`, `--max-budget-usd`,
-  `--strict-mcp-config`, the journey's sentence, and the stream rendered
-  as the transcript; afterwards the installed `townd admin audit` must
-  show the calls and the token search must find the token nowhere but
-  the grant file. `--dry-run` prints the command and stops. Every lesson
-  the box walk paid for becomes a line here. Proof: the walk that closes
-  the next constellation's first phase is run by this ring and not by
-  hand.
+  is paid. Phase 1 is the agent ring, and after the sheep
+  constellation's line it is a sheep: the walk script drove shipped,
+  run by the ring against a box, a pass made, a sheep minted with it as
+  an earmark, the sentence sent, the transcript read from `sheep log
+  --json` and the calls from the audit over the wire, the token search,
+  the revoke, the `sheep rm`. No image to build, the cost and the
+  transcript already structured, and the allow-list lessons living in
+  drove's program rather than here. Before the line, the same ring is
+  the machine ring's image with Claude Code installed and the skill
+  from the root `SKILL.md`, and every lesson the box walk paid for is a
+  line in it. `--dry-run` prints what would run and stops. Proof: the
+  walk that closes the next project's first phase is run by this ring
+  and not by hand.
 - **tent** (pitched and struck). The account ring: `pnpm box deploy
   --name town-hermetic-<sha>` from the package ring's install, the hall
   walk over the wire, `--status` read, `pnpm box delete` waiting on the
   name typed unless `--yes`. The consent from afar needs a browser and
-  is skipped with one line, named at the end. Proof: the ring green on
-  the operator's account, the listing before and after the same.
+  is skipped with one line, named at the end. A sheep in a cell cannot
+  reach a laptop's town, so stranger-as-a-sheep runs inside this ring's
+  box, which is why tent sits beside stranger and not after it. Proof:
+  the ring green on the operator's account, the listing before and
+  after the same.
 - **sweep**. A formatter, Prettier being pure JavaScript and within the
   no-native rule; the `.gitignore`, which is sheep's copy and still
   names the kennel and the collar; a README test that checks every
@@ -197,14 +202,15 @@ the stage split from the environment.
 
 ## The sequence
 
-1. **baton** and **tempo**, together or in either order, since they
-   change every phase from here on.
-2. **crate**, with CI's second job.
-3. **yard**, deciding the Linux wall by proving `--wall none` there.
-4. **stranger**, before whichever constellation's first walk, so that
-   walk is the ladder's first and not the last done by hand.
-5. **tent**.
-6. **sweep**, in the gaps.
+1. **baton**, before the sheep constellation's road, since it helps
+   build road and drove themselves and costs a day.
+2. **tempo**, **crate** with CI's second job, and **yard** deciding the
+   Linux wall, after the line, in that order.
+3. **tent** and **stranger** as one short project, the agent ring being
+   drove's walk script run inside tent's box.
+4. **sweep**, in the gaps.
+
+The whole order across constellations is [night-sky.md](night-sky.md)'s.
 
 ## What this constellation does not do, on purpose
 

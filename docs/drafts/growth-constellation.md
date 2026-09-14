@@ -164,7 +164,10 @@ through it.
 
 Each walk is a sitting of its own. The box walk showed most of a walk's
 spend goes on false starts, so three agents in one sitting would mostly
-buy noise; three sittings buy three findings.
+buy noise; three sittings buy three findings. After the sheep
+constellation's line, each is a herd: two or three sheep in a pasture,
+each with an earmark grant, minted by a dog from drove's walk script,
+so the one-user walks are an afternoon.
 
 ## The sequence
 

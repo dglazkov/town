@@ -35,7 +35,7 @@ import { RESERVED_SHOP_WORDS, type Manifest } from "./manifest.js";
 import { noticesFor, type Notice } from "./notices.js";
 import { due, parseValue, refresh, refreshed, type OAuthValue } from "./oauth.js";
 import type { Client, CredentialType } from "./credentials.js";
-import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, runShelved, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
+import { DEFAULT_TIMEOUT_MS, STDIN_LIMIT_BYTES, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
 import type { Shelf } from "./shelf.js";
 import { hashToken, type Pass } from "./passes.js";
 import type { Grant, Store } from "./store.js";
@@ -87,8 +87,15 @@ export interface TestTree {
 /** The words a shop test's help gives as the grant's label. */
 export const TEST_LABEL = "a shop test";
 
-/** A runtime, handed a shop by name: the shelf its files are on, and its manifest, whose name is the shop's. */
-export type Runtime = (shelf: Shelf, manifest: Manifest, command: string, args: ArgValues, opts: RunOptions) => Promise<RunResult>;
+/**
+ * A runtime, handed a shop by name: the shelf its files are on, and its
+ * manifest, whose name is the shop's. `refuses` says why a manifest is
+ * not one this runtime runs, the line both doors print before any test;
+ * a runtime without it runs every manifest the validator passes.
+ */
+export type Runtime = ((shelf: Shelf, manifest: Manifest, command: string, args: ArgValues, opts: RunOptions) => Promise<RunResult>) & {
+  refuses?: (manifest: Manifest) => string | null;
+};
 
 /** Opens a credential's value for one call. The server's reads the store and the vault's key. */
 export interface Vault {
@@ -142,8 +149,8 @@ export interface GateDeps {
    * decided by the gate and recorded nowhere, as a shop test's are.
    */
   decide?: (deps: GateDeps, req: CallRequest, signal?: AbortSignal) => Promise<Outcome>;
-  /** The runtime; the real one when omitted. Tests pass one that records whether it ran. */
-  runtime?: Runtime;
+  /** What runs a shop's code: a process on a laptop, an isolate on the box; the gate knows nothing but the runtime it is given. Tests pass one that records whether it ran. */
+  runtime: Runtime;
   /** What encloses every shop process this gate starts, the runtime's own or one a test passes; required, and carried to a sent shop's tests. */
   wall: Wall;
   /** Where a grant's bindings are opened; a call that needs one with none here is the town's failure. */
@@ -367,12 +374,13 @@ export async function gate(deps: GateDeps, req: CallRequest, signal?: AbortSigna
     throw err;
   }
   const noted = (detail: string | null) => [note, detail].filter((x) => x !== null).join("; ") || null;
-  const runtime = deps.runtime ?? runShelved;
+  const runtime = deps.runtime;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const below = { manifest, parent: base.callId, depth: (caller?.depth ?? 0) + 1 };
   const scratch = caller && "passId" in caller ? caller.stateRoot : undefined;
   const deeper: Caller = test ? { test, ...below } : { passId: pass!.id, ...(scratch === undefined ? {} : { stateRoot: scratch }), ...below };
   const r = await runtime(store.shelf, manifest, command, parsed.values, {
+    callId: base.callId,
     user: test ? test.user : pass!.userId,
     stateRoot: test ? test.stateRoot : (scratch ?? store.stateRoot),
     stdin: req.stdin,

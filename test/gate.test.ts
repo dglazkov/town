@@ -28,7 +28,7 @@ import type { ArgValues } from "../src/args.js";
 import { denials } from "../src/denials.js";
 import { MAX_DEPTH, effective, gate, shopDir, storeVault, type CallRequest, type GateDeps, type Runtime, type Vault } from "../src/gate.js";
 import { parseManifest, type Manifest } from "../src/manifest.js";
-import { stateDir, type RunCredential, type RunOptions, type RunResult } from "../src/runtime.js";
+import { runShelved, stateDir, type RunCredential, type RunOptions, type RunResult } from "../src/runtime.js";
 import { handleCall, respond } from "../src/server.js";
 import { loadShop } from "../src/shoptest.js";
 import { hashToken, type Pass } from "../src/passes.js";
@@ -428,7 +428,7 @@ describe("step 6: the bindings", () => {
   it("through the real runtime, a live call opens one teller, the request arrives signed, and the audit row counts it", async () => {
     const { token } = boundPass();
     const before = origin.seen.length;
-    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), runtime: runShelved, now: () => NOW };
     const wire = await handleCall(real, call(token, ["teller", "get", "--path", "/signed"]));
     expect(wire).toEqual({ stdout: "200\nhello from the origin", stderr: "", exit: 0 });
     expect(listens).toHaveLength(1);
@@ -441,7 +441,7 @@ describe("step 6: the bindings", () => {
 
   it("opens nothing and listens nowhere on a denied, a malformed, or a dead-pass call, through the real runtime", async () => {
     const { token, pass } = boundPass({ commands: ["get"], constraints: { "get.path": { prefix: "/ok/" } } });
-    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), runtime: runShelved, now: () => NOW };
     const cases: Array<[string, CallRequest, number, string]> = [
       ["a command not granted", call(token, ["teller", "post", "--path", "/ok/a", "--body", "b"]), 2, denials.notAvailable("post")],
       ["a constraint missed", call(token, ["teller", "get", "--path", "/elsewhere"]), 2, denials.constraint("path", "prefix", "/ok/")],
@@ -461,7 +461,7 @@ describe("step 6: the bindings", () => {
 
   it("makes a grant whose credential is revoked not live: 'not available', nothing opened, nothing listening, help without the shop", async () => {
     const { token, pass, credential } = boundPass();
-    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), runtime: runShelved, now: () => NOW };
     expect((await gate(real, call(token, ["--help"]))).stdout).toContain("test/teller");
     store.revokeCredential(credential.id, NOW);
     const o = await gate(real, call(token, ["teller", "get", "--path", "/x"]));
@@ -475,7 +475,7 @@ describe("step 6: the bindings", () => {
 
   it("makes a grant with a need its bindings do not meet not live, the same way", async () => {
     const { token } = boundPass({ bind: false });
-    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => NOW };
+    const real: GateDeps = { store, vault, wall: openWall("none"), runtime: runShelved, now: () => NOW };
     const o = await gate(real, call(token, ["teller", "get", "--path", "/x"]));
     expect([o.exit, o.error]).toEqual([2, denials.notAvailable("teller get")]);
     expect(opened).toEqual([]);
@@ -485,11 +485,11 @@ describe("step 6: the bindings", () => {
   it("fails on the town's side, in words that name no credential, when there is no vault key to open a binding with", async () => {
     const { token, credential } = boundPass();
     const noKey: Vault = { open: () => { throw new Error("/some/data/vault.key cannot be read: EACCES"); } };
-    const wire = await handleCall({ store, vault: noKey, wall: openWall("none"), now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
+    const wire = await handleCall({ store, vault: noKey, wall: openWall("none"), runtime: runShelved, now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
     expect(wire).toEqual({ stdout: "", stderr: `${denials.townFailed()}\n`, exit: 1 });
     const row = store.calls().at(-1)!;
     expect([row.result, row.detail, row.credentials]).toEqual(["town-error", "a credential did not open under the vault key", []]);
-    const none = await handleCall({ store, wall: openWall("none"), now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
+    const none = await handleCall({ store, wall: openWall("none"), runtime: runShelved, now: () => NOW }, call(token, ["teller", "get", "--path", "/x"]));
     expect(none.stderr).toBe(`${denials.townFailed()}\n`);
     expect(store.calls().at(-1)!.detail).toBe("the vault key is missing");
     for (const text of [JSON.stringify(wire), JSON.stringify(store.calls())]) {
@@ -775,7 +775,7 @@ describe("a caller, through the real runtime", () => {
 
   const opened: string[] = [];
   const vault: Vault = { open: (id) => (opened.push(id), "never-this") };
-  const real = (): GateDeps => ({ store, vault, wall: openWall("none"), now: () => NOW, timeoutMs: 10_000 });
+  const real = (): GateDeps => ({ store, vault, wall: openWall("none"), runtime: runShelved, now: () => NOW, timeoutMs: 10_000 });
 
   it("lets the recipe call echo at echo, and tells it echo sleep and test/teller get are not available whatever the agent holds", async () => {
     opened.length = 0;
@@ -1023,7 +1023,7 @@ describe("step 6: an oauth binding, refreshed at the boundary", () => {
   it("refreshes nothing, opens nothing, and listens nowhere on a denied, a malformed, or a dead-pass call, and a live one refreshes once before its one teller, through the real runtime", async () => {
     const { token, pass, credential, value } = await connected({ commands: ["get"], constraints: { "get.path": { prefix: "/ok/" } } });
     clock = value.expires_at + 5_000;
-    const real: GateDeps = { store, vault, wall: openWall("none"), now: () => clock };
+    const real: GateDeps = { store, vault, wall: openWall("none"), runtime: runShelved, now: () => clock };
     const cases: Array<[string, CallRequest, number, string]> = [
       ["a command not granted", call(token, ["teller", "post", "--path", "/ok/a", "--body", "b"]), 2, denials.notAvailable("post")],
       ["a constraint missed", call(token, ["teller", "get", "--path", "/elsewhere"]), 2, denials.constraint("path", "prefix", "/ok/")],

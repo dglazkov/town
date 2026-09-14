@@ -2,9 +2,10 @@
 // it tries everything the isolate might reach and prints one JSON line per
 // probe, { step, act, target, result, ... }, where result is "ok" or the
 // error's code or name. A file it can read is printed whole. Its stdin is
-// JSON: { mark, origin }, each optional; `mark` goes on every request it
-// sends, so a test can find them at the origin, and `origin` is the
-// address it tries past its window. Nothing runs at the top level.
+// JSON: { mark, origin, town }, each optional; `mark` goes on every request
+// it sends, so a test can find them at the origin, and `origin` and `town`
+// are addresses it tries past its window: the need's origin, and the
+// town's own. Nothing runs at the top level.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -85,6 +86,7 @@ export default async function main() {
   const targets = [];
   for (const [name, value] of Object.entries(process.env).sort()) if (name.startsWith("TOWN_CREDENTIAL_")) targets.push([name, `${value}/pried?by=${mark}`]);
   if (given.origin) targets.push(["origin", `${given.origin}/pried?by=${mark}`]);
+  if (given.town) targets.push(["town", `${given.town}/pried?by=${mark}`]);
   targets.push(["public", `https://example.com/pried?by=${mark}`]);
   for (const [target, url] of targets) {
     try {

@@ -1,10 +1,12 @@
 // The box: the town as one Worker. `src/box.ts` is its main module; the
-// object `Town` holds the store (box phase 2 exports the class); the
+// object `Town` holds the store, the shelf, and the shops' state; the
 // loader runs a worker shop's call in an isolate of its own
 // (`src/isolate.ts`); and `TOWN_BUILD` is the commit the deploy was made
 // from, which the deploy defines in its place. The box ring runs this
 // file through the vitest pool (`vitest.box.config.ts`), where the loader
-// is bound again as miniflare's, as pen binds it.
+// is bound again as miniflare's, as pen binds it. The two secrets,
+// TOWN_VAULT_KEY and TOWN_OPERATOR, are never here: the deploy makes them,
+// and a test makes its own for the run and passes them as vars.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "town",

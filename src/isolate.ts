@@ -41,6 +41,12 @@ export const ISOLATE_STATE = "/tmp/state";
 /** The window's host: `http://window/<nonce>` is a need's URL in the isolate. */
 export const WINDOW_HOST = "window";
 
+/** The clerk's host: `http://clerk/<nonce>` is the town a shop with dependencies finds in its grant file. */
+export const CLERK_HOST = "clerk";
+
+/** Where the entry writes the grant file of a shop with dependencies, and what TOWN_GRANT names. */
+export const ISOLATE_GRANT = "/tmp/grant";
+
 /** A need as the isolate is given it: the credential, and the nonce its window answers under. */
 export interface IsolateCredential extends RunCredential {
   nonce: string;
@@ -55,7 +61,9 @@ export interface IsolateOptions extends Omit<RunOptions, "stateRoot" | "wall" | 
   outbound: Fetcher | null;
   loader: WorkerLoader;
   /** How many requests the window forwarded under a nonce; required with credentials, since the window keeps the count and not the isolate. */
-  requests?: (nonce: string) => number;
+  requests?: (nonce: string) => number | Promise<number>;
+  /** The grant file of a shop with dependencies, `{ town, token }` naming the clerk the window answers as; required with dependencies, and absent without. */
+  grant?: string;
 }
 
 export interface IsolateResult extends Omit<RunResult, "wall"> {
@@ -156,7 +164,7 @@ export function moduleTable(entry: string, files: ReadonlyMap<string, BundleFile
 }
 
 interface EntryStub {
-  run(entry: string, argv: string[], stdin: string, state: Record<string, string>): Promise<{ stdout: string; stderr: string; exit: number; state: Record<string, string> }>;
+  run(entry: string, argv: string[], stdin: string, state: Record<string, string>, grant: string | null): Promise<{ stdout: string; stderr: string; exit: number; state: Record<string, string> }>;
   [Symbol.dispose]?(): void;
 }
 
@@ -170,26 +178,29 @@ export async function runIsolate(files: ReadonlyMap<string, BundleFile>, manifes
   const entry = posix.normalize(manifest.entry);
   if (entry === ".." || entry.startsWith("../") || entry.startsWith("/")) throw new Error(`entry ${manifest.entry} is outside the shop`);
   if (files.has(ENTRY_MODULE)) throw new Error(`${manifest.name} has a file named ${ENTRY_MODULE}, which is the town's entry`);
-  if ((manifest.depends ?? []).length > 0) throw new Error(`${manifest.name} has dependencies and runIsolate was given no clerk to answer its calls`);
+  const composed = (manifest.depends ?? []).length > 0;
+  if (composed && (opts.grant === undefined || opts.outbound === null)) throw new Error(`${manifest.name} has dependencies and runIsolate was given no clerk to answer its calls`);
+  if (!composed && opts.grant !== undefined) throw new Error(`${manifest.name} has no dependencies and runIsolate was given a grant`);
 
   const credentials = opts.credentials ?? [];
   const names = credentials.map((c) => credentialEnvName(c.type));
   if (new Set(names).size !== names.length) throw new Error("runIsolate was given two credentials of one type");
   if (credentials.length > 0 && (opts.outbound === null || !opts.requests)) throw new Error(`${manifest.name} meets a need and runIsolate was given no window to reach it through`);
-  if (credentials.length === 0 && opts.outbound !== null) throw new Error(`${manifest.name} meets no need and runIsolate was given a window`);
+  if (credentials.length === 0 && !composed && opts.outbound !== null) throw new Error(`${manifest.name} meets no need and runIsolate was given a window`);
   for (const key of opts.state.keys()) {
     const normal = posix.normalize(key);
     if (normal !== key || key === "." || key.startsWith("../") || key.startsWith("/")) throw new Error(`a state row's path ${JSON.stringify(key)} is not a plain relative path`);
   }
 
-  const counts = () => credentials.map((c) => ({ type: c.type, requests: opts.requests!(c.nonce) }));
+  const counts = async () => Promise.all(credentials.map(async (c) => ({ type: c.type, requests: await opts.requests!(c.nonce) })));
   const before = new Map(opts.state);
   if (opts.signal?.aborted) {
-    return { stdout: "", stderr: "", exit: 1, timedOut: false, aborted: true, credentials: counts(), calls: 0, denied: null, wall: null, state: before };
+    return { stdout: "", stderr: "", exit: 1, timedOut: false, aborted: true, credentials: await counts(), calls: 0, denied: null, wall: null, state: before };
   }
 
   const env: Record<string, string> = { TOWN_USER: opts.user };
   credentials.forEach((c, i) => (env[names[i]!] = `http://${WINDOW_HOST}/${c.nonce}`));
+  if (composed) env.TOWN_GRANT = ISOLATE_GRANT;
   const worker = opts.loader.load({
     compatibilityDate: COMPATIBILITY_DATE,
     mainModule: ENTRY_MODULE,
@@ -208,7 +219,7 @@ export async function runIsolate(files: ReadonlyMap<string, BundleFile>, manifes
     onAbort = () => resolve("aborted");
     opts.signal?.addEventListener("abort", onAbort, { once: true });
   });
-  const done = (r: Pick<IsolateResult, "stdout" | "stderr" | "exit"> & Partial<IsolateResult>): IsolateResult => ({
+  const done = async (r: Pick<IsolateResult, "stdout" | "stderr" | "exit"> & Partial<IsolateResult>): Promise<IsolateResult> => ({
     timedOut: false,
     aborted: false,
     calls: 0,
@@ -216,23 +227,23 @@ export async function runIsolate(files: ReadonlyMap<string, BundleFile>, manifes
     state: before,
     wall: "isolate",
     ...r,
-    credentials: counts(),
+    credentials: await counts(),
   });
   try {
-    const call = stub.run(entry, argv, stdin, Object.fromEntries(opts.state));
+    const call = stub.run(entry, argv, stdin, Object.fromEntries(opts.state), opts.grant ?? null);
     // A rejection after the race is settled is nobody's; keep it from being unhandled.
     call.catch(() => undefined);
     const won = await Promise.race([call, ended]);
-    if (won === "timeout") return done({ stdout: "", stderr: "", exit: 1, timedOut: true });
-    if (won === "aborted") return done({ stdout: "", stderr: "", exit: 1, aborted: true });
+    if (won === "timeout") return await done({ stdout: "", stderr: "", exit: 1, timedOut: true });
+    if (won === "aborted") return await done({ stdout: "", stderr: "", exit: 1, aborted: true });
     const after = new Map(Object.entries(won.state));
     const bytes = stateBytes(after);
-    if (bytes > STATE_CAP_BYTES) return done({ stdout: won.stdout, stderr: `${won.stderr}${stateCapLine(bytes)}\n`, exit: 1 });
-    return done({ stdout: won.stdout, stderr: won.stderr, exit: won.exit, state: after });
+    if (bytes > STATE_CAP_BYTES) return await done({ stdout: won.stdout, stderr: `${won.stderr}${stateCapLine(bytes)}\n`, exit: 1 });
+    return await done({ stdout: won.stdout, stderr: won.stderr, exit: won.exit, state: after });
   } catch (err) {
     // A load error, which is how a shop that does not parse arrives, and anything else the isolate threw: the runtime's line.
     const message = (err instanceof Error ? err.message : String(err)).replace(/^Failed to start Worker:\s*/, "");
-    return done({ stdout: "", stderr: `${message.replace(/\s*[\r\n]+\s*/g, " ").trim()}\n`, exit: 1 });
+    return await done({ stdout: "", stderr: `${message.replace(/\s*[\r\n]+\s*/g, " ").trim()}\n`, exit: 1 });
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     if (onAbort !== undefined) opts.signal?.removeEventListener("abort", onAbort);
@@ -275,6 +286,7 @@ import { format } from "node:util";
 
 const NO_MAIN = ${JSON.stringify(NO_MAIN)};
 const STATE = ${JSON.stringify(ISOLATE_STATE)};
+const GRANT = ${JSON.stringify(ISOLATE_GRANT)};
 
 class Exit extends Error {
   constructor(code) {
@@ -298,7 +310,7 @@ function walk(dir, prefix, out) {
 }
 
 export default class extends WorkerEntrypoint {
-  async run(entry, argv, stdin, state) {
+  async run(entry, argv, stdin, state, grant) {
     let stdout = "";
     let stderr = "";
     const text = (chunk) => (typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
@@ -323,6 +335,7 @@ export default class extends WorkerEntrypoint {
     }
 
     for (const name of Object.keys(process.env)) delete process.env[name];
+    if (typeof grant === "string") writeFileSync(GRANT, grant, { mode: 0o600 });
     for (const [name, value] of Object.entries(this.env)) if (typeof value === "string") process.env[name] = value;
     process.env.TOWN_STATE = STATE;
     process.argv = ["node", "/bundle/" + entry, ...argv];

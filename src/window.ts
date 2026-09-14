@@ -6,6 +6,11 @@
 // hop, Host, and any Authorization the shop set are dropped. Nothing here
 // opens a socket or holds a token past the call it is given.
 
+/** The box's refusal of a request that is not under one of the call's windows: 403, naming the call. */
+export function windowRefusal(callId: string, method: string, url: URL): string {
+  return `refused: ${method} ${url.origin} is not a window of call ${callId}\n`;
+}
+
 /** The headers that belong to one hop, dropped both ways. */
 export const HOP_BY_HOP: readonly string[] = ["connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"];
 

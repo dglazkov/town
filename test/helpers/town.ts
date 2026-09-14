@@ -6,9 +6,16 @@
 // test that wants the box without a wall sets NO_WALL_ENV in the
 // environment it hands a binary. Nothing here imports src/: the binaries
 // run dist/, and a dist older than src fails loudly instead of testing
-// yesterday's build.
+// yesterday's build. `dev` starts the box instead: `wrangler dev` on a free
+// port over the checkout's wrangler.jsonc, its two secrets made for the
+// run and passed as vars on the command line, never read from the
+// checkout's .env or .dev.vars, its object's rows kept in a directory of
+// its own, and `townd admin --town` pointed at it with the operator's
+// token in a home of its own; stopped and removed after.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import net from "node:net";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -281,4 +288,109 @@ export async function authProcess(clientId: string, clientSecret: string): Promi
 /** Removes every path given, ignoring what is already gone. */
 export function cleanup(...paths: string[]): void {
   for (const p of paths) rmSync(p, { recursive: true, force: true });
+}
+
+/** A free port on 127.0.0.1, found by listening on 0 and closing. */
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+export interface Dev {
+  /** `http://127.0.0.1:<port>`, the box's address. */
+  url: string;
+  /** The commit this checkout is at, the build the box was started with. */
+  build: string;
+  /** The operator's token, as the deploy would make it; kept at `home`/.town/operator, mode 600. */
+  operator: string;
+  /** The operator's home, holding ~/.town/operator. */
+  home: string;
+  /** How long `wrangler dev` took to answer `GET /`, in milliseconds. */
+  startedInMs: number;
+  /** `townd admin --town <url>` with the operator's home, and `input` on stdin when given. */
+  admin(args: string[], input?: string, env?: Record<string, string>): Ran;
+  /** A shop's directory as a tar piped to `townd admin --town <url>`, as the refusal prints the pipe. */
+  adminTar(dir: string, args: string[]): Ran;
+  /** What wrangler printed, for a failure's message. */
+  log(): string;
+  stop(): Promise<void>;
+}
+
+/**
+ * `wrangler dev` over the checkout on a free port, resolved once `GET /`
+ * answers `town`. The vault's key and the operator's token are made here
+ * and passed with `--var`; `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false`
+ * keeps the checkout's .env out of the Worker, and no account is named.
+ */
+export async function dev(): Promise<Dev> {
+  const port = await freePort();
+  const inspector = await freePort();
+  const persist = tmp("dev-state");
+  const home = tmp("operator-home");
+  const operator = randomBytes(32).toString("base64url");
+  mkdirSync(path.join(home, ".town"), { mode: 0o700 });
+  writeFileSync(path.join(home, ".town", "operator"), `${operator}\n`, { mode: 0o600 });
+  const build = spawnSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout.trim();
+  const env: NodeJS.ProcessEnv = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", WRANGLER_SEND_METRICS: "false", HOME: home };
+  delete env.CLOUDFLARE_API_TOKEN;
+  delete env.CLOUDFLARE_ACCOUNT_ID;
+  const vars = { TOWN_VAULT_KEY: randomBytes(32).toString("hex"), TOWN_OPERATOR: operator, TOWN_BUILD: build };
+  const args = ["dev", "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(inspector), "--persist-to", persist, "--show-interactive-dev-session=false", ...Object.entries(vars).flatMap(([k, v]) => ["--var", `${k}:${v}`])];
+  const child = spawn(path.join(ROOT, "node_modules/.bin/wrangler"), args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  let log = "";
+  child.stdout!.on("data", (b: Buffer) => (log += b.toString("utf8")));
+  child.stderr!.on("data", (b: Buffer) => (log += b.toString("utf8")));
+  const url = `http://127.0.0.1:${port}`;
+  const started = Date.now();
+  const stop = () =>
+    new Promise<void>((resolve) => {
+      const done = () => (cleanup(persist, home), resolve());
+      if (child.exitCode !== null || child.pid === undefined) return done();
+      child.once("exit", done);
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        done();
+      }
+    });
+  for (;;) {
+    if (child.exitCode !== null) throw new Error(`wrangler dev exited ${child.exitCode}:\n${log}`);
+    if (Date.now() - started > 90_000) {
+      await stop();
+      throw new Error(`wrangler dev did not answer within 90s:\n${log}`);
+    }
+    const answered = await fetch(url).then((r) => r.text(), () => null);
+    if (answered === "town\n") break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const operatorEnv = (extra: Record<string, string> = {}) => {
+    const e = cleanEnv(home);
+    delete e.TOWN_OPERATOR;
+    return { ...e, ...extra };
+  };
+  return {
+    url,
+    build,
+    operator,
+    home,
+    startedInMs: Date.now() - started,
+    admin: (a, input, extra) => townd(["admin", "--town", url, ...a], operatorEnv(extra), input),
+    adminTar: (dir, a) => {
+      const r = spawnSync("/bin/sh", ["-c", 'dir="$0" node="$1" townd="$2" url="$3"; shift 3; tar --format ustar -cf - -C "$dir" . | "$node" "$townd" admin --town "$url" "$@"', dir, process.execPath, TOWND, url, ...a], {
+        env: { ...operatorEnv(), COPYFILE_DISABLE: "1" },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 120_000,
+      });
+      return { stdout: r.stdout, stderr: r.stderr, exit: r.status ?? -1 };
+    },
+    log: () => log,
+    stop,
+  };
 }

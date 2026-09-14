@@ -6,7 +6,9 @@
 // no clerk; and nothing of hall's: no hall, no publish, no permit; and
 // nothing of consent's: no consent, no connect, no oauth, no refresh, no
 // guidance. Its one new line, that stdin is not text, names none of them
-// either.
+// either. And nothing of box's: no box, no worker, no isolate, no wrangler,
+// and in its code no operator, so the agent's binary reaches a box as it
+// reaches a laptop.
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -77,6 +79,13 @@ it("says stdin is not text in one line from denials.ts, naming no shop, command,
   expect(read("src/cli.ts")).toContain("denials.stdinNotText()");
   for (const word of FORBIDDEN) expect(line.toLowerCase(), word).not.toContain(word);
   for (const word of shopWords()) expect(new RegExp(`(^|[^A-Za-z0-9_-])${word.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}([^A-Za-z0-9_-]|$)`).test(line), word).toBe(false);
+});
+
+it.each(["src/cli.ts", "src/denials.ts"])("%s names nothing of the box's: no box, worker, isolate, or wrangler, and no operator outside its comments", (file) => {
+  const source = read(file).toLowerCase();
+  for (const word of ["box", "worker", "isolate", "wrangler", "cloudflare", "window"]) expect(source, word).not.toContain(word);
+  const code = source.split("\n").filter((l) => !/^\s*(\/\/|\/\*\*|\*)/.test(l)).join("\n");
+  expect(code).not.toContain("operator");
 });
 
 it("takes --json and --grant as its only flags", () => {

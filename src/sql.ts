@@ -77,6 +77,12 @@ export function namedParameter(sql: string): string | null {
   return null;
 }
 
+/** Throws for a query that names a parameter, in the words both drivers use. */
+export function refuseNamed(sql: string): void {
+  const named = namedParameter(sql);
+  if (named !== null) throw new Error(`the query names a parameter, ${named}; write ? and pass the values in order, since the box's SQL binds positional parameters alone: ${sql.replace(/\s+/g, " ").trim()}`);
+}
+
 /** node:sqlite over a file, loaded without its warning. */
 export function fileSql(file: string): FileSql {
   const { DatabaseSync } = loadSqlite();
@@ -90,8 +96,7 @@ export function fileSql(file: string): FileSql {
     throw err;
   }
   const prepare = (sql: string) => {
-    const named = namedParameter(sql);
-    if (named !== null) throw new Error(`the query names a parameter, ${named}; write ? and pass the values in order, since the box's SQL binds positional parameters alone: ${sql.replace(/\s+/g, " ").trim()}`);
+    refuseNamed(sql);
     return db.prepare(sql);
   };
   return {

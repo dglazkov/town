@@ -51,6 +51,20 @@ node bin/townd.js admin grant revoke <id>       # seen by the next call; pass re
 
 Put `bin/town.js` on the agent's PATH as `town`, and never `townd`.
 
+## The box
+
+The town as one Cloudflare Worker (`wrangler.jsonc`, `src/box.ts`): the same verbs, typed at this laptop, run in the box's object. Every verb not below prints and refuses as it does at a laptop.
+
+```sh
+export TOWN_OPERATOR=<token>                    # or keep it in ~/.town/operator; --town without either is refused naming both
+node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb and its stdin posted to <url>/admin, what comes back printed; a token the box refuses prints: the operator token is refused
+tar --format ustar -cf - -C shops/memory . | node bin/townd.js admin --town <url> shop add -   # a shop comes from stdin as - for its directory; shop add <dir> over --town is refused printing this pipe, and shop test - is the same
+# the box runs a shop in an isolate and runs runtime: worker alone: shop add - and the hall's publish refuse runtime: subprocess; the audit's wall column says isolate
+node bin/townd.js admin --town <url> pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the grant file's town is <url>
+node bin/townd.js admin --town <url> credential connect --user dimitri --type google-oauth   # the redirect lands at <url>/consent, and the pipe waits for the id; register the client with that redirect URI
+# --data and --town together are refused; --wall over --town is refused, since the box's wall is not the operator's to choose
+```
+
 ## The agent
 
 The one sentence an agent is told:

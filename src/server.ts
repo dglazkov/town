@@ -16,6 +16,7 @@ import { BODY_LIMIT_BYTES, parseCall, respond, type WireResponse } from "./clerk
 import { denials } from "./denials.js";
 import { argvHash, gate, newCallId, storeVault, type CallRequest, type GateDeps, type Outcome } from "./gate.js";
 import { hashToken } from "./passes.js";
+import { runShelved } from "./runtime.js";
 import { openStore, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
 import { openWall, type Wall, type WallKind } from "./wall.js";
@@ -66,6 +67,32 @@ export async function decideAndRecord(deps: GateDeps, req: CallRequest, signal?:
     wall: outcome.wall,
   });
   return outcome;
+}
+
+/** A request that is not a call, a body past the limit when `over` is its size or one that does not parse: its one audit row, and the refusal's wire. */
+export function refusedCall(store: Store, token: string | null, over: number | null): WireResponse {
+  const blank: CallRequest = { token, argv: [], stdin: null, json: false };
+  const o = failed(store, blank, over !== null ? denials.stdinTooLarge(over) : denials.badCall(), "usage", over !== null ? "body-too-large" : "bad-request");
+  store.recordCall({
+    callId: o.callId,
+    parent: null,
+    at: Date.now(),
+    passId: o.passId,
+    grantId: null,
+    shop: null,
+    command: null,
+    argvHash: o.argvHash,
+    result: o.result,
+    exit: o.exit,
+    shopExit: null,
+    latencyMs: 0,
+    notices: [],
+    stderr: null,
+    detail: o.detail,
+    credentials: [],
+    wall: null,
+  });
+  return respond(o, false);
 }
 
 /** An outcome for a call the gate did not decide: the town's failure or an unreadable request. */
@@ -129,12 +156,12 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
   const vault = storeVault(store, () => (key ??= store.key.read()));
   let wall: Wall;
   try {
-    wall = openWall(opts.wall, { data: store.dataDir });
+    wall = openWall(opts.wall, { data: store.dataDir! });
   } catch (err) {
     store.close();
     throw err;
   }
-  const deps: GateDeps = { store, vault, wall, decide: decideAndRecord, ...(opts.runtime ? { runtime: opts.runtime } : {}), ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}), ...(opts.now ? { now: opts.now } : {}) };
+  const deps: GateDeps = { store, vault, wall, decide: decideAndRecord, runtime: opts.runtime ?? runShelved, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}), ...(opts.now ? { now: opts.now } : {}) };
 
   const server = http.createServer((req, res) => {
     const send = (status: number, type: string, body: string) => {
@@ -162,28 +189,7 @@ export async function startServer(opts: ServerOptions): Promise<TownServer> {
         if (call) {
           wire = await handleCall(deps, call);
         } else {
-          const blank: CallRequest = { token, argv: [], stdin: null, json: false };
-          const o = failed(store, blank, over ? denials.stdinTooLarge(size) : denials.badCall(), "usage", over ? "body-too-large" : "bad-request");
-          store.recordCall({
-            callId: o.callId,
-            parent: null,
-            at: Date.now(),
-            passId: o.passId,
-            grantId: null,
-            shop: null,
-            command: null,
-            argvHash: o.argvHash,
-            result: o.result,
-            exit: o.exit,
-            shopExit: null,
-            latencyMs: 0,
-            notices: [],
-            stderr: null,
-            detail: o.detail,
-            credentials: [],
-            wall: null,
-          });
-          wire = respond(o, false);
+          wire = refusedCall(store, token, over ? size : null);
         }
         send(200, "application/json", JSON.stringify(wire));
       })().catch((err: Error) => {

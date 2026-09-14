@@ -50,6 +50,7 @@ import { gate, storeVault } from "../src/gate.js";
 import { parseValue } from "../src/oauth.js";
 import { openStore, type Store } from "../src/store.js";
 import { readKey } from "../src/vault.js";
+import { runShelved } from "../src/runtime.js";
 import { openWall } from "../src/wall.js";
 import { browse, fakeAuthServer, fakeDocs, type FakeAuth, type FakeDocs } from "./helpers/authserver.js";
 import { fakeOrigin, type FakeOrigin } from "./helpers/origin.js";
@@ -523,7 +524,7 @@ describe("consent: a type proposed with the shop", () => {
         if (!store.userByName("dimitri")) store.addUser("dimitri");
         const { pass, token } = store.newPass("dimitri", "the agent", null);
         store.newGrant({ passId: pass.id, shop: "town/hall", commands: ["publish"], constraints: {}, expiresAt: null });
-        const o = await gate({ store, wall: openWall("none") }, { token, argv: ["hall", "publish"], stdin: tar.stdout.toString("utf8"), json: false });
+        const o = await gate({ store, wall: openWall("none"), runtime: runShelved }, { token, argv: ["hall", "publish"], stdin: tar.stdout.toString("utf8"), json: false });
         const permit = /requested (prm_[0-9a-f]{16}),/.exec(o.stdout)?.[1];
         expect(permit, o.stdout).toBeDefined();
         return { pass: pass.id, permit: permit! };
@@ -936,7 +937,7 @@ describe("consent phase 1: the oauth kind at the box", () => {
         if (!store.userByName("dimitri")) store.addUser("dimitri");
         const { pass, token } = store.newPass("dimitri", "the agent", null);
         store.newGrant({ passId: pass.id, shop: "town/hall", commands: ["publish"], constraints: {}, expiresAt: null });
-        const o = await gate({ store, wall: openWall("none") }, { token, argv: ["hall", "publish"], stdin: tar.stdout.toString("utf8"), json: false });
+        const o = await gate({ store, wall: openWall("none"), runtime: runShelved }, { token, argv: ["hall", "publish"], stdin: tar.stdout.toString("utf8"), json: false });
         const permit = /requested (prm_[0-9a-f]{16}),/.exec(o.stdout)?.[1];
         expect(permit, o.stdout).toBeDefined();
         return { pass: pass.id, permit: permit!, token };
@@ -1078,7 +1079,7 @@ describe("consent phase 1: the oauth kind at the box", () => {
     // A refresh the provider refuses, at the gate an hour on: revoked, and ls says why.
     auth.mode = "invalid_grant";
     const expires = withStore((s) => parseValue(s.openCredential(id, readKey(data)!))!.expires_at);
-    const denied = await withStoreAsync((store) => gate({ store, wall: openWall("none"), vault: storeVault(store, () => readKey(data)), now: () => expires }, { token, argv: ["dimitri/gdocs", "read", "--doc-id", "fixture-doc"], stdin: null, json: false }));
+    const denied = await withStoreAsync((store) => gate({ store, wall: openWall("none"), runtime: runShelved, vault: storeVault(store, () => readKey(data)), now: () => expires }, { token, argv: ["dimitri/gdocs", "read", "--doc-id", "fixture-doc"], stdin: null, json: false }));
     expect([denied.exit, denied.error]).toEqual([2, "error: command 'dimitri/gdocs read' is not available to this grant: its google-oauth credential needs connecting again at the box"]);
     expect((await admin(["credential", "ls"])).stdout).toMatch(new RegExp(`^${id}\\s.*\\srevoked \\(refresh refused\\)\\s+\\S+\\s+grant_[0-9a-f]{16}$`, "m"));
   });

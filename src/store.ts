@@ -17,8 +17,11 @@
 
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import * as audit from "./audit.js";
+import type { BundleFile } from "./bundle.js";
 import type { CallRecord, CallRow, TreeRow } from "./audit.js";
 import type { Constraints } from "./constraints.js";
 import * as credentials from "./credentials.js";
@@ -32,7 +35,7 @@ import type { Pass, User } from "./passes.js";
 import * as permits from "./permits.js";
 import type { Permit } from "./permits.js";
 import { getMeta, openSchema, setMeta } from "./schema.js";
-import { diskShelf, type Shelf } from "./shelf.js";
+import { diskShelf, shopAt, type Shelf } from "./shelf.js";
 import * as shops from "./shops.js";
 import type { ShopRow } from "./shops.js";
 import { fileSql, type Sql } from "./sql.js";
@@ -62,13 +65,25 @@ export function newId(kind: string): string {
 
 type Row = Record<string, unknown>;
 
-/** What a store is opened over: its SQL, its shelf, its key, and on a laptop the data directory they are under. */
+/** A copy of a shop's files, staged for its tests: a shelf holding that one shop under any name, and its removal. */
+export interface Staged {
+  shelf: Shelf;
+  remove(): Promise<void>;
+}
+
+/** What a store is opened over: its SQL, its shelf, its key, where its shops' state is, and on a laptop the data directory they are under. */
 export interface StoreSeams {
   sql: Sql;
   shelf: Shelf;
   key: KeySource;
-  /** The data directory; the state root is under it. */
-  dataDir: string;
+  /** The root every shop's state is under, as the runtime is handed it: <data>/state on a laptop, a name for the object's rows on the box. */
+  stateRoot: string;
+  /** A copy of a shop's files for its tests: a directory under <data>/shops on a laptop, the files in memory on the box. */
+  stage(files: ReadonlyMap<string, BundleFile>): Promise<Staged>;
+  /** A state root for one shop test's scratch state, and its removal. */
+  scratch(): Promise<{ root: string; remove(): Promise<void> }>;
+  /** The data directory; null on the box, which has none. */
+  dataDir: string | null;
   /** Where a refusal says the store is: <data>/town.db on a laptop. */
   where: string;
   /** Closes what the seams hold open; nothing when omitted. */
@@ -79,7 +94,9 @@ export class Store {
   readonly sql: Sql;
   readonly shelf: Shelf;
   readonly key: KeySource;
-  readonly dataDir: string;
+  readonly dataDir: string | null;
+  readonly stateRoot: string;
+  private readonly seams: StoreSeams;
   private readonly closeSeams: () => void;
 
   /** The store over `seams`, its schema made or migrated and the hall's row written; the seams closed again when that fails. */
@@ -88,6 +105,8 @@ export class Store {
     this.shelf = seams.shelf;
     this.key = seams.key;
     this.dataDir = seams.dataDir;
+    this.stateRoot = seams.stateRoot;
+    this.seams = seams;
     this.closeSeams = seams.close ?? (() => {});
     try {
       openSchema(this.sql, seams.where);
@@ -110,12 +129,20 @@ export class Store {
     return this.sql.transaction(fn);
   }
 
+  /** Where a laptop stages a shop's copy: <data>/shops. The box has no directory. */
   get shopsDir(): string {
+    if (this.dataDir === null) throw new Error("this store has no data directory");
     return path.join(this.dataDir, "shops");
   }
 
-  get stateRoot(): string {
-    return path.join(this.dataDir, "state");
+  /** A copy of a shop's files, staged for its tests; the caller removes it. */
+  stage(files: ReadonlyMap<string, BundleFile>): Promise<Staged> {
+    return this.seams.stage(files);
+  }
+
+  /** A scratch state root for one shop test; the caller removes it. */
+  scratch(): Promise<{ root: string; remove(): Promise<void> }> {
+    return this.seams.scratch();
   }
 
   close(): void {
@@ -386,13 +413,39 @@ export class Store {
   }
 }
 
-/** The store of a laptop's data directory, made when missing: node:sqlite over <data>/town.db, the shelf at <data>/shops, and the key at <data>/vault.key. */
+/** The store of a laptop's data directory, made when missing: node:sqlite over <data>/town.db, the shelf at <data>/shops, the key at <data>/vault.key, the state under <data>/state, and staging and scratch on the disk. */
 export function openStore(dataDir: string): Store {
   const dir = path.resolve(dataDir);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, "town.db");
+  const shops = path.join(dir, "shops");
   const sql = fileSql(file);
-  return new Store({ sql, shelf: diskShelf(path.join(dir, "shops")), key: fileKey(dir), dataDir: dir, where: file, close: () => sql.close() });
+  return new Store({
+    sql,
+    shelf: diskShelf(shops),
+    key: fileKey(dir),
+    stateRoot: path.join(dir, "state"),
+    async stage(files) {
+      await mkdir(shops, { recursive: true });
+      const staging = path.join(shops, `.staging-${randomBytes(6).toString("hex")}`);
+      await mkdir(staging, { mode: 0o700 });
+      const shelf = shopAt(staging);
+      try {
+        shelf.put("", files);
+      } catch (err) {
+        await rm(staging, { recursive: true, force: true });
+        throw err;
+      }
+      return { shelf, remove: () => rm(staging, { recursive: true, force: true }) };
+    },
+    async scratch() {
+      const root = await mkdtemp(path.join(os.tmpdir(), "town-shop-test-"));
+      return { root, remove: () => rm(root, { recursive: true, force: true }) };
+    },
+    dataDir: dir,
+    where: file,
+    close: () => sql.close(),
+  });
 }
 
 export function nullableNumber(v: unknown): number | null {

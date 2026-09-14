@@ -14,7 +14,7 @@
 
 import { guidanceLine } from "./checklist.js";
 import { UsageError, noExtra, one, type Io, type Parsed } from "./admin.js";
-import { connect } from "./consent.js";
+import { beginConsent, connect } from "./consent.js";
 import { oauthRefusal, proposedRefusal, type Client, type CredentialType } from "./credentials.js";
 import { table } from "./help.js";
 import { isoTime } from "./notices.js";
@@ -111,6 +111,15 @@ export async function secretVerb(store: Store, key: string, args: string[], p: P
       if (port !== undefined && !/^\d{1,5}$/.test(port)) throw new UsageError(`--port ${port} is not a port; write a number from 0 to 65535, or leave it out for a free one`);
       const label = one(p, "label");
       const replace = one(p, "replace");
+      if (io.consent) {
+        // On the box the redirect lands at the town's own address: the consent is held for the landing, and the wire waits on it.
+        if (port !== undefined) throw new UsageError("--port is a laptop's listener's; the box's landing is its own address");
+        const req = { userName: one(p, "user", true), type: one(p, "type", true), ...(label === undefined ? {} : { label }), ...(replace === undefined ? {} : { replace }), ...(timeout === undefined ? {} : { timeoutMs: waitOf(timeout) }) };
+        const { consent, lines } = beginConsent(store, () => store.key.ensure(), req, io.consent.redirect, (io.now ?? Date.now)());
+        io.consent.hold(consent);
+        for (const line of lines) io.err(`${line}\n`);
+        return 0;
+      }
       return connect(
         store,
         () => store.key.ensure(),

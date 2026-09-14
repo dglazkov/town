@@ -17,7 +17,8 @@ import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type WallKind = "seatbelt" | "none";
+/** `seatbelt` and `none` are a laptop's; `isolate` is the box's, a Worker loaded for the call, which no process runs within. */
+export type WallKind = "seatbelt" | "none" | "isolate";
 
 export interface Enclosure {
   /** Directories the process may read: the shop's, Node's, the town's install, the call's. */
@@ -35,6 +36,21 @@ export interface Wall {
 }
 
 export const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
+
+/** The box's wall: no process, a Worker loaded for the call, which src/isolate.ts runs. It encloses nothing, since there is nothing to enclose. */
+export const ISOLATE_WALL: Wall = {
+  kind: "isolate",
+  enclose() {
+    throw new Error("the box starts no process; a shop runs in an isolate");
+  },
+};
+
+/** The words a shop whose runtime is not `worker` is refused in on the box, at `shop add` and at `publish`. */
+export const SUBPROCESS_REFUSAL = "runtime: subprocess runs on a laptop; this box runs a shop in an isolate: write runtime: worker (spec §7)";
+
+/** The wall chooser the box's admin is given: the box's own, and `--wall` refused, since it is not the operator's to choose. */
+export const BOX_WALL = (flag: string | undefined): { open: (opts: { data?: string }) => Wall } | { refused: string } =>
+  flag === undefined ? { open: () => ISOLATE_WALL } : { refused: "--wall is not the operator's to choose on the box; every shop runs in an isolate" };
 
 /**
  * The environment name by which a test says this box has no wall. Read

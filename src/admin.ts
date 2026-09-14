@@ -21,15 +21,19 @@
 // checklist that remains. The type and credential verbs are src/secrets.ts.
 
 import type { CallRow } from "./audit.js";
+import { TAR_COMMAND, readBundle } from "./bundle.js";
 import { checklist, todoBlock } from "./checklist.js";
+import type { Consent } from "./consent.js";
+import type { Runtime } from "./gate.js";
 import { bindingText, checkGrant, checkPermit, constraintText, grantStateText, makePermitGrant, needsOf, permitTable } from "./grants.js";
 import { table } from "./help.js";
 import { HALL_NAME, type Manifest } from "./manifest.js";
 import { isoTime } from "./notices.js";
-import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked } from "./publish.js";
+import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked, type ShopSource } from "./publish.js";
 import { readClient, secretVerb } from "./secrets.js";
 import { decideAndRecord } from "./server.js";
 import { StoreError, openStore, type Store } from "./store.js";
+import { pipe, withoutFlag } from "./wire.js";
 import { VaultError } from "./vault.js";
 import type { Wall } from "./wall.js";
 
@@ -40,6 +44,19 @@ export interface Io {
   now?: () => number;
   /** Where `credential add` reads the secret; nothing when absent. */
   stdin?: AsyncIterable<Buffer | string> & { isTTY?: boolean };
+  /** On the box, where a consent lands in place of a listener: the redirect URI, and the consent held for the landing. */
+  consent?: { redirect: string; hold(consent: Consent): void };
+}
+
+/**
+ * The town the verbs run over when it is not a data directory: the box's
+ * object, its store and its runtime, and its address, which the verbs that
+ * would read a directory name in the pipe to type instead.
+ */
+export interface AdminTown {
+  store: Store;
+  runtime: Runtime;
+  address: string;
 }
 
 /**
@@ -49,17 +66,18 @@ export interface Io {
  */
 export type WallChooser = (flag: string | undefined) => { open: (opts: { data?: string }) => Wall } | { refused: string };
 
-const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb>
+const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb> | townd admin --town <url> <verb>
   user add <name> | user ls
   pass new --user <name> --label <text> [--expires <duration>] | pass ls | pass revoke <id>
   grant new --pass <id> --shop <name> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--expires <duration>] [--credential <id>]...
   grant ls [--pass <id>] | grant revoke <id>
   permit ls [--pass <id>] | permit show <id> | permit approve <id> [--commands a,b] [--constraint '<command>.<arg> <kind> <value>']... [--credential <id>]... [--expires <duration>] | permit deny <id>
-  shop add <dir> [--user <name> [--credential <id>]... [--client-id <id>]] | shop test <dir> [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
+  shop add <dir>|- [--user <name> [--credential <id>]... [--client-id <id>]] | shop test <dir>|- [--user <name> [--credential <id>]...] | shop ls | shop rm <name>
   type add <name> --origin <url> --header '<Name>: <value with {token}>' [--guidance <text>] [--kind oauth --authorize <url> --token <url> --scopes a,b --client-id <id>] | type approve <name> [--client-id <id>] | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] [--replace <id>] | credential connect --user <name> --type <type> [--label <text>] [--replace <id>] [--port <n>] [--timeout <wait>] | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
-a secret, and an oauth client's secret, is read on stdin. durations: <n>d, <n>h, <n>m; a wait, <n>m or <n>s. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.`;
+a secret, and an oauth client's secret, is read on stdin. durations: <n>d, <n>h, <n>m; a wait, <n>m or <n>s. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.
+--town posts the verb to a box with the operator's token, from $TOWN_OPERATOR or ~/.town/operator; a shop comes from stdin there, as - for its directory.`;
 
 export class UsageError extends Error {}
 
@@ -114,7 +132,7 @@ export function parseDuration(text: string): number {
   return Number(m[1]) * unit;
 }
 
-export async function main(argv: readonly string[], io: Io, chooseWall: WallChooser): Promise<number> {
+export async function main(argv: readonly string[], io: Io, chooseWall: WallChooser, town?: AdminTown): Promise<number> {
   const now = io.now ?? Date.now;
   let p: Parsed;
   try {
@@ -122,6 +140,19 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
   } catch (err) {
     io.err(`townd admin: ${(err as Error).message}\n${USAGE}\n`);
     return 1;
+  }
+  if (town) return inTown(town, argv, p, io, chooseWall, now);
+  if (p.opts.has("town")) {
+    if (p.opts.has("data")) return usage(io, "--data and --town name two towns; write one or the other");
+    if (p.opts.has("wall")) {
+      io.err("townd admin: --wall is not the operator's to choose over --town; the box runs every shop in an isolate\n");
+      return 1;
+    }
+    try {
+      return await pipe(one(p, "town", true), withoutFlag(argv, "town"), io);
+    } catch (err) {
+      return refusal(err, io);
+    }
   }
 
   // The wall first: no verb runs on a box refused one.
@@ -146,7 +177,9 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
     if (args.length !== 1) return usage(io, "shop test takes one directory");
     if (data === undefined) {
       if (p.opts.has("user")) return usage(io, "shop test --user needs --data <dir>, or $TOWN_DATA, where the user's credentials are");
-      return shopTest(null, args[0]!, picked(p, io), io, open({}));
+      const source = await sourceOf(args[0]!, io);
+      if (typeof source === "number") return source;
+      return shopTest(null, source, picked(p, io), io, open({}));
     }
   }
   if (!data) return usage(io, "needs --data <dir>, or $TOWN_DATA");
@@ -156,24 +189,87 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
     store = openStore(data);
     let wall: Wall;
     try {
-      wall = open({ data: store.dataDir });
+      wall = open(store.dataDir === null ? {} : { data: store.dataDir });
     } catch (err) {
       io.err(`townd admin: ${(err as Error).message}\n`);
       return 1;
     }
     const key = store.key.require(store.sealedRows());
-    if (noun === "shop" && verb === "test") return await shopTest({ store, key }, args[0]!, picked(p, io), io, wall);
-    return await dispatch(store, key, noun, verb, args, p, io, now(), wall);
-  } catch (err) {
-    if (err instanceof UsageError) return usage(io, err.message);
-    if (err instanceof StoreError || err instanceof VaultError) {
-      io.err(`townd admin: ${err.message}\n`);
-      return 1;
+    if (noun === "shop" && verb === "test") {
+      const source = await sourceOf(args[0]!, io);
+      if (typeof source === "number") return source;
+      return await shopTest({ store, key }, source, picked(p, io), io, wall);
     }
-    throw err;
+    return await dispatch({ store, key, wall, now: now() }, noun, verb, args, p, io);
+  } catch (err) {
+    return refusal(err, io);
   } finally {
     store?.close();
   }
+}
+
+/** A thrown refusal printed as the admin prints it, the exit 1; anything else thrown on. */
+function refusal(err: unknown, io: Io): number {
+  if (err instanceof UsageError) return usage(io, err.message);
+  if (err instanceof StoreError || err instanceof VaultError) {
+    io.err(`townd admin: ${err.message}\n`);
+    return 1;
+  }
+  throw err;
+}
+
+/**
+ * The verbs in the box's object, over its store: no --data, no --town, and
+ * no --wall, since the box is the one town and runs every shop in an
+ * isolate; a verb that would read a directory reads a bundle on stdin as
+ * `-`, and a directory is refused naming the pipe to type.
+ */
+async function inTown(town: AdminTown, argv: readonly string[], p: Parsed, io: Io, chooseWall: WallChooser, now: () => number): Promise<number> {
+  for (const flag of ["data", "town"]) if (p.opts.has(flag)) return usage(io, `--${flag} is not a flag the box reads; the box is the town`);
+  const chosen = chooseWall(one(p, "wall"));
+  if ("refused" in chosen) {
+    io.err(`townd admin: ${chosen.refused}\n`);
+    return 1;
+  }
+  const [noun, verb, ...args] = p.words;
+  if (!noun) return usage(io, "no verb given");
+  const { store, runtime } = town;
+  try {
+    const wall = chosen.open({});
+    const key = store.key.require(store.sealedRows());
+    if (noun === "shop" && (verb === "test" || verb === "add")) {
+      if (args.length !== 1) return usage(io, `shop ${verb} takes one directory, as -`);
+      if (args[0] !== "-") {
+        io.err(`townd admin: shop ${verb} refused: over --town a shop comes from stdin: ${TAR_COMMAND.replace("<dir>", args[0]!)} | townd admin --town ${town.address} ${argv.map((w) => (w === args[0] ? "-" : w)).join(" ")}\n`);
+        return 1;
+      }
+      if (verb === "test") {
+        const source = await sourceOf("-", io);
+        if (typeof source === "number") return source;
+        return await shopTest({ store, key }, source, picked(p, io), io, wall, runtime);
+      }
+    }
+    return await dispatch({ store, key, wall, now: now(), runtime }, noun, verb, args, p, io);
+  } catch (err) {
+    return refusal(err, io);
+  }
+}
+
+/** A verb's shop: the directory named, or with `-` the bundle on stdin, a ustar tar of its files; a bundle refused is printed and exit 1. */
+async function sourceOf(word: string, io: Io): Promise<ShopSource | number> {
+  if (word !== "-") return word;
+  if (!io.stdin || io.stdin.isTTY) {
+    io.err(`townd admin: - reads a shop on stdin, and there is none; pipe one in: ${TAR_COMMAND} | townd admin ... -\n`);
+    return 1;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of io.stdin) chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
+  const bundle = readBundle(Buffer.concat(chunks).toString("utf8"));
+  if ("refusal" in bundle) {
+    io.err(`townd admin: ${bundle.refusal}\n`);
+    return 1;
+  }
+  return { files: bundle.files };
 }
 
 function usage(io: Io, why: string): number {
@@ -185,7 +281,17 @@ export function noExtra(args: readonly string[], n: number, what: string): void 
   if (args.length !== n) throw new UsageError(`${what} takes ${n === 0 ? "no words" : n === 1 ? "one word" : `${n} words`}, not ${args.length}`);
 }
 
-async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io, now: number, wall: Wall): Promise<number> {
+/** What a verb runs over: the store, its key when there is one, the wall, the time, and on the box the runtime a shop's tests run in. */
+interface Over {
+  store: Store;
+  key: Buffer | null;
+  wall: Wall;
+  now: number;
+  runtime?: Runtime;
+}
+
+async function dispatch(over: Over, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io): Promise<number> {
+  const { store, key: vaultKey, wall, now, runtime } = over;
   const key = `${noun} ${verb ?? ""}`.trim();
   switch (key) {
     case "user add": {
@@ -203,7 +309,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       noExtra(args, 0, "pass new");
       const expires = one(p, "expires");
       const { pass, token } = store.newPass(one(p, "user", true), one(p, "label", true), expires ? now + parseDuration(expires) : null, now);
-      const town = one(p, "town") ?? store.getMeta("address") ?? "http://127.0.0.1:7000";
+      const town = store.getMeta("address") ?? "http://127.0.0.1:7000";
       io.out(`${JSON.stringify({ town, token }, null, 2)}\n`);
       io.err(`${pass.id}\n`);
       return 0;
@@ -264,9 +370,13 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       return 0;
     }
 
-    case "shop add":
+    case "shop add": {
       noExtra(args, 1, "shop add");
-      return shopAdd(store, vaultKey, args[0]!, picked(p, io), io, now, wall);
+      if (args[0] === "-" && p.opts.has("client-id")) throw new UsageError("shop add - reads the shop on stdin, and --client-id its client secret; hold the type first with townd admin type add, then add the shop");
+      const source = await sourceOf(args[0]!, io);
+      if (typeof source === "number") return source;
+      return shopAdd(store, vaultKey, source, picked(p, io), io, now, wall, runtime);
+    }
     case "shop ls":
       noExtra(args, 0, "shop ls");
       io.out(
@@ -323,7 +433,7 @@ async function dispatch(store: Store, vaultKey: Buffer | null, noun: string, ver
       const checked = checkPermit(store, id, req, now);
       if (Array.isArray(checked)) return refused(checked);
       if (needy && shop.testedAt === null) {
-        const ran = await testAtApproval(store, vaultKey, { permit: id, shop: permit.shop, userName: permit.userName, bound: checked.credentials, picked: req.credentials }, decideAndRecord, io, now, wall);
+        const ran = await testAtApproval(store, vaultKey, { permit: id, shop: permit.shop, userName: permit.userName, bound: checked.credentials, picked: req.credentials }, decideAndRecord, io, now, wall, runtime);
         if (ran.passed < ran.of) return refused([`tests ${ran.of - ran.passed}/${ran.of} failed; the shop needs work, and the permit waits`]);
       }
       const made = makePermitGrant(store, id, checked, req.expiresAt, now);

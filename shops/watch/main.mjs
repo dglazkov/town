@@ -1,15 +1,17 @@
 // town/watch: a repository's open issues, compared with the last look,
 // over two shops called as the agent that called this one would call them
-// (townd spec, §7 and §8): `town github list` for the issues, and `town
-// memory remember` and `recall` for the last look, kept under
-// watch/<owner>/<name>. The lines go to memory as --value, not on stdin:
-// `town` sends stdin only from a pipe or a file, and a Node child's piped
-// stdin is a socket. Every `town` is spawned with no shell and its stdin
-// closed. When a call fails, what `town` printed on stderr is passed on as
-// it came, since the town's lines carry no value, and this shop exits as
-// `town` did. Its own lines name no repo, no key, and no title.
+// (townd spec, §7 and §8): `github list` for the issues, and `memory
+// remember` and `recall` for the last look, kept under
+// watch/<owner>/<name>. Each call is posted as `town` posts it, the words
+// as typed and no stdin, to the town the grant file at TOWN_GRANT names,
+// with the bearer it holds: on a laptop a clerk on loopback, on the box
+// the clerk the window answers as, since an isolate starts no process.
+// The lines go to memory as --value. When a call fails, what the town
+// answered on stderr is passed on as it came, since the town's lines carry
+// no value, and this shop exits as the call did. Its own lines name no
+// repo, no key, and no title.
 
-import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 // The program, as spec §7 gives a worker shop: called once per call.
 export default async function main() {
@@ -29,19 +31,29 @@ export default async function main() {
     return [m[1], m[2]];
   }
 
-  function town(argv) {
-    return new Promise((resolve) => {
-      const child = spawn("town", argv, { stdio: ["ignore", "pipe", "pipe"] });
-      const out = [];
-      const err = [];
-      child.stdout.on("data", (b) => out.push(b));
-      child.stderr.on("data", (b) => err.push(b));
-      child.on("error", () => fail("there is no town to call"));
-      child.on("close", (code) => resolve({ exit: code ?? 1, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
-    });
+  /** One call of the shop's own, posted to the town its grant file names; what came back, or this shop's failure when no town answered. */
+  async function town(argv) {
+    let grant;
+    try {
+      grant = JSON.parse(readFileSync(process.env.TOWN_GRANT ?? "", "utf8"));
+    } catch {
+      fail("there is no town to call");
+    }
+    try {
+      const res = await fetch(`${String(grant.town).replace(/\/+$/, "")}/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${grant.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ argv, stdin: null, json: false }),
+      });
+      const body = await res.json();
+      if (typeof body.stdout !== "string" || typeof body.stderr !== "string" || typeof body.exit !== "number") throw new Error("not an answer");
+      return body;
+    } catch {
+      fail("there is no town to call");
+    }
   }
 
-  /** Exits as `town` did, with what it printed on stderr. */
+  /** Exits as the call did, with what the town answered on stderr. */
   function passOn(r) {
     process.stderr.write(r.stderr);
     process.exit(r.exit === 0 ? 1 : r.exit);

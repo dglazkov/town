@@ -9,6 +9,6 @@
     "lib": ["es2024", "dom", "dom.iterable"],
     "types": ["node", "@cloudflare/vitest-pool-workers/types"]
   },
-  "include": [".wrangler/types/worker.d.ts", "src/box.ts", "src/isolate.ts", "test/isolate.test.ts", "test/pry.test.ts", "test/helpers/box.ts"],
+  "include": [".wrangler/types/worker.d.ts", "src/box.ts", "src/rows.ts", "src/isolate.ts", "test/isolate.test.ts", "test/pry.test.ts", "test/object.test.ts", "test/door.test.ts", "test/helpers/box.ts"],
   "exclude": []
 }

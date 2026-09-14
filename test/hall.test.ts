@@ -113,7 +113,7 @@ describe("the hall's manifest", () => {
       const [command, ...words] = (split as { words: string[] }).words;
       const parsed = parseArgs(HALL, command!, words);
       expect(parsed.ok, test.name).toBe(true);
-      const out = await runHall({ store, wall: openWall("none"), now: () => NOW }, { pass, grant, command: command!, values: (parsed as { values: Record<string, string> }).values, stdin: null, callId: "call_test" });
+      const out = await runHall({ store, wall: openWall("none"), runtime: runShelved, now: () => NOW }, { pass, grant, command: command!, values: (parsed as { values: Record<string, string> }).values, stdin: null, callId: "call_test" });
       expect(out.exit, test.name).toBe(0);
       expect(out.stdout, test.name).toContain((test.expect as { contains: string }).contains);
     }
@@ -473,7 +473,7 @@ describe("validate, test, and publish: the tests, as the agent", () => {
     const printed = inner[0]!.stderr!.trim();
     expect(printed).toContain(`${path.sep}town-shop-test-`);
     expect(printed.endsWith(path.join("test%2Fwhere", pass.userId))).toBe(true);
-    expect(printed.startsWith(store.dataDir)).toBe(false);
+    expect(printed.startsWith(store.dataDir!)).toBe(false);
     expect(existsSync(store.stateRoot), "a test's call wrote under the town's state").toBe(false);
     expect(existsSync(path.dirname(path.dirname(printed))), "the test's scratch root outlived it").toBe(false);
     // The hall's own row is the root of that tree.

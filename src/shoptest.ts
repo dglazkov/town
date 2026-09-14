@@ -21,10 +21,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { canonicalArgv, parseArgs, splitWords } from "./args.js";
-import { answerFor, argvHash, newCallId, type Caller, type GateDeps, type TestTree } from "./gate.js";
+import { answerFor, argvHash, newCallId, type Caller, type GateDeps, type Runtime, type TestTree } from "./gate.js";
 import { parseManifest, type Manifest, type ShopTest, type TownShop, type TownType } from "./manifest.js";
 import { runShelved, type RunCredential, type RunOptions, type RunResult } from "./runtime.js";
-import { shopAt } from "./shelf.js";
+import { shopAt, type Shelf } from "./shelf.js";
 import type { Pass } from "./passes.js";
 import type { Grant, Store } from "./store.js";
 import type { Wall } from "./wall.js";
@@ -47,6 +47,8 @@ export class ManifestRefused extends Error {
 export interface TestShopOptions {
   /** What encloses each line's process, and every dependency's below it; the agent's tree uses its gate's, which must be this one. */
   wall: Wall;
+  /** What runs each line: the laptop's process runtime when omitted, and the agent's tree uses its gate's. */
+  runtime?: Runtime;
   /** The limit each line runs under; the runtime's thirty seconds when omitted. */
   timeoutMs?: number;
   /** The credential types the town holds, with their definitions; omitted when no store is at hand, and then a need is refused. */
@@ -133,11 +135,21 @@ export async function loadShop(dir: string, types?: readonly (string | TownType)
   return manifest;
 }
 
-/** Runs every test in the shop's manifest; one result per test, in order. */
-export async function testShop(dir: string, opts: TestShopOptions): Promise<TestResult[]> {
+/** Reads and validates the manifest among a shop's files against the town's `types` and `shops`, throwing ManifestRefused when it is not v0; `where` names the shop in the refusal. */
+export function manifestOf(files: ReadonlyMap<string, { content: string }>, where: string, types?: readonly (string | TownType)[], shops?: readonly TownShop[]): Manifest {
+  const text = files.get("manifest.yaml")?.content;
+  if (text === undefined) throw new ManifestRefused([`manifest.yaml: is not in ${where}; write a manifest.yaml there instead (spec §1)`]);
+  const { manifest, refusals } = parseManifest(text, types, shops);
+  if (!manifest) throw new ManifestRefused(refusals);
+  return manifest;
+}
+
+/** Runs every test in the shop's manifest, the shop a directory or a shelf of its files staged; one result per test, in order. */
+export async function testShop(shop: string | Shelf, opts: TestShopOptions): Promise<TestResult[]> {
   if (opts.agent && opts.agent.deps.wall !== opts.wall) throw new Error("a shop's tests were given one wall and its gate another");
   if (opts.audit && (opts.agent || !opts.store)) throw new Error("a shop's tests are recorded for the operator's tree in a store alone");
-  const manifest = await loadShop(dir, opts.types, opts.shops);
+  const dir = typeof shop === "string" ? shopAt(shop) : shop;
+  const manifest = typeof shop === "string" ? await loadShop(shop, opts.types, opts.shops) : manifestOf(filesOf(shop), "the copy", opts.types, opts.shops);
   const composed = (manifest.depends ?? []).length > 0;
   if (composed && !opts.store && !opts.agent) throw new Error(`${manifest.name}'s tests call its dependencies, and were given no town to call them in`);
   // The agent's tree opens its dependencies' bindings at the gate, from the agent's grants; only the operator's is handed credentials.
@@ -153,8 +165,14 @@ export async function testShop(dir: string, opts: TestShopOptions): Promise<Test
   return results;
 }
 
-async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: TestShopOptions): Promise<TestResult> {
-  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "town-shop-test-"));
+/** The files a shelf of one shop holds, a thing on it that is not a plain file thrown as the shelf says. */
+function filesOf(shelf: Shelf): Map<string, { content: string }> {
+  return shelf.read("") ?? new Map();
+}
+
+async function runTest(dir: Shelf, manifest: Manifest, test: ShopTest, opts: TestShopOptions): Promise<TestResult> {
+  const scratch = opts.store ? await opts.store.scratch() : await localScratch();
+  const stateRoot = scratch.root;
   try {
     const lines = test.run.split("\n").map((l, i) => ({ text: l.trim(), n: i + 1 })).filter((l) => l.text !== "");
     let last: RunResult | null = null;
@@ -182,10 +200,11 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
         runOpts.town = { answer: answerFor(agent.deps, caller) };
       } else if (opts.store && (manifest.depends ?? []).length) {
         const test: TestTree = { grants: treeOf(manifest, opts.store).grants, user: TEST_USER, stateRoot, credentials: opts.credentials ?? [] };
-        const deps: GateDeps = { store: opts.store, wall: opts.wall, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }), ...(opts.audit ? { decide: opts.audit.decide } : {}) };
+        const deps: GateDeps = { store: opts.store, wall: opts.wall, runtime: opts.runtime ?? runShelved, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }), ...(opts.audit ? { decide: opts.audit.decide } : {}) };
         runOpts.town = { answer: answerFor(deps, { test, manifest, parent: opts.audit ? lineId : null, depth: 1 }) };
       }
-      const result = await (agent?.deps.runtime ?? runShelved)(shopAt(dir), manifest, command, parsed.values, runOpts);
+      runOpts.callId = lineId;
+      const result = await (agent?.deps.runtime ?? opts.runtime ?? runShelved)(dir, manifest, command, parsed.values, runOpts);
       if (opts.audit) {
         opts.store!.recordCall({
           callId: lineId,
@@ -215,8 +234,14 @@ async function runTest(dir: string, manifest: Manifest, test: ShopTest, opts: Te
     const why = judge(test, last);
     return why ? { name: test.name, ok: false, why } : { name: test.name, ok: true };
   } finally {
-    await rm(stateRoot, { recursive: true, force: true });
+    await scratch.remove();
   }
+}
+
+/** A scratch state root in the temporary directory, for a shop test with no store at hand. */
+async function localScratch(): Promise<{ root: string; remove(): Promise<void> }> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "town-shop-test-"));
+  return { root, remove: () => rm(root, { recursive: true, force: true }) };
 }
 
 function judge(test: ShopTest, r: RunResult): string | null {

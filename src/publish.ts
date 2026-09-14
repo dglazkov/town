@@ -23,21 +23,20 @@
 // with other words beside the same definition, writes them onto the type,
 // and the door's line says so.
 
-import { lstat, mkdir, readdir, rm } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
 import type { Io } from "./admin.js";
 import type { Client } from "./credentials.js";
 import type { BundleFile } from "./bundle.js";
-import { RefreshFailed, RefreshRefused, argvHash, newCallId, secretOf, shopDir, storeVault, type GateDeps } from "./gate.js";
+import { RefreshFailed, RefreshRefused, argvHash, newCallId, secretOf, storeVault, type GateDeps, type Runtime } from "./gate.js";
 import { guidanceLine } from "./checklist.js";
 import { bindNeeds, grantStateText } from "./grants.js";
 import { HALL_NAME, type Manifest, type Need } from "./manifest.js";
 import { definesType } from "./needs.js";
 import type { RunCredential } from "./runtime.js";
-import { ManifestRefused, loadShop, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
+import { ManifestRefused, loadShop, manifestOf, testShop, townShops, treeOf, type TestResult } from "./shoptest.js";
 import type { Pass } from "./passes.js";
-import { ShelfError, readTree, shopAt } from "./shelf.js";
+import { ShelfError, readTree, type Shelf } from "./shelf.js";
 import { StoreError, type Store } from "./store.js";
 import { VaultError } from "./vault.js";
 import type { Wall } from "./wall.js";
@@ -107,20 +106,21 @@ export function breaksDependents(store: Store, manifest: Manifest): string | nul
  * type, opened for the run and handed to the runtime, which opens a teller
  * per need. The tree runs over the dependencies' code in the town.
  */
-export async function shopTest(town: { store: Store; key: Buffer | null } | null, dir: string, picked: Picked, io: Io, wall: Wall): Promise<number> {
+export async function shopTest(town: { store: Store; key: Buffer | null } | null, source: ShopSource, picked: Picked, io: Io, wall: Wall, runtime?: Runtime): Promise<number> {
   const refuse = (line: string) => {
     io.err(`townd admin: shop test refused: ${line}\n`);
     return 1;
   };
   try {
-    if (!town) return report(await testShop(dir, { wall }), io);
+    const run = runtime === undefined ? {} : { runtime };
+    if (!town) return report(await testShop(sourceShelf(source), { wall, ...run }), io);
     const { store, key } = town;
     const types = store.listTypes();
     const shops = townShops(store);
-    const manifest = await loadShop(dir, types, shops);
+    const manifest = await sourceManifest(source, types, shops);
     const met = await meetNeeds(store, key, manifest.name, treeOf(manifest, store).needs, picked.user(), picked.credentials);
     if (typeof met === "string") return refuse(met);
-    return report(await testShop(dir, { types, shops, store, credentials: met, wall }), io);
+    return report(await testShop(sourceShelf(source), { types, shops, store, credentials: met, wall, ...run }), io);
   } catch (err) {
     if (err instanceof ManifestRefused) {
       for (const line of err.refusals) io.err(`${line}\n`);
@@ -128,6 +128,40 @@ export async function shopTest(town: { store: Store; key: Buffer | null } | null
     }
     throw err;
   }
+}
+
+/** Where a verb reads a shop: a directory on a laptop, or a bundle's files read from stdin. */
+export type ShopSource = string | { files: ReadonlyMap<string, BundleFile> };
+
+/** A source as a shelf of its one shop: the directory's, or the files in memory. */
+function sourceShelf(source: ShopSource): string | Shelf {
+  return typeof source === "string" ? source : filesShelf(source.files);
+}
+
+/** A source's manifest, validated against the town's types and shops. */
+async function sourceManifest(source: ShopSource, types: ReturnType<Store["listTypes"]>, shops: ReturnType<typeof townShops>): Promise<Manifest> {
+  return typeof source === "string" ? loadShop(source, types, shops) : manifestOf(source.files, "the bundle", types, shops);
+}
+
+/** A shelf holding one shop's files in memory, under any name: a bundle read from stdin, and the box's staging. */
+export function filesShelf(files: ReadonlyMap<string, BundleFile>): Shelf {
+  let held: Map<string, BundleFile> | null = new Map(files);
+  return {
+    read: () => (held === null ? null : new Map(held)),
+    put: (_shop, next) => void (held = new Map(next)),
+    remove: () => void (held = null),
+  };
+}
+
+/** The shop `name` on the store's shelf, as a shelf of that one shop: what `permit approve` tests. */
+function shelvedShop(store: Store, name: string): Shelf {
+  const shelf = store.shelf;
+  return {
+    read: () => shelf.read(name),
+    put: (_shop, files) => shelf.put(name, files),
+    remove: () => shelf.remove(name),
+    ...(shelf.dir ? { dir: () => shelf.dir!(name) } : {}),
+  };
 }
 
 function report(results: Array<{ name: string; ok: boolean; why?: string }>, io: Io): number {
@@ -198,25 +232,30 @@ export async function strangeEntries(root: string): Promise<string[]> {
  * place and upsert the row. Latest only: a second add replaces the first,
  * and when it adds a need, the grants that stop being live are named.
  */
-export async function shopAdd(store: Store, key: Buffer | null, dir: string, picked: Picked, io: Io, now: number, wall: Wall): Promise<number> {
-  const src = path.resolve(dir);
+export async function shopAdd(store: Store, key: Buffer | null, source: ShopSource, picked: Picked, io: Io, now: number, wall: Wall, runtime?: Runtime): Promise<number> {
   const refuse = (line: string) => {
     io.err(`townd admin: shop add refused: ${line}\n`);
     return 1;
   };
-  const st = await lstat(src).catch(() => null);
-  if (!st?.isDirectory()) return refuse(`${dir} is not a directory; write the path of a shop's directory`);
-  const strange = await strangeEntries(src);
-  if (strange.length) {
-    return refuse(`${strange.map((s) => path.join(dir, s)).join(", ")} ${strange.length === 1 ? "is" : "are"} not a plain file; a shop is copied whole into the town, so put the file itself there instead of a link`);
+  const dir = typeof source === "string" ? source : null;
+  const src = dir === null ? null : path.resolve(dir);
+  if (dir !== null && src !== null) {
+    const st = await lstat(src).catch(() => null);
+    if (!st?.isDirectory()) return refuse(`${dir} is not a directory; write the path of a shop's directory`);
+    const strange = await strangeEntries(src);
+    if (strange.length) {
+      return refuse(`${strange.map((s) => path.join(dir, s)).join(", ")} ${strange.length === 1 ? "is" : "are"} not a plain file; a shop is copied whole into the town, so put the file itself there instead of a link`);
+    }
   }
   let types = store.listTypes();
   const shops = townShops(store);
   let needs: string[];
   let credentials: RunCredential[];
   try {
-    const manifest = await loadShop(src, types, shops);
+    const manifest = await sourceManifest(src ?? source, types, shops);
     if (manifest.name === HALL_NAME) return refuse(HALL_REFUSAL);
+    const unrun = runtime?.refuses?.(manifest);
+    if (unrun) return refuse(unrun);
     const broken = breaksDependents(store, manifest);
     if (broken) return refuse(broken);
     // The operator is the trust root: a type the manifest defines and the town lacks is held now, as defined, and says so.
@@ -256,21 +295,20 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     throw err;
   }
 
-  const staging = await newStaging(store);
+  let files: Map<string, BundleFile>;
   try {
-    let files: Map<string, BundleFile>;
-    try {
-      files = readTree(src) ?? new Map();
-    } catch (err) {
-      if (err instanceof ShelfError) throw new StoreError(`${err.path} became something other than a plain file while it was copied`);
-      throw err;
-    }
-    // The copy tested is these files, staged; the same files are put on the town's shelf once they pass.
-    shopAt(staging).put("", files);
-    const manifest = await checkCopy(store, staging, types, shops);
+    files = src === null ? new Map((source as { files: ReadonlyMap<string, BundleFile> }).files) : (readTree(src) ?? new Map());
+  } catch (err) {
+    if (err instanceof ShelfError) throw new StoreError(`${err.path} became something other than a plain file while it was copied`);
+    throw err;
+  }
+  // The copy tested is these files, staged; the same files are put on the town's shelf once they pass.
+  const staged = await store.stage(files);
+  try {
+    const manifest = await checkCopy(store, staged.shelf, types, shops, runtime);
     if (typeof manifest === "string") return refuse(manifest);
     if (treeOf(manifest, store).needs.join(",") !== needs.join(",")) return refuse(`${manifest.name} changed its needs while it was copied`);
-    const results = await testShop(staging, { types, shops, store, wall, ...(credentials.length ? { credentials } : {}) });
+    const results = await testShop(staged.shelf, { types, shops, store, wall, ...(runtime === undefined ? {} : { runtime }), ...(credentials.length ? { credentials } : {}) });
     for (const r of results) io.out(r.ok ? `ok ${r.name}\n` : `not ok ${r.name}: ${r.why}\n`);
     const failing = results.filter((r) => !r.ok);
     if (failing.length) {
@@ -282,16 +320,8 @@ export async function shopAdd(store: Store, key: Buffer | null, dir: string, pic
     for (const line of stopped) io.out(`${line}\n`);
     return 0;
   } finally {
-    await rm(staging, { recursive: true, force: true });
+    await staged.remove();
   }
-}
-
-/** A new staging directory under the town's shops, mode 700, for one shop's copy. */
-async function newStaging(store: Store): Promise<string> {
-  await mkdir(store.shopsDir, { recursive: true });
-  const staging = path.join(store.shopsDir, `.staging-${randomBytes(6).toString("hex")}`);
-  await mkdir(staging, { mode: 0o700 });
-  return staging;
 }
 
 /**
@@ -300,12 +330,15 @@ async function newStaging(store: Store): Promise<string> {
  * types and shops (ManifestRefused thrown), not named as the town's own,
  * and breaking no dependent. The manifest, or the line refusing.
  */
-async function checkCopy(store: Store, staging: string, types: ReturnType<Store["listTypes"]>, shops: ReturnType<typeof townShops>): Promise<Manifest | string> {
-  const late = await strangeEntries(staging);
-  if (late.length) return `${late.join(", ")} is not a plain file in the copy`;
-  const manifest = await loadShop(staging, types, shops);
+async function checkCopy(store: Store, staged: Shelf, types: ReturnType<Store["listTypes"]>, shops: ReturnType<typeof townShops>, runtime?: Runtime): Promise<Manifest | string> {
+  const dir = staged.dir?.("");
+  if (dir !== undefined) {
+    const late = await strangeEntries(dir);
+    if (late.length) return `${late.join(", ")} is not a plain file in the copy`;
+  }
+  const manifest = dir !== undefined ? await loadShop(dir, types, shops) : manifestOf(staged.read("") ?? new Map(), "the copy", types, shops);
   if (manifest.name === HALL_NAME) return HALL_REFUSAL;
-  return breaksDependents(store, manifest) ?? manifest;
+  return runtime?.refuses?.(manifest) ?? breaksDependents(store, manifest) ?? manifest;
 }
 
 /** `; figma's guidance is now dimitri/figma 0.2.0's`, a clause for each type whose guidance the shop's manifest wrote; empty for none. */
@@ -370,16 +403,16 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
   const { store } = deps;
   const types = store.listTypes();
   const shops = townShops(store);
-  const staging = await newStaging(store);
+  for (const rel of req.files.keys()) {
+    const normal = path.posix.normalize(rel);
+    if (rel === "" || normal === "." || normal === ".." || normal.startsWith("../") || path.posix.isAbsolute(normal)) return { refused: [`${JSON.stringify(rel)}: is outside the shop in the copy`] };
+  }
+  // The copy tested is the bundle's files, staged; the same files are put on the town's shelf once they pass.
+  const staged = await store.stage(req.files);
   try {
-    for (const rel of req.files.keys()) {
-      if (!path.resolve(staging, rel).startsWith(staging + path.sep)) return { refused: [`${JSON.stringify(rel)}: is outside the shop in the copy`] };
-    }
-    // The copy tested is the bundle's files, staged; the same files are put on the town's shelf once they pass.
-    shopAt(staging).put("", req.files);
     let manifest: Manifest | string;
     try {
-      manifest = await checkCopy(store, staging, types, shops);
+      manifest = await checkCopy(store, staged.shelf, types, shops, deps.runtime);
     } catch (err) {
       if (err instanceof ManifestRefused) return { refused: err.refusals };
       throw err;
@@ -387,12 +420,12 @@ export async function sendShop(deps: GateDeps, req: { pass: Pass; files: Readonl
     if (typeof manifest === "string") return { refused: [manifest] };
     const waits = (manifest.credentials ?? []).map((n) => n.type);
     const timeout = deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs };
-    const results = waits.length ? [] : await testShop(staging, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
+    const results = waits.length ? [] : await testShop(staged.shelf, { types, shops, store, ...timeout, wall: deps.wall, agent: { deps, pass: req.pass, parent: req.parent } });
     if (!req.keep || results.some((r) => !r.ok)) return { manifest, results, waits, kept: false, stopped: [], revised: [] };
     const { stopped, revised } = await putInPlace(store, req.files, manifest, { owner: req.pass.userId, testedAt: waits.length ? null : now, held: false }, now);
     return { manifest, results, waits, kept: true, stopped, revised };
   } finally {
-    await rm(staging, { recursive: true, force: true });
+    await staged.remove();
   }
 }
 
@@ -415,6 +448,7 @@ export async function testAtApproval(
   io: Io,
   now: number,
   wall: Wall,
+  runtime?: Runtime,
 ): Promise<{ passed: number; of: number }> {
   const manifest = store.getShop(req.shop)!.manifest;
   const needs = treeOf(manifest, store).needs;
@@ -424,7 +458,7 @@ export async function testAtApproval(
   const parent = newCallId();
   const started = performance.now();
   const types = store.listTypes();
-  const results = await testShop(shopDir(store, req.shop), { types, shops: townShops(store), store, wall, credentials: met, audit: { parent, decide, now } });
+  const results = await testShop(store.shelf.dir ? store.shelf.dir(req.shop) : shelvedShop(store, req.shop), { types, shops: townShops(store), store, wall, ...(runtime === undefined ? {} : { runtime }), credentials: met, audit: { parent, decide, now } });
   report(results, io);
   const passed = results.filter((r) => r.ok).length;
   const argv = ["permit", "approve", req.permit];

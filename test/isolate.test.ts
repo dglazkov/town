@@ -15,7 +15,6 @@
 
 import { env } from "cloudflare:test";
 import { expect, it } from "vitest";
-import { requestsUnder } from "../src/box.js";
 import type { BundleFile } from "../src/bundle.js";
 import { NO_MAIN } from "../src/main.js";
 import { parseManifest } from "../src/manifest.js";
@@ -74,13 +73,13 @@ it("prints github's list and gdocs's document from the origin's answers through 
   const token = `github_pat_${hex(20)}`;
   const github = shopFiles("shops/github");
   const w = windowFor("call_list", [{ type: "github-token", origin: "https://api.github.com", header: "Authorization: Bearer {token}", token }]);
-  const list = await runIsolate(github.files, github.manifest, "list", { repo: "octocat/Hello-World", state: "all", limit: 2 }, { ...bare(), outbound: w.outbound, credentials: w.needs, requests: requestsUnder });
+  const list = await runIsolate(github.files, github.manifest, "list", { repo: "octocat/Hello-World", state: "all", limit: 2 }, { ...bare(), outbound: w.outbound, credentials: w.needs, requests: w.requests });
   expect([list.exit, list.stdout, list.stderr, list.credentials]).toEqual([0, "#3 Three\n#2 Two\n", "", [{ type: "github-token", requests: 1 }]]);
   expect(list.stdout + list.stderr).not.toContain(token);
 
   const gdocs = shopFiles("shops/gdocs");
   const g = windowFor("call_read", [{ type: "google-oauth", origin: "https://docs.googleapis.com", header: "Authorization: Bearer {token}", token }]);
-  const read = await runIsolate(gdocs.files, gdocs.manifest, "read", { "doc-id": "fixture-doc", format: "markdown" }, { ...bare(), outbound: g.outbound, credentials: g.needs, requests: requestsUnder });
+  const read = await runIsolate(gdocs.files, gdocs.manifest, "read", { "doc-id": "fixture-doc", format: "markdown" }, { ...bare(), outbound: g.outbound, credentials: g.needs, requests: g.requests });
   expect([read.exit, read.stdout, read.stderr]).toEqual([0, "# The fixture\nThe first line of the fixture.\n", ""]);
   const none = await runIsolate(github.files, github.manifest, "list", { repo: "octocat/Hello-World", state: "open", limit: 20 }, bare());
   expect([none.exit, none.stderr]).toEqual([1, "the town gave no window for a github-token\n"]);

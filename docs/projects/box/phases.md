@@ -38,13 +38,13 @@ never load it.
 
 ---
 
-**Where we are: box phase 1 closed, 13 September 2026.** Next is box
-phase 2, the object and the door, with `wrangler dev` in the command
-ring, which needs no account. Box phase 0 put the seams on the laptop;
-box phase 1 ran the four exits, the state and its cap, the window, and
-wall's prying shop in isolates in workerd, the `box` ring beside the
-other two, 618 tests green. Nothing waits on a person until box phase
-3's ⚑ steps.
+**Where we are: box phase 2 closed, 13 September 2026.** Next is box
+phase 3, the deploy and a consent from afar, whose ⚑ steps wait on the
+operator: a Cloudflare API token, a Google OAuth client of the web
+kind, and cents of the Workers plan. The town runs as a Worker under
+`wrangler dev` with no account: the object holds the store, the shelf,
+and the state as rows; the door, the wire, the clerk's host, and the
+landing answer; 676 tests green on three rings.
 
 The order is dependency order. Phase 0 is the seams, on the laptop
 alone: the store over `Sql`, the shelf, the key source, the window's
@@ -232,12 +232,11 @@ mutations each failed their named tests in `test/pry.test.ts` and
 - **2026-09-13 — A loaded module has no `import.meta.url`.** A shop
   that finds its files by it fails on the box alone; `process.cwd()` is
   `/bundle`. No shop under `shops/` uses it.
-- **2026-09-13 — Open: the window's request count lives in the Window
-  isolate's memory.** On the platform `ctx.exports.Window` need not run
-  in the object's isolate; box phase 2 moves the count into the object
-  or the call's answer.
+- **2026-09-13 — The window's request count lived in the Window
+  isolate's memory,** which the platform need not share with the
+  object; box phase 2 moved it into the object, one RPC per forward.
 - **2026-09-13 — Open: spec §7 does not say `import.meta.url` is absent
-  on the box.** Waits on a line in a spec at 298 of 300, box phase 2 or
+  on the box.** Waits on a line in a spec at 298 of 300, box phase 3 or
   the walk's reading.
 
 ## Phase 2: The object and the door
@@ -295,7 +294,45 @@ through), the clerk's host answering as the agent and not the caller
 one deeper (watch's denial-one-level-down test fails), and the landing
 not checking `state` (its unknown-state test writes a row).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (43 files, 676 tests; rings checkout 26,
+command 13 with `test/dev.test.ts`, box 4 in the pool), and `pnpm
+typecheck` exit 0; the bearer and landing mutations failed their named
+tests under the conductor, and the clerk's under the builder, at
+`door.test.ts:254`.
+
+**Findings:**
+
+- **2026-09-13 — The phase took an hour and fifty minutes.** One return
+  to the builder, to approve the door test's `/admin` answer moving
+  from 404 to 401 and to settle the landing's words and the row limit.
+- **2026-09-13 — Splits: `src/wire.ts` from `src/admin.ts`,** which the
+  pipe took to 621 lines, and `src/rows.ts`, the object's seams, built
+  for the Worker alone.
+- **2026-09-13 — `wrangler dev` answered in 0.7 s** with the loader,
+  the object's SQL, and no account or login, its secrets per run as
+  `--var` and the checkout's `.env` kept out.
+- **2026-09-13 — A clerk call re-enters the object while it awaits the
+  isolate,** in the pool and under `wrangler dev`; watch's tree of three
+  rows is recorded. Watch now posts with `fetch` to its grant's town.
+- **2026-09-13 — Under `wrangler dev` a main module exports handlers
+  alone;** a constant from `src/box.ts` stopped workerd, which the pool
+  accepted, so only the command ring catches it.
+- **2026-09-13 — `src/runtime.ts`'s top-level `new URL(…, import.meta.url)`
+  threw in the bundle;** it is guarded, and `TOWN_BIN` and `MAIN_BIN` are
+  empty there.
+- **2026-09-13 — The store's own tests run over both drivers,** moved
+  verbatim to `test/helpers/store-suite.ts`, 274 assertions before and
+  after.
+- **2026-09-13 — One state file over the platform's 2 MB row limit
+  fails the call** with its line, the state kept; local workerd does not
+  enforce the limit, so the object checks it.
+- **2026-09-13 — The landing's wrong state differs by box:** the
+  laptop's listener answers an empty 404, the box 404 with `not
+  connected; the terminal says why`.
+- **2026-09-13 — Open: the no-refresh-token refusal says "Desktop
+  type",** wrong for the web-kind client the box registers. Box phase 3,
+  on the real provider.
 
 ## Phase 3: The deploy, and a consent from afar
 

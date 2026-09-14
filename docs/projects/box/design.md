@@ -170,9 +170,10 @@ accepts, and the registration is of the web kind. `townd admin --town
 credential connect` runs the verb in the object, which mints `state`
 and the PKCE verifier, keeps a consent row, and answers with the
 guidance and the URL and `wait`; the pipe prints them and waits on
-`GET /admin/consent/<state>` with the operator's bearer, up to five
-minutes, and prints the credential's id when the landing has sealed
-it. The landing is `GET /consent/<state>`: it exchanges the code with
+`GET /admin/consent/<state>` with the operator's bearer, in slices of
+twenty seconds up to five minutes, and prints the credential's id when
+the landing has sealed it. The landing is `GET /consent/<state>`, and
+`GET /consent?state=` as a provider sends it: it exchanges the code with
 the type's registration, seals the tokens under the user the row
 names, marks the row done, and answers the browser `connected; you can
 close this tab`, as the listener did; a redirect with `error`, a

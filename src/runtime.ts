@@ -32,13 +32,24 @@ import type { Enclosure, Wall, WallKind } from "./wall.js";
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const STDIN_LIMIT_BYTES = 1024 * 1024;
 
+/** A file of the town's install by its path from this module; empty where the module has no path, as in a Worker bundled from it, which runs no process. */
+function installed(rel: string): string {
+  try {
+    return fileURLToPath(new URL(rel, import.meta.url));
+  } catch {
+    return "";
+  }
+}
+
 /** The agent's binary, as the town's own Node runs it: what `town` in a call directory execs. */
-export const TOWN_BIN = fileURLToPath(new URL("../bin/town.js", import.meta.url));
+export const TOWN_BIN = installed("../bin/town.js");
 
 /** The launcher a worker shop's entry runs through: `node bin/main.js <entry> <argv>`. */
-export const MAIN_BIN = fileURLToPath(new URL("../bin/main.js", import.meta.url));
+export const MAIN_BIN = installed("../bin/main.js");
 
 export interface RunOptions {
+  /** The call's id, for a runtime whose refusals name it; a process's runtime reads none. */
+  callId?: string;
   /** The calling user's opaque id; becomes TOWN_USER. */
   user: string;
   /** The directory under which every shop's per-user state lives. */

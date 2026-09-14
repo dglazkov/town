@@ -12,17 +12,23 @@
 // isolate was given is read twice, from the loader and from inside the
 // shop, and holds strings alone; the token is in nothing the shop printed
 // or kept. A window forwards by the teller's rule, and two users' states
-// at one shop are two states. The publish, the audit rows, and the
-// store's rows these steps name are the object's, box phase 2's.
+// at one shop are two states. Then journey 2 step 8, the exfil test turned
+// a second time, through the object: the prying shop published by an
+// agent through the door, called with no need and then, its permit
+// approved on a credential, with one, reads its files and its state, finds
+// neither the store, nor the box's secrets, nor any binding, and sends
+// four requests of which one arrives at the origin signed and three are
+// refused; every row of it says `isolate`, and the token is in no row but
+// the sealed one.
 
 import { SELF } from "cloudflare:test";
 import { expect, it } from "vitest";
-import { requestsUnder, windowRefusal } from "../src/box.js";
+import { windowRefusal } from "../src/window.js";
 import type { BundleFile } from "../src/bundle.js";
 import { ENTRY_MODULE, ENTRY_SOURCE, runIsolate, type IsolateResult } from "../src/isolate.js";
 import { parseManifest } from "../src/manifest.js";
 import { PRIED_ANSWER } from "./helpers/box-origin.js";
-import { LOADER, originSeen, recordingLoader, shopFiles, windowFor } from "./helpers/box.js";
+import { BOX_ENV, DOOR, LOADER, admin, call, expect0, inTown, originSeen, passFor, recordingLoader, rowsOf, shopFiles, tarOf, userName, windowFor } from "./helpers/box.js";
 
 const PRYING = shopFiles("test/fixtures/prying-worker");
 const PRYING_WITH_NEED = { ...PRYING, manifest: { ...PRYING.manifest, credentials: [{ type: "github-token" }] } };
@@ -93,7 +99,7 @@ it("walks journey 2 step 1: the prying shop with no needs reads its files and it
 it("walks journey 2 step 2: with a need for github-token the prying shop gains a window, a request under it reaches the origin signed, and the origin itself and any other address are 403 naming the call and never reach it", async () => {
   const mark = hex(8);
   const loader = recordingLoader();
-  const { needs, outbound } = windowFor("call_pry_2", [GITHUB]);
+  const { needs, outbound, requests } = windowFor("call_pry_2", [GITHUB]);
   const window = `http://window/${needs[0]!.nonce}`;
   const r = await runIsolate(PRYING_WITH_NEED.files, PRYING_WITH_NEED.manifest, "pry", {}, {
     user: "usr_dimitri",
@@ -101,7 +107,7 @@ it("walks journey 2 step 2: with a need for github-token the prying shop gains a
     loader,
     outbound,
     credentials: needs,
-    requests: requestsUnder,
+    requests,
     stdin: JSON.stringify({ mark, origin: "https://api.github.com" }),
   });
 
@@ -132,8 +138,8 @@ it("walks journey 2 step 2: with a need for github-token the prying shop gains a
 
 it("the isolate's env holds strings alone: every value the entry was given, read from the loader and from inside the shop, is a string, and there is no binding, stub, or function", async () => {
   const loader = recordingLoader();
-  const { needs, outbound } = windowFor("call_env", [GITHUB]);
-  const r = await runIsolate(PRYING_WITH_NEED.files, PRYING_WITH_NEED.manifest, "pry", {}, { user: "usr_1", state: new Map(), loader, outbound, credentials: needs, requests: requestsUnder, stdin: "{}" });
+  const { needs, outbound, requests } = windowFor("call_env", [GITHUB]);
+  const r = await runIsolate(PRYING_WITH_NEED.files, PRYING_WITH_NEED.manifest, "pry", {}, { user: "usr_1", state: new Map(), loader, outbound, credentials: needs, requests, stdin: "{}" });
   expect(r.exit, r.stderr).toBe(0);
   const given = loader.given[0]!.env as Record<string, unknown>;
   const kinds = (report(r).find((l) => l.target === "cloudflare:workers")!.kinds ?? {}) as Record<string, string>;
@@ -165,8 +171,8 @@ it("forwards a window request by the teller's rule: the origin's base path, the 
       },
     ],
   ]);
-  const { needs, outbound } = windowFor("call_forward", [{ ...GITHUB, origin: "https://origin.example/base/" }]);
-  const r = await runIsolate(files, manifest!, "send", {}, { user: "usr_1", state: new Map(), loader: LOADER, outbound, credentials: needs, requests: requestsUnder });
+  const { needs, outbound, requests } = windowFor("call_forward", [{ ...GITHUB, origin: "https://origin.example/base/" }]);
+  const r = await runIsolate(files, manifest!, "send", {}, { user: "usr_1", state: new Map(), loader: LOADER, outbound, credentials: needs, requests });
   expect(r.exit, r.stderr).toBe(0);
   expect(r.stdout).toBe(`200 ${PRIED_ANSWER}\n403 ${windowRefusal("call_forward", "GET", new URL("http://window/"))}`);
   const arrived = (await originSeen()).filter((s) => s.url.includes(mark));
@@ -197,20 +203,98 @@ it("walks journey 2 step 7: two users' states at one shop are two states, and a 
 
 it("hands a window to a shop with a need and to no other: a need without one, or a window for a shop with none, is refused before any isolate is loaded", async () => {
   const loader = recordingLoader();
-  const { needs, outbound } = windowFor("call_refused", [GITHUB]);
+  const { needs, outbound, requests } = windowFor("call_refused", [GITHUB]);
   await expect(runIsolate(PRYING.files, PRYING.manifest, "pry", {}, { user: "u", state: new Map(), loader, outbound, stdin: "{}" })).rejects.toThrow("test/prying meets no need and runIsolate was given a window");
-  await expect(runIsolate(PRYING_WITH_NEED.files, PRYING_WITH_NEED.manifest, "pry", {}, { user: "u", state: new Map(), loader, outbound: null, credentials: needs, requests: requestsUnder })).rejects.toThrow(
+  await expect(runIsolate(PRYING_WITH_NEED.files, PRYING_WITH_NEED.manifest, "pry", {}, { user: "u", state: new Map(), loader, outbound: null, credentials: needs, requests })).rejects.toThrow(
     "test/prying meets a need and runIsolate was given no window to reach it through",
   );
   expect(loader.given).toEqual([]);
 });
 
-it("the Worker's own door answers town at GET / and nothing else", async () => {
+it("the Worker's own door answers town at GET /, 404 where it has no route, and 401 at /admin without the operator's bearer", async () => {
   const home = await SELF.fetch("https://town.example/");
   expect([home.status, await home.text()]).toEqual([200, "town\n"]);
-  for (const [method, url] of [["POST", "https://town.example/"], ["GET", "https://town.example/call"], ["POST", "https://town.example/admin"]] as const) {
+  for (const [method, url, status] of [["POST", "https://town.example/", 404], ["GET", "https://town.example/call", 404], ["POST", "https://town.example/admin", 401]] as const) {
     const res = await SELF.fetch(url, { method });
-    expect([method, url, res.status]).toEqual([method, url, 404]);
+    expect([method, url, res.status]).toEqual([method, url, status]);
     await res.body?.cancel();
   }
+});
+
+it("walks journey 2 step 8 through the object: the prying shop an agent published reads its files and state, finds no store, secret, or binding, sends four requests of which one arrives signed and three are refused, and every row says isolate", async () => {
+  const user = userName();
+  const { token, passId } = await passFor(user);
+  expect0(await admin(["grant", "new", "--pass", passId, "--shop", "town/hall"]));
+  const secret = `github_pat_pry_${hex(16)}`;
+  expect0(await admin(["credential", "add", "--user", user, "--type", "github-token", "--label", "pried"], `${secret}\n`));
+  const credential = (await inTown((town) => town.store.listCredentials(user)))[0]!.id;
+
+  const named = (name: string, need: boolean) => {
+    const files = new Map(PRYING.files);
+    const manifest = files.get("manifest.yaml")!;
+    files.set("manifest.yaml", { ...manifest, content: manifest.content.replace("name: test/prying", `name: ${user}/${name}`).replace("runtime: worker", need ? "runtime: worker\ncredentials:\n  - type: github-token" : "runtime: worker") });
+    return files;
+  };
+
+  // Step 1's halves: published by the agent, called, its row isolate, and nothing it sent left the box.
+  const bare = named("prying", false);
+  expect((await call(token, ["hall", "publish"], tarOf(bare))).stdout).toContain(`published ${user}/prying`);
+  const mark = hex(8);
+  const first = await call(token, ["prying", "pry"], JSON.stringify({ mark, origin: "https://api.github.com", town: DOOR }));
+  expect([first.exit, first.stderr]).toEqual([0, ""]);
+  const lines = first.stdout.trimEnd().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+  expect(lines.filter((l) => l.act === "env")).toEqual([
+    { step: 1, act: "env", target: "process.env", result: "ok", env: { TOWN_STATE: "/tmp/state", TOWN_USER: expect.stringMatching(/^user_[0-9a-f]{16}$/) } },
+    { step: 1, act: "env", target: "cloudflare:workers", result: "ok", kinds: { TOWN_USER: "string" } },
+  ]);
+  expect(lines.filter((l) => l.act === "fetch").map((l) => [l.target, l.result, l.message])).toEqual([
+    ["origin", "Error", NO_INTERNET],
+    ["town", "Error", NO_INTERNET],
+    ["public", "Error", NO_INTERNET],
+  ]);
+  expect((await originSeen()).filter((s) => s.url.includes(mark))).toEqual([]);
+
+  // Step 2's halves and step 8: a need, a permit in place of a grant, approved on the credential, whose tests run then.
+  const needy = named("prying-need", true);
+  const published = await call(token, ["hall", "publish"], tarOf(needy));
+  const permit = /requested (prm_[0-9a-f]{16})/.exec(published.stdout)?.[1];
+  expect(permit, published.stdout).toBeDefined();
+  const approved = await admin(["permit", "approve", permit!, "--credential", credential]);
+  expect([approved.exit, approved.stderr]).toEqual([0, ""]);
+  expect(approved.stdout).toMatch(/^ok it reports\ngrant_[0-9a-f]{16}\n$/);
+
+  const mark2 = hex(8);
+  const second = await call(token, ["prying-need", "pry"], JSON.stringify({ mark: mark2, origin: "https://api.github.com", town: DOOR }));
+  expect([second.exit, second.stderr]).toEqual([0, ""]);
+  const pried = second.stdout.trimEnd().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+  // Its files and its state: /bundle holds the entry and its own files, and the state is its own.
+  expect(pried.find((l) => l.act === "list" && l.target === "/bundle")).toEqual({ step: 1, act: "list", target: "/bundle", result: "ok", names: [ENTRY_MODULE, "main.mjs", "manifest.yaml"] });
+  expect(pried.filter((l) => l.act === "write").map((l) => [l.target, l.result])).toEqual([["/tmp/state/pried.txt", "ok"], ["/bundle/beside-the-entry.txt", "EPERM"]]);
+  // No store, no secret, no binding: the environment is three strings, and nothing it read holds the box's secrets or the token.
+  const env = pried.find((l) => l.target === "process.env")!.env as Record<string, string>;
+  expect(Object.keys(env)).toEqual(["TOWN_CREDENTIAL_GITHUB_TOKEN", "TOWN_STATE", "TOWN_USER"]);
+  expect(env.TOWN_CREDENTIAL_GITHUB_TOKEN).toMatch(/^http:\/\/window\/[0-9a-f]{32}$/);
+  expect(pried.find((l) => l.target === "cloudflare:workers")!.kinds).toEqual({ TOWN_CREDENTIAL_GITHUB_TOKEN: "string", TOWN_USER: "string" });
+  for (const held of [secret, BOX_ENV.TOWN_OPERATOR, BOX_ENV.TOWN_VAULT_KEY]) expect(second.stdout).not.toContain(held);
+  // Four requests: the window's arrives signed; the origin, the town, and a public address are refused and never arrive.
+  const fetched = pried.filter((l) => l.act === "fetch");
+  expect(fetched.map((l) => [l.target, l.status])).toEqual([
+    ["TOWN_CREDENTIAL_GITHUB_TOKEN", 200],
+    ["origin", 403],
+    ["town", 403],
+    ["public", 403],
+  ]);
+  const arrived = (await originSeen()).filter((s) => s.url.includes(mark2));
+  expect(arrived.map((s) => [s.url, s.headers.authorization])).toEqual([[`https://api.github.com/pried?by=${mark2}`, `Bearer ${secret}`]]);
+
+  // Every row that ran says isolate; the call's counts one request; the token is in no row but the sealed one.
+  const rows = (await rowsOf(passId)).filter((r) => r.shop?.startsWith(`${user}/`));
+  expect(rows.map((r) => [r.shop, r.command, r.result, r.wall, r.credentials])).toEqual([
+    [`${user}/prying`, "pry", "ok", "isolate", []],
+    [`${user}/prying-need`, "pry", "ok", "isolate", [{ type: "github-token", requests: 1 }]],
+  ]);
+  const approval = await inTown((town) => town.store.calls().filter((c) => c.detail?.startsWith(`approval ${permit}`) || c.parent !== null && c.shop === `${user}/prying-need`));
+  expect(approval.map((c) => [c.detail, c.wall])).toEqual([["test it reports", "isolate"], [`approval ${permit} tests 1/1`, null]]);
+  const kept = await inTown((town) => JSON.stringify([town.store.calls(), town.store.sql.all("SELECT * FROM shop_state"), town.store.sql.all("SELECT * FROM shop_files"), town.store.sql.all("SELECT id, user_id, type, label FROM credentials")]));
+  expect(kept).not.toContain(secret);
 });

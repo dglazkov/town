@@ -15,5 +15,5 @@
   },
   "include": ["src", "test", "scripts", "vitest.config.ts", "vitest.box.config.ts"],
   // The Worker's files and the box ring's run in workerd: tsconfig.worker.json checks them, and `pnpm build` never compiles them.
-  "exclude": ["src/box.ts", "src/isolate.ts", "test/isolate.test.ts", "test/pry.test.ts", "test/helpers/box.ts"]
+  "exclude": ["src/box.ts", "src/rows.ts", "src/isolate.ts", "test/isolate.test.ts", "test/pry.test.ts", "test/object.test.ts", "test/door.test.ts", "test/helpers/box.ts"]
 }

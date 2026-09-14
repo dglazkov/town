@@ -63,8 +63,8 @@ by the conductor, recorded, committed whole.
   against a `townd serve` they start on a free port with a data directory
   of their own, and delete it after. A **walk** is a real agent given a
   directory and a sentence; it is the only proof that the help is honest
-  and the only thing that costs money. `pnpm test` runs the first two;
-  a phase's proof says when the walk is owed.
+  and the only thing that costs money. `pnpm test` runs the first two
+  and box's workerd ring; a phase's proof says when the walk is owed.
 - **Node 24 and nothing native.** The database is `node:sqlite`; the
   server is `node:http`. A dependency that compiles is a finding, not a
   choice.
@@ -95,7 +95,11 @@ by the conductor, recorded, committed whole.
 ```
 pnpm install
 pnpm build           # tsc to dist/; bin/town.js and bin/townd.js run it
-pnpm test            # checkout and command tests
+pnpm test            # build, then the checkout, command, and box rings, the reporter's line last
+pnpm test --ring command,box   # those rings alone, --ring repeatable; builds only when dist/ is older than src/
+pnpm test test/args.test.ts    # that file, in the project its ring says
+pnpm test --list     # each ring, what it needs, and its files; builds and runs nothing
+pnpm test --watch    # vitest's watch over the checkout ring, and no other
 pnpm typecheck
 node bin/townd.js serve --data /tmp/town-data              # a town on 127.0.0.1:7000
 node bin/townd.js admin --data /tmp/town-data shop add shops/memory

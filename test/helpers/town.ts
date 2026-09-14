@@ -16,9 +16,10 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import net from "node:net";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { staleness } from "../../scripts/stale.js";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
 export const TOWN = path.join(ROOT, "bin/town.js");
@@ -28,29 +29,10 @@ export const MEMORY = path.join(ROOT, "shops/memory");
 /** The environment name by which a test tells townd this box has no wall: src/wall.ts's NO_WALL_ENV, read there alone. */
 export const NO_WALL_ENV = "TOWN_TEST_NO_WALL";
 
-/** The files under src/ that `pnpm build` never compiles, the Worker's: tsconfig.json's exclude, read as tsconfig.build.json inherits it. */
-function notBuilt(): string[] {
-  const text = readFileSync(path.join(ROOT, "tsconfig.json"), "utf8").replace(/^\s*\/\/.*$/gm, "");
-  return ((JSON.parse(text) as { exclude?: string[] }).exclude ?? []).filter((f) => f.startsWith("src/")).map((f) => path.basename(f));
-}
-
-/** Throws when any src/*.ts that `pnpm build` compiles is newer than its dist/*.js, or dist is missing. */
+/** Throws when any src/*.ts that `pnpm build` compiles is newer than its dist/*.js, or dist is missing: scripts/stale.ts's rule, the one `pnpm test` builds by. */
 export function assertBuilt(): void {
-  const src = path.join(ROOT, "src");
-  const skipped = notBuilt();
-  for (const e of readdirSync(src)) {
-    if (!e.endsWith(".ts") || skipped.includes(e)) continue;
-    const js = path.join(ROOT, "dist", e.replace(/\.ts$/, ".js"));
-    let built: number;
-    try {
-      built = statSync(js).mtimeMs;
-    } catch {
-      throw new Error(`dist/${path.basename(js)} is missing; run pnpm build (pnpm test builds first)`);
-    }
-    if (statSync(path.join(src, e)).mtimeMs > built) {
-      throw new Error(`dist is older than src/${e}; run pnpm build (pnpm test builds first)`);
-    }
-  }
+  const why = staleness(ROOT);
+  if (why !== null) throw new Error(`${why}; run pnpm build (pnpm test builds first)`);
 }
 
 export interface Ran {

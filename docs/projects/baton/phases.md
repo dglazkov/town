@@ -20,12 +20,14 @@ what the conductor still had to do by hand is a finding, not a failure.
 
 ---
 
-**Where we are: under way, 13 September 2026.** Baton phase 0 is
-closed: `brief.sh` writes a phase's brief from the docs. Baton phase 1,
-the selector, is next, briefed by it. No phase has a ⚑ step and nothing
-waits on a person. The first star cut from the infra constellation,
-placed before the sheep constellation's road in the night sky because
-it costs a day and every phase after it is briefed by it.
+**Where we are: under way, 13 September 2026.** Baton phases 0 and 1
+are closed: `brief.sh` writes a phase's brief from the docs, and `pnpm
+test` takes a ring, a file, `--list`, or `--watch`. Baton phase 2, the
+mutation, is next, briefed by the one and run through the other. No
+phase has a ⚑ step and nothing waits on a person. The first star cut
+from the infra constellation, placed before the sheep constellation's
+road in the night sky because it costs a day and every phase after it
+is briefed by it.
 
 The order is the order of use. Phase 0 is the brief, so the two phases
 after it are briefed by it. Phase 1 is the selector, since the mutation
@@ -132,7 +134,36 @@ run (`test/rings.test.ts`'s ring assertion fails), the stale rule
 inverted (the fresh-dist line appears after a `touch`, which the
 conductor reads by hand and records).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` (46 files, 694 tests, three rings), and
+`pnpm typecheck` exit 0; one file ran on a fresh `dist/`, `--ring box`
+ran the four pool files alone, `--list` ran nothing, `--watch --ring
+command` refused, and a `touch` built; both mutations did as named.
+
+**Findings:**
+
+- **2026-09-13 — Briefed by `brief.sh baton 1`; the conductor added by
+  hand** the owned list pruned of `src/args.ts` and given `package.json`
+  and `AGENTS.md`, a pointer to the selector's design section, the
+  modules to read, and three risks: pnpm eating flags, vitest's
+  substring match, the reporter's zeros.
+- **2026-09-13 — The phase took thirty minutes of wall clock,** twelve
+  of them the builder's, with no return to it.
+- **2026-09-13 — Plain `node` on 24.11 imports a `.ts` by stripping its
+  types,** so `scripts/test.mjs` reads `testFilesOfRing` and the new
+  `scripts/stale.ts` directly, and `test/helpers/town.ts` fails a
+  command test by the same function.
+- **2026-09-13 — `scripts/walk.mjs` keeps a third copy of the stale
+  rule,** outside this phase's files; two readers share it, not three.
+- **2026-09-13 — The design said the box ring runs built binaries; the
+  pool bundles `src/box.ts` from source.** The design now gives `--watch`
+  refusing box its own reason.
+- **2026-09-13 — Inverting the comparison in `stale.ts` reads every file
+  stale, never fresh,** so the Proof's inverted rule was the branch in
+  `test.mjs`, which printed `dist is fresh` after a `touch`.
+- **2026-09-13 — Through pnpm a refusal is two lines,** the selector's
+  and pnpm's `ELIFECYCLE`; the script's own is one, which
+  `test/baton.test.ts` asserts under plain `node`.
 
 ---
 

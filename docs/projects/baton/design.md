@@ -140,8 +140,10 @@ mutation check to be cheap enough to run on every proof.
   so a builder types the file and never the project.
 - `pnpm test --list`: each ring, what it needs, and its files; nothing
   run. `--watch`: vitest's watch over the `checkout` ring alone, since
-  the other two run built binaries and a watch would run yesterday's
-  build; the flag says so when given with another ring.
+  the command ring runs built binaries, so a watch would run
+  yesterday's build, and the box ring runs in workerd through the pool,
+  which a watch leaves out; the flag says so when given with another
+  ring.
 
 The build is `tsc -p tsconfig.build.json`, run when `dist/` is older
 than any file under `src/` by the rule `test/helpers/town.ts` already

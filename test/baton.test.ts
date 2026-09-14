@@ -11,19 +11,25 @@
 // here as the skill's §1 quoted it at 5a69c92, which the skill now names
 // brief.sh as the home of and quotes no longer. Phase 0 is refused as
 // CLOSED and briefed with --any; a journey the phase names and journey.md
-// lacks is exit 1 with nothing written; a phase not there is exit 2.
+// lacks is exit 1 with nothing written; a phase not there is exit 2. The
+// selector, scripts/test.mjs, is tested by what runs nothing: `--list`
+// prints each ring, what it needs, and testFilesOfRing's files for it, all
+// three or the one named, and `--watch` with another ring is one line of
+// refusal; test/rings.test.ts reads the rest of its ring handling.
 
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
+import { RINGS, testFilesOfRing } from "../scripts/rings-reporter.js";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const BRIEF = path.join(ROOT, ".claude/skills/conduct/brief.sh");
 const SKILL = path.join(ROOT, ".claude/skills/conduct/SKILL.md");
 const FIXTURE = path.join(ROOT, "test/fixtures/baton-project");
 const REL = "test/fixtures/baton-project";
+const SELECTOR = path.join(ROOT, "scripts/test.mjs");
 
 // The tail, copied from the conduct skill's §1 at 5a69c92, after its
 // "Files under <paths the phase names>." sentence.
@@ -198,4 +204,48 @@ it("the tail lives in brief.sh: the skill's §1 names it in one sentence and quo
   }
   expect(readFileSync(BRIEF, "utf8")).toContain(TAIL);
   expect(skill.slice(skill.indexOf("\n## 0. Orient\n"), start)).toContain(".claude/skills/conduct/brief.sh <project> <N>");
+});
+
+function selector(...args: string[]) {
+  const r = spawnSync(process.execPath, [SELECTOR, ...args], { cwd: ROOT, encoding: "utf8" });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+it("pnpm test --list prints each ring, what it needs, and its files, and builds and runs nothing; --ring names one", () => {
+  const needs: Record<string, string> = {
+    checkout: "this process and the modules under src/, nothing built",
+    command: "the built binaries, dist/ no older than src/, each against a townd serve of its own",
+    box: "workerd, through the vitest pool over wrangler.jsonc, no account and no network",
+  };
+  const block = (ring: string) => {
+    const files = testFilesOfRing(ROOT, ring);
+    expect(files.length, `ring ${ring} has files`).toBeGreaterThan(0);
+    return `${ring}: ${needs[ring]}; ${files.length} files\n` + files.map((f) => `  ${f}\n`).join("");
+  };
+
+  const all = selector("--list");
+  expect(all.stderr).toBe("");
+  expect(all.code).toBe(0);
+  expect(all.stdout, "the three rings in order, and not a line of a build or a run").toBe(RINGS.map(block).join(""));
+
+  for (const ring of RINGS) {
+    const one = selector("--list", "--ring", ring);
+    expect(one.code, ring).toBe(0);
+    expect(one.stdout, ring).toBe(block(ring));
+  }
+  expect(selector("--list", "--ring", "box,checkout").stdout).toBe(block("checkout") + block("box"));
+});
+
+it("pnpm test --watch with the command or box ring refuses in one line saying why, and a ring not there is refused by name", () => {
+  const command = selector("--watch", "--ring", "command");
+  expect(command.code).toBe(2);
+  expect(command.stdout).toBe("");
+  expect(command.stderr).toBe("--watch watches the checkout ring alone: the command ring runs dist/ as it was built before the watch began, so a watch would rerun yesterday's build\n");
+  const box = selector("--watch", "--ring", "box");
+  expect(box.code).toBe(2);
+  expect(box.stderr.trimEnd().split("\n")).toHaveLength(1);
+  expect(box.stderr).toMatch(/^--watch watches the checkout ring alone: the box ring/);
+  const nope = selector("--ring", "checkout,nope");
+  expect(nope.code).toBe(2);
+  expect(nope.stderr).toBe('no ring "nope": the rings are checkout, command, box\n');
 });

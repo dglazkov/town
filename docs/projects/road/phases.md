@@ -24,10 +24,11 @@ told not to read it.
 
 ---
 
-**Where we are: road phase 0 closed, 14 September 2026.** `TOWN_GRANT`
-carries the grant itself or a path, and a bad one is refused without
-printing what it holds. Next is road phase 1, the contract and its
-conformance. No phase needs a person: there are
+**Where we are: road phases 0 and 1 closed, 14 September 2026.**
+`TOWN_GRANT` carries the grant itself or a path; `docs/harness.md` is
+the wire in ten sections, and `scripts/conform.mjs` runs thirty checks
+citing them, the laptop binary conformant. Next is road phase 2, the
+walk. No phase needs a person: there are
 no provision steps, and road phase 2's box walk reaches the operator's
 existing box with the token already in `~/.town/operator`, as box
 phase 4's walk did.
@@ -148,7 +149,34 @@ socket rule dropped so stdin is read from anything that is not a
 terminal (the held-socket check fails); in `scripts/conform.mjs`, one
 check's expected exit changed (the laptop binary's run fails).
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. The proof held, run by the conductor:
+`pnpm build`, `pnpm test` twice (49 files, 734 tests, three rings), and
+`pnpm typecheck` exit 0; conformance on `node bin/town.js` ended
+`conformant: 30 checks`, `/nonexistent` exit 2, `--list` ran nothing, no
+directory left; all three mutations killed by `mutate.mjs`.
+
+**Findings:**
+
+- **2026-09-14 — The first build broke the suite:** twenty-four
+  broken-harness runs six at a time, and a second `wrangler dev`, reset
+  `test/dev.test.ts`'s connection and timed out `admin.test.ts`'s fake
+  consent. Sent back; two at a time and no `--town` test held green.
+- **2026-09-14 — `--town` is built but not in the ring;** by hand the
+  builder ran it conformant twice against `wrangler dev`, passes
+  revoked and the check shop removed. The operator's box is road
+  phase 2's.
+- **2026-09-14 — Thirty checks, six past journey 1's list:** a trailing
+  slash on the town, stdin over the limit, a usage error, a retry seen
+  in the audit, white space round the value, a bare token. Twenty-three
+  broken modes fail exactly their checks.
+- **2026-09-14 — Rules the contract states and no check tests:** a
+  terminal not read, empty stdin as `null` rather than `""`, the
+  content-type header, an answer under a 500, and a harness's timeout;
+  each needs a TTY or a failing town conformance does not make.
+- **2026-09-14 — Conformance takes two seconds on the laptop binary;**
+  `test/conform.test.ts` about thirty-five, twenty of them the held
+  socket's wait. The phase took fifty-three minutes, forty-three the
+  builder's, one return.
 
 ---
 

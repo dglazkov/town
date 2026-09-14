@@ -1,0 +1,47 @@
+name: test/conform
+version: 0.1.0
+summary: Answers conformance's checks with output exact enough to compare.
+guidance: |
+  This shop exists to be called by scripts/conform.mjs, which adds it to a
+  town for one run and removes it after. Nothing here is kept.
+runtime: worker
+entry: ./main.mjs
+commands:
+  - name: echo
+    summary: Print the text given, then one newline.
+    effect: read
+    args:
+      - { name: text, type: string, required: true, doc: "The text to print.", constrainable: [max_length] }
+    output: text
+  - name: cat
+    summary: Print stdin back exactly as it came.
+    effect: read
+    output: text
+  - name: count
+    summary: Print the byte length of stdin, then one newline.
+    effect: read
+    output: text
+  - name: fail
+    summary: Write one line on stderr and exit 1.
+    effect: read
+    output: text
+  - name: hidden
+    summary: Print a line; the grant conformance makes leaves this command out.
+    effect: read
+    output: text
+tests:
+  - name: echo prints its text
+    run: echo --text "two words"
+    expect: { equals: two words }
+  - name: count of empty stdin
+    run: count
+    expect: { equals: "0" }
+  - name: cat of empty stdin
+    run: cat
+    expect: { equals: "" }
+  - name: fail exits 1
+    run: fail
+    expect: { exit: 1 }
+  - name: hidden prints
+    run: hidden
+    expect: { contains: hidden }

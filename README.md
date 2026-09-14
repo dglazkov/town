@@ -77,3 +77,8 @@ node scripts/walk.mjs --status <root>            # the walk's rows read over the
 The one sentence an agent is told:
 
 > There is a `town` command, and `town --help` says what it can do.
+
+`bin/town.js` is one harness. What any `town` must post, print, and
+refuse is the contract, [docs/harness.md](docs/harness.md), and
+`node scripts/conform.mjs -- <your town>`, from this checkout, runs it
+check by check against a town of its own.

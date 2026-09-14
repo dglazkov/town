@@ -57,6 +57,10 @@ by the conductor, recorded, committed whole.
   filesystem reaches the data directory anyway; that is colocation, the
   harness's authority and not the town's, and the rule is that the data
   directory is never under a directory an agent works in.
+  What `town` posts to the town, prints, and refuses is a contract any
+  harness may implement, [docs/harness.md](docs/harness.md), in numbered
+  sections; `scripts/conform.mjs` runs a harness once per check against
+  it, and the laptop binary is conformant.
 - **Nothing an agent can see holds a secret.** A grant file holds a
   bearer token that a person can revoke from the town at once, and
   nothing else. A shop never receives a credential; the town uses them
@@ -107,4 +111,5 @@ pnpm test --watch    # vitest's watch over the checkout ring, and no other
 pnpm typecheck
 node bin/townd.js serve --data /tmp/town-data              # a town on 127.0.0.1:7000
 node bin/townd.js admin --data /tmp/town-data shop add shops/memory
+node scripts/conform.mjs -- node bin/town.js               # conformance to docs/harness.md: a town of its own, a line per check, conformant: <N> checks; --list runs nothing
 ```

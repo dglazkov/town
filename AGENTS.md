@@ -31,7 +31,11 @@ origin, connected at that person's terminal, and bound by a permit.
 The seventh is [project box](docs/projects/box/design.md): the town off
 the laptop as one Cloudflare Worker, a shop in an isolate whose only way
 out is the window the town made for the call, the operator's verbs over
-the wire, and `runtime: worker` so one shop runs on both boxes.
+the wire, and `runtime: worker` so one shop runs on both boxes. Past
+the seven come the night sky's: [project baton](docs/projects/baton/design.md),
+the conductor's tools, and [project road](docs/projects/road/design.md),
+the wire a `town` speaks named as a contract any harness may implement,
+with the script that proves one does.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

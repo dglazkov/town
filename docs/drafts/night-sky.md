@@ -3,8 +3,9 @@
 **Status:** Draft. The shepherd's lean of 13 Sep 2026, late. Its first
 project, [baton](../projects/baton/design.md), was cut and closed the
 same night, so the order is being walked; each later row is a decision
-only when its project is cut. Road is next. Read through against all
-four drafts on 14 Sep 2026.
+only when its project is cut. [Road](../projects/road/design.md) was cut
+on 14 Sep 2026, after this page was read through against all four
+drafts the same morning.
 **Date:** 2026-09-13
 
 Four drafts sketch what the town could do after its first seven projects
@@ -31,7 +32,7 @@ in the sheep draft; this page is the order across all four.
 ```
    before the line
    1  baton      infra    the conductor's tools: brief.sh, mutate.mjs, --ring   done 13 Sep
-   2  road       sheep    the wire named, the grant from the environment, conformance
+   2  road       sheep    the wire named, the grant from the environment, conformance   cut 14 Sep
    3  drove      sheep    town in the sheep's shell; the walk shipped as a script
    ─────────────────────  the line: a dog mints a sheep that works memory and github on the box
    after the line

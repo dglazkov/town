@@ -25,15 +25,16 @@ wrote has found the bug.
 
 ---
 
-**Where we are: tent phases 0 and 1 closed, 14 September 2026; tent phase 2 is next.**
-`pnpm hermetic --ring account` and `--ring agent` both walk on the
-operator's account: the tent pitched under a HOME of its own,
-conformance or drove's stage run against it, the tent struck, the
-ring's own Workers the same before and after. The agent ring minted
-real sheep on the standing station `sheep-drove` (sheep-drove
-`fe5170a`) that commented on `dglazkov/town#6`. Tent phase 2 is docs,
-the ladder's two lists, and the listing mutation; it has no ⚑ step and
-nothing waits on a person.
+**Where we are: done, 14 September 2026.** All three phases closed.
+`pnpm hermetic --ring account` and `--ring agent` walk on the
+operator's account and the standing station `sheep-drove`, each
+pitching a tent under a HOME of its own and striking it; `AGENTS.md`,
+`README.md`, and the conduct skill name the rings, `brief.sh` carries
+the ring's line into a brief whose Proof holds `pnpm hermetic`, and
+`test/rings.test.ts` holds the two lists to the ladder. Nothing waits
+on a person. Next is the night sky's row 5, street and wagon in sheep,
+or survey; the next project whose Proof walks over the box writes the
+ring's line.
 
 The order is the order of dependence. Tent phase 0 is the ring's shape
 and the account ring, since the tent is what the stranger walks into.
@@ -195,6 +196,12 @@ the findings, each doc's line quoted. Step 4 for real: the listing
 comparison mutated to always agree with `scripts/mutate.mjs`, the test
 red, the tree as it was by `git status`. No ⚑ step.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. The docs name the rings, the two lists are held to the ladder, and the listing mutation is seen.
 
 **Findings:**
+
+- **2026-09-14 — Journey 3 step 1 reads.** `AGENTS.md`: "The outer two rings are `pnpm hermetic`'s and need `CLOUDFLARE_API_TOKEN`", with `pnpm hermetic --list` and `--ring account` in the block; `README.md`'s box section: "the outer rings prove this commit on a box of their own, a tent, and never the one above".
+- **2026-09-14 — Journey 3 step 2 reads.** The skill's verify list: "A Proof that names a walk over the box writes the ring's line … the conductor types it, never the builder"; `brief.sh` adds `## The ring` when the Proof paragraph alone holds `pnpm hermetic`, seen on fixtures both ways.
+- **2026-09-14 — Journey 3 step 3 is a test.** `test/rings.test.ts` reads both `--list`s and the design's ladder: checkout, command, box, account, agent, each once, and crate's package and yard's machine in neither.
+- **2026-09-14 — Journey 3 step 4 held.** `same: true` in the listing's comparison turned three `test/hermetic.test.ts` cases red; the file came back and `git status` was unchanged. 761 tests green.
+- **2026-09-14 — The ring's sentence lives in two places.** The skill and `brief.sh` both hold it, and `test/baton.test.ts` pins them together.

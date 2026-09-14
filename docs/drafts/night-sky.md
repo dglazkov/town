@@ -12,7 +12,8 @@ on a second station of its own, deployed from that checkout's kennel.
 Drove closed the same evening, 14 Sep 2026, on sheep-drove `7c85374`:
 the line is drawn, and the standing station `sheep-drove` stays.
 [Tent](../projects/tent/design.md), row 4's tent and stranger as one
-project, was cut that night.
+project, was cut that night and closed the same night: the account ring
+and the agent ring walk on the operator's account and the station.
 **Date:** 2026-09-13
 
 Four drafts sketch what the town could do after its first seven projects
@@ -43,7 +44,7 @@ in the sheep draft; this page is the order across all four.
    3  drove      sheep    town in the sheep's shell; the walk shipped as a script   done 14 Sep
    ─────────────────────  the line: a dog mints a sheep that works memory and github on the box
    after the line
-   4  tent + stranger   infra    the account ring, deployed from the checkout; the agent ring as a sheep inside it   cut 14 Sep as tent
+   4  tent + stranger   infra    the account ring, deployed from the checkout; the agent ring as a sheep inside it   done 14 Sep as tent
    5  street, wagon     sheep    a public origin; export and import      (small, in gaps)
    6  survey            growth   a republish runs its dependents' tests; walk 1 as a herd
    7  deputy            sheep    a narrower durable grant, the earmark its first home

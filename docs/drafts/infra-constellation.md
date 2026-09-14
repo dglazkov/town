@@ -3,7 +3,8 @@
 **Status:** Draft. A possible future, not a decision, except its first
 star: [baton](../projects/baton/design.md) was cut and closed 13 Sep
 2026, and its second: [tent](../projects/tent/design.md), the tent and
-stranger stars as one project, was cut 14 Sep 2026 after the line. The
+stranger stars as one project, was cut and closed 14 Sep 2026 after the
+line: `pnpm hermetic --ring account` and `--ring agent` stand. The
 rest is unbuilt; [night-sky.md](night-sky.md) holds the order across
 all four constellations, and it moves this one's.
 **Date:** 2026-09-13

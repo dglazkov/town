@@ -77,6 +77,14 @@ by the conductor, recorded, committed whole.
   directory and a sentence; it is the only proof that the help is honest
   and the only thing that costs money. `pnpm test` runs the first two
   and box's workerd ring; a phase's proof says when the walk is owed.
+  The outer two rings are `pnpm hermetic`'s and need
+  `CLOUDFLARE_API_TOKEN`: the account ring pitches a tent from this
+  commit, runs road's conformance over the wire, and strikes it, cents
+  and a minute; the agent ring furnishes the tent and runs drove's stage
+  against it from a sheep checkout whose kennel names a standing station,
+  a github token on stdin, under a dollar. Each strikes its tent on every
+  exit unless `--keep`, and reads the listing for its own
+  `town-hermetic-*` Workers, since the account is shared.
 - **Node 24 and nothing native.** The database is `node:sqlite`; the
   server is `node:http`. A dependency that compiles is a finding, not a
   choice.
@@ -113,6 +121,8 @@ pnpm test test/args.test.ts    # that file, in the project its ring says
 pnpm test --list     # each ring, what it needs, and its files; builds and runs nothing
 pnpm test --watch    # vitest's watch over the checkout ring, and no other
 pnpm typecheck
+pnpm hermetic --list # each outer ring, what it needs, and what it costs; reads no token and runs nothing
+pnpm hermetic --ring account   # CLOUDFLARE_API_TOKEN, asked first unless --yes: a tent pitched, conformance over the wire, the tent struck, the listing the same
 node bin/townd.js serve --data /tmp/town-data              # a town on 127.0.0.1:7000
 node bin/townd.js admin --data /tmp/town-data shop add shops/memory
 node scripts/conform.mjs -- node bin/town.js               # conformance to docs/harness.md: a town of its own, a line per check, conformant: <N> checks; --list runs nothing

@@ -11,7 +11,10 @@
 // here as the skill's §1 quoted it at 5a69c92, which the skill now names
 // brief.sh as the home of and quotes no longer. Phase 0 is refused as
 // CLOSED and briefed with --any; a journey the phase names and journey.md
-// lacks is exit 1 with nothing written; a phase not there is exit 2. The
+// lacks is exit 1 with nothing written; a phase not there is exit 2. Phase 2,
+// whose Proof names `pnpm hermetic`, is briefed with the conduct skill's §2
+// sentence on the ring, read from the skill; phases 1 and 3, the second
+// naming it in its Work alone, are briefed without it. The
 // selector, scripts/test.mjs, is tested by what runs nothing: `--list`
 // prints each ring, what it needs, and testFilesOfRing's files for it, all
 // three or the one named, and `--watch` with another ring is one line of
@@ -208,6 +211,45 @@ it("the tail lives in brief.sh: the skill's §1 names it in one sentence and quo
   }
   expect(readFileSync(BRIEF, "utf8")).toContain(TAIL);
   expect(skill.slice(skill.indexOf("\n## 0. Orient\n"), start)).toContain(".claude/skills/conduct/brief.sh <project> <N>");
+});
+
+// The ring's sentence, as the conduct skill's §2 says it and brief.sh carries
+// it, whitespace folded: tent journey 3 step 2.
+const RING_SENTENCE =
+  "A Proof that names a walk over the box writes the ring's line, `pnpm hermetic --ring agent --sheep <dir> --repo <owner/name> --issue <n>`, " +
+  "with the github token on its stdin; the conductor types it, never the builder, since the ring pitches a tent on the account and spends money, " +
+  "and the findings record the ring's exit and the stage's report.";
+const fold = (s: string) => s.replace(/\s+/g, " ");
+
+it("a phase whose Proof holds `pnpm hermetic` is briefed with the skill's §2 sentence on the ring after the phase; a phase that names it only in its Work, or not at all, is not", () => {
+  const skill = readFileSync(SKILL, "utf8");
+  const two = skill.slice(skill.indexOf("\n## 2. Verify\n"), skill.indexOf("\n## 3. Record\n"));
+  expect(two.length).toBeGreaterThan(20);
+  expect(fold(two), "the skill's proof section says the sentence").toContain(RING_SENTENCE);
+
+  const phases = readFileSync(path.join(FIXTURE, "phases.md"), "utf8");
+  const section = (n: number) => phases.slice(phases.indexOf(`## Phase ${n}:`), phases.indexOf(`## Phase ${n + 1}:`) === -1 ? undefined : phases.indexOf(`## Phase ${n + 1}:`));
+  const proof = (n: number) => fold(/\*\*Proof:\*\*[^]*?\n\n/.exec(section(n))![0]);
+  expect(proof(2), "the fixture's phase 2 names the ring across a line break in its Proof").toContain("`pnpm hermetic --ring agent --sheep");
+  expect(section(2)).toContain("hermetic --ring agent\n--sheep");
+  expect(proof(3)).not.toContain("hermetic");
+  expect(section(3), "the fixture's phase 3 names the ring in its Work alone").toContain("`pnpm hermetic`");
+
+  const ringed = brief(FIXTURE, "2");
+  expect(ringed.stderr).toBe("");
+  expect(ringed.code).toBe(0);
+  const [phase, ring] = sections(ringed.stdout, [`## The phase (${REL}/phases.md, verbatim)`, "## The ring", `## The journeys it closes (${REL}/journey.md, verbatim)`]);
+  expect(phase).toContain("## Phase 2: The wind");
+  expect(ring!.startsWith("## The ring\n\nThe phase's Proof names `pnpm hermetic`, so the conduct skill's §2 binds it:\n\n")).toBe(true);
+  expect(fold(ring!).trim()).toBe(fold("## The ring The phase's Proof names `pnpm hermetic`, so the conduct skill's §2 binds it: " + RING_SENTENCE));
+  expect(ringed.stdout.split("\n## The ring\n")).toHaveLength(2);
+
+  for (const n of ["1", "3"]) {
+    const plain = brief(FIXTURE, n);
+    expect(plain.code, `phase ${n}`).toBe(0);
+    expect(plain.stdout, `phase ${n}`).not.toContain("## The ring");
+    expect(fold(plain.stdout), `phase ${n}`).not.toContain("A Proof that names a walk over the box");
+  }
 });
 
 function selector(...args: string[]) {

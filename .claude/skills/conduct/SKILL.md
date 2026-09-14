@@ -158,6 +158,14 @@ The checklist, every phase:
 - The walk, when the phase has one: against a real deployment, a real
   model, a real service, a real credential. Walks find what fixtures
   cannot. A phase with a walk is not CLOSED until the walk is walked.
+- The ring, when the Proof holds `pnpm hermetic`. A Proof that names a
+  walk over the box writes the ring's line,
+  `pnpm hermetic --ring agent --sheep <dir> --repo <owner/name> --issue <n>`,
+  with the github token on its stdin; the conductor types it, never the
+  builder, since the ring pitches a tent on the account and spends money,
+  and the findings record the ring's exit and the stage's report.
+  `brief.sh` carries this sentence into the brief of any phase whose
+  Proof holds `pnpm hermetic`.
 - Open the new tests and ask of each: could this fail? What does it
   exercise, the thing or a stand-in for the thing? A test that asserts
   what the code returns, rather than what the journey requires, proves

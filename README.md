@@ -60,6 +60,11 @@ The town as one Cloudflare Worker (`wrangler.jsonc`, `src/box.ts`): the same ver
 CLOUDFLARE_API_TOKEN=… pnpm box deploy --name town   # the Worker, named town unless --name says, from this checkout's commit; without the token it prints the permissions and what it costs, and makes nothing
 # the token needs Account > Workers Scripts > Edit and Account > Account Settings > Read; the deploy makes TOWN_VAULT_KEY and TOWN_OPERATOR once, each on stdin,
 # writes the operator's token to ~/.town/operator with mode 600 and prints it once, reads GET / at the address, and names the consent redirect: <url>/consent. Run again, it redeploys and keeps both
+# the outer rings prove this commit on a box of their own, a tent, and never the one above: pnpm hermetic --ring account pitches a tent, town-hermetic-<sha>, under a HOME it made and proves
+# it conformant to docs/harness.md over the wire, cents and about a minute; pnpm hermetic --ring agent --sheep <dir> --repo <owner/name> --issue <n> < <token file> furnishes the tent and runs
+# drove's stage against it from a sheep checkout whose kennel names a standing station, proving a real sheep and a real model reach the tent's shops, under a dollar and a minute or two.
+# Each needs the token above, asks first unless --yes, strikes its tent on every exit unless --keep, and reads the account's listing before and after, so the account is left as found:
+# its own town-hermetic-* Workers the same, another's that came or went named. pnpm hermetic --strike <name> strikes a tent a killed run left; pnpm hermetic --list names both rings and their price
 CLOUDFLARE_API_TOKEN=… pnpm box delete --name town   # lists what goes, waits for the name typed, deletes the Worker and its object's rows, and removes ~/.town/operator when it was this box's
 export TOWN_OPERATOR=<token>                    # or keep it in ~/.town/operator; --town without either is refused naming both
 node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb posted to <url>/admin with its stdin when the verb reads one (a shop as -, a secret, a client secret), what comes back printed; a token the box refuses prints: the operator token is refused

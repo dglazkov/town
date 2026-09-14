@@ -53,3 +53,29 @@ string; `node scripts/fly.mjs --wind 3` grown to take `--tail`;
 **Proof:** `pnpm test` exit 0, the kite flying straight.
 
 **Status: NOT STARTED.**
+
+---
+
+## Phase 2: The wind
+
+**Closes:** journey 1's first criterion.
+
+**Work:** `src/wind.ts`, the kite read against a wind of its own.
+
+**Proof:** `pnpm test` exit 0. The walk, `pnpm hermetic --ring agent
+--sheep ../sheep --repo kite/string --issue 3`, green, and the kite up.
+
+**Status: NOT STARTED.**
+
+---
+
+## Phase 3: The landing
+
+**Closes:** journey 1 step 2.
+
+**Work:** `src/landing.ts`; the walk of baton-project phase 2 left to
+`pnpm hermetic`, and nothing here runs it.
+
+**Proof:** `pnpm test` exit 0, the kite on the grass.
+
+**Status: NOT STARTED.**

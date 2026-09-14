@@ -7,7 +7,11 @@
 # whole; design.md's names table and a map of its headings as `sed -n` lines;
 # every finding of every earlier phase, then the Open roster; AGENTS.md and the
 # project's own rules verbatim; the paths the phase names; and the tail, which
-# lives here and nowhere else. The conductor redirects it and edits it after.
+# lives here and nowhere else. When the phase's **Proof:** paragraph holds
+# `pnpm hermetic`, a `## The ring` section follows the phase's, carrying the
+# conduct skill's §2 sentence on a Proof that names a walk over the box, which
+# lives here too and which test/baton.test.ts reads in both. The conductor
+# redirects it and edits it after.
 # A <project> holding a "/" is the project's directory itself, which is how the
 # test points it at a fixture; AGENTS.md is always this checkout's.
 # Exit 2: no such project, file, or phase. Exit 1: the phase's status is not
@@ -82,6 +86,24 @@ for j in $JNUMS; do
   if [ -z "$JOURNEYS" ]; then JOURNEYS=$s; else JOURNEYS=$JOURNEYS$NL$NL$s; fi
 done
 [ -n "$JOURNEYS" ] || JOURNEYS="none: the **Closes:** paragraph names no journey"
+
+# The ring: when the **Proof:** paragraph, lines joined, holds `pnpm hermetic`,
+# the conduct skill's §2 sentence on a walk over the box, as it stands there.
+PROOF=$(printf '%s\n' "$PHASE" | awk '/^\*\*Proof:\*\*/ { on = 1 } on && /^[ \t]*$/ { exit } on { printf "%s ", $0 }' | tr -s ' \t' '  ')
+RING=
+case $PROOF in
+  *"pnpm hermetic"*) RING="## The ring
+
+The phase's Proof names \`pnpm hermetic\`, so the conduct skill's §2 binds it:
+
+A Proof that names a walk over the box writes the ring's line,
+\`pnpm hermetic --ring agent --sheep <dir> --repo <owner/name> --issue <n>\`,
+with the github token on its stdin; the conductor types it, never the
+builder, since the ring pitches a tent on the account and spends money,
+and the findings record the ring's exit and the stage's report.
+
+" ;;
+esac
 
 # The design's names table, whole, and every heading with its line range: to
 # the line before the next heading of its level or higher, fences skipped.
@@ -174,7 +196,7 @@ $FLAGS
 
 $PHASE
 
-## The journeys it closes ($(rel "$J"), verbatim)
+${RING}## The journeys it closes ($(rel "$J"), verbatim)
 
 $JOURNEYS
 

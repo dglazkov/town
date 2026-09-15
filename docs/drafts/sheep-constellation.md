@@ -3,7 +3,8 @@
 **Status:** Draft. A possible future, not a decision, except its first
 two stars: [road](../projects/road/design.md) closed 14 Sep 2026 in
 town, and drove closed the same day in sheep (sheep-drove `7c85374`),
-drawing the line below.
+drawing the line below; and its wagon, cut in town on 14 Sep 2026 as
+[wagon](../projects/wagon/design.md), planned and not yet built.
 Later the same evening the shepherd leaned toward this one as the
 cornerstone, for the line it draws (below); [night-sky.md](night-sky.md)
 holds the sequence across all four constellations.

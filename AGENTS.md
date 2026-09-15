@@ -39,7 +39,10 @@ with the script that proves one does. After drove drew the line in
 sheep, [project tent](docs/projects/tent/design.md): the account ring
 and the agent ring as one script, a box pitched under the commit's
 name, road's conformance and drove's stage run against it, and the box
-struck.
+struck. Then [project wagon](docs/projects/wagon/design.md): a town
+packed whole into one document by `store export` and unpacked into an
+empty town by `store import`, on a laptop or over the wire, so a backup
+is an export and a move is an export and an import.
 
 Read a project's `phases.md` for where its work stands and what the next
 phase is; [docs/projects/README.md](docs/projects/README.md) lists them.

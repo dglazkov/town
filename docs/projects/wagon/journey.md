@@ -31,8 +31,11 @@ Vocabulary the journeys use, on top of the earlier projects':
 - **An empty town**: no user, pass, grant, credential, permit, call, or
   state; no shop but `town/hall`; no type but the seeded. The only town
   an import writes to.
-- **A tent**: a box of a ring's own, `pnpm hermetic --ring account
-  --keep`, struck after by `--strike`, as tent defined it.
+- **A tent**: a box of the walk's own, named `town-hermetic-*` and
+  pitched empty by `HOME=<walk>/home pnpm box deploy --name <tent>`,
+  struck after by `pnpm hermetic --strike <tent>`, as tent defined it.
+  Not the account ring's kept tent: conformance leaves a user and two
+  passes on it, and an import writes into an empty town alone.
 
 ## Journey 1: A town is copied on a laptop
 
@@ -89,10 +92,11 @@ Acceptance criteria:
 ## Journey 2: A town moves from a laptop to a box, and back
 
 The same laptop and `a/`, `CLOUDFLARE_API_TOKEN` in the environment,
-and a tent pitched and kept: `pnpm hermetic --ring account --keep`,
-its address `T`, its operator token under the ring's `home/`.
+and a tent pitched empty under a walk directory's `home/`: `HOME=<walk>/home
+pnpm box deploy --name <tent>`, its address `T`, its operator token
+under `<walk>/home/.town/operator`.
 
-1. `HOME=<ring>/home townd admin --town T store import --key wagon.key
+1. `HOME=<walk>/home townd admin --town T store import --key wagon.key
    < wagon.json` prints the counts, exit 0. `townd admin --town T shop
    ls` names memory and github; `user ls` the user; `credential ls
    --user` the credential, live.
@@ -107,7 +111,7 @@ its address `T`, its operator token under the ring's `home/`.
    state file carried as `base64`: refused naming its path. A wagon
    over eight megabytes: refused by the pipe before posting, naming the
    size and `--no-audit`.
-5. `HOME=<ring>/home townd admin --town T store export --key wagon2.key
+5. `HOME=<walk>/home townd admin --town T store export --key wagon2.key
    > wagon2.json` prints the counts, its `from` is `T`, and stderr says
    `wagon2.key` was made. `townd admin --data d store import --key
    wagon2.key < wagon2.json`; `townd serve --data d`; the grant file
@@ -123,7 +127,7 @@ Acceptance criteria:
 - `pnpm hermetic --ring account` is green on the commit that changed
   the wire.
 - The wagon's key reached the box in no file: `grep -rF` of its bytes
-  over the ring's directory finds `wagon.key` and `wagon2.key` alone,
+  over the walk's directory finds `wagon.key` and `wagon2.key` alone,
   and the tent's `audit` holds no row for an admin verb.
 
 ## Journey 3: The standing box is backed up

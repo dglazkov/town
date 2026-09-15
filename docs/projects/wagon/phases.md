@@ -125,8 +125,9 @@ now point at wagon. The night sky's and the sheep draft's status lines
 moved.
 
 **⚑ provision, three steps.** `pnpm hermetic --ring account` on the
-commit that changes the wire, cents and a minute; a tent pitched with
-`--keep` for journey 2 and struck by `--strike` after, cents; and the
+commit that changes the wire, cents and a minute; a tent pitched empty by
+`pnpm box deploy --name <tent>` under a walk's HOME for journey 2 and
+struck by `pnpm hermetic --strike` after, cents; and the
 token file from wagon phase 0 again, for journey 2 step 2's `github
 show` through the tent.
 
@@ -136,7 +137,7 @@ by the conductor and recorded in the findings with the tent's name:
 
 1. Journey 2 steps 1 to 6 on the tent, each verb's exit and counts
    quoted, the `memory recall` and `github show` output quoted, and
-   `grep -rF` of the wagon key's bytes over the ring's directory
+   `grep -rF` of the wagon key's bytes over the walk's directory
    finding the two key files alone.
 2. Journey 3 steps 1 and 2 on the standing box, the counts, the box's
    audit's last `at` before and after the export the same, and `e`

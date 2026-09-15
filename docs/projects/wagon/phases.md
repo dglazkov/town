@@ -158,4 +158,4 @@ subprocess case, and put back.
 - **2026-09-14 — Journey 3 on the standing box.** Redeployed from `b60ab85`, secrets kept. Export exit 0: 2 users, 21 passes, 183 calls; audit byte for byte the same after. `e` matched every `ls` and `audit` but the hall's `added`; its oauth client opens; no token found. `e` removed.
 - **2026-09-14 — `type ls` never says registered.** Journey 3 said it would; the claim is now the client opening under `e`'s key, checked through `openClient`, its secret absent from the wagon.
 - **2026-09-14 — The row limit lives in `src/wall.ts`.** `src/rows.ts` is Worker-only and never built for Node, where `src/wagon.ts` runs too.
-- **2026-09-14 — `test/dev.test.ts` resets under load.** Step 9's `fetch` to wrangler dev threw `ECONNRESET` in four of seven runs at load 8 to 11, after steps 3 to 8 passed; alone and in final runs it passed.
+- **2026-09-14 — `test/dev.test.ts` resets under load.** Step 9's `fetch` to wrangler dev threw `ECONNRESET` at load 8 to 11: a socket kept alive since the readiness poll, reused as wrangler dev closed it. Fixed after the close, each request `connection: close`: 3 of 3 loaded runs pass, 2 of 2 failed before.

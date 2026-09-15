@@ -347,7 +347,8 @@ export async function dev(): Promise<Dev> {
       await stop();
       throw new Error(`wrangler dev did not answer within 90s:\n${log}`);
     }
-    const answered = await fetch(url).then((r) => r.text(), () => null);
+    // On a connection of its own, so no socket is left kept alive for a later request to reuse after wrangler dev has closed it.
+    const answered = await fetch(url, { headers: { connection: "close" } }).then((r) => r.text(), () => null);
     if (answered === "town\n") break;
     await new Promise((r) => setTimeout(r, 100));
   }

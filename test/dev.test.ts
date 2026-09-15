@@ -170,10 +170,11 @@ it("walks journey 1 steps 3 to 9 through the built town and townd admin --town a
   expect(ok(box.admin(["audit"])).stdout).toBe(before);
   expect(ok(box.admin(["user", "ls"])).stdout).not.toContain("ada");
 
-  // Step 9: every answer carries the build the box was started with.
+  // Step 9: every answer carries the build the box was started with. Each request on a connection of its own, as
+  // scripts/box.mjs asks: one kept alive since the last request can be closed by wrangler dev as it is reused, ECONNRESET.
   expect(box.build).toMatch(/^[0-9a-f]{40}$/);
   for (const [method, route, status] of [["GET", "/", 200], ["POST", "/call", 200], ["POST", "/admin", 401], ["GET", "/nothing", 404]] as const) {
-    const res = await fetch(`${box.url}${route}`, { method, ...(method === "POST" ? { body: "{}" } : {}) });
+    const res = await fetch(`${box.url}${route}`, { method, headers: { connection: "close" }, ...(method === "POST" ? { body: "{}" } : {}) });
     expect([route, res.status, res.headers.get("x-town-build")]).toEqual([route, status, box.build]);
     await res.body?.cancel();
   }

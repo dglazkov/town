@@ -185,20 +185,22 @@ byte is written:
    which migrates it, and export again`. The wagon has no migrations of
    its own, and the store's run on open, so the source is brought up to
    date and not the wagon.
-3. The town is empty, by the definition in the names table, else the
-   refusal names what it holds, `this town holds 2 users and 3 shops;
-   import writes into an empty town alone`. There is no merge: ids
-   would collide or would not, and a wagon is a town, not a patch.
-4. Every sealed value opens under the wagon's key: opened and counted,
-   and a value that does not is `credential cred_x does not open under
-   --key; the key is not the one this wagon was packed with, or the
-   wagon is changed`, the vault's own refusal reworded, and the count.
-5. On the box, the box's rules, each named with the shop, user, or path:
+3. On the box, the box's rules, each named with the shop, user, or path:
    every shop's manifest says `runtime: worker`, since the box runs an
    isolate alone and would refuse the shop on `shop add`; every state
    file is text, not `base64`, since the box's state is rows of text;
    every file and every state row is under the platform's row limit,
-   `overRowLimit`'s line.
+   `overRowLimit`'s line. These come before the town's emptiness because
+   they are the wagon's and not the town's: a box emptied would still
+   refuse such a wagon, so it is named at any box, the first time.
+4. The town is empty, by the definition in the names table, else the
+   refusal names what it holds, `this town holds 2 users and 3 shops;
+   import writes into an empty town alone`. There is no merge: ids
+   would collide or would not, and a wagon is a town, not a patch.
+5. Every sealed value opens under the wagon's key: opened and counted,
+   and a value that does not is `credential cred_x does not open under
+   --key; the key is not the one this wagon was packed with, or the
+   wagon is changed`, the vault's own refusal reworded, and the count.
 
 Then the writing: files and state first, since without their rows they
 are nothing, `shelf.put` per shop and the states seam per shop and
@@ -252,7 +254,7 @@ Nothing else on the box moves: no route, no table, no binding. That is
 still the box's wire, so the phase that changes it proves it on a tent
 by the account ring, and walks the import onto a tent kept by `--keep`
 and struck after, never onto the standing box, which is not empty and
-refuses the import by rule 3, which the walk types once to see.
+refuses the import by rule 4, which the walk types once to see.
 
 ## Tests
 

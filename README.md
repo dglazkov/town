@@ -65,6 +65,7 @@ CLOUDFLARE_API_TOKEN=… pnpm box deploy --name town   # the Worker, named town 
 # drove's stage against it from a sheep checkout whose kennel names a standing station, proving a real sheep and a real model reach the tent's shops, under a dollar and a minute or two.
 # Each needs the token above, asks first unless --yes, strikes its tent on every exit unless --keep, and reads the account's listing before and after, so the account is left as found:
 # its own town-hermetic-* Workers the same, another's that came or went named. pnpm hermetic --strike <name> strikes a tent a killed run left; pnpm hermetic --list names both rings and their price
+# before redeploying the standing box, run pnpm hermetic --ring account on the commit to deploy: a fresh deploy's failures are the tent's and not the box's
 CLOUDFLARE_API_TOKEN=… pnpm box delete --name town   # lists what goes, waits for the name typed, deletes the Worker and its object's rows, and removes ~/.town/operator when it was this box's
 export TOWN_OPERATOR=<token>                    # or keep it in ~/.town/operator; --town without either is refused naming both
 node bin/townd.js admin --town <url> user add dimitri   # a pipe: the verb posted to <url>/admin with its stdin when the verb reads one (a shop as -, a secret, a client secret), what comes back printed; a token the box refuses prints: the operator token is refused

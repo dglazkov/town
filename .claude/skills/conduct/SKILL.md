@@ -79,7 +79,7 @@ the Findings of the phases before it (they are the things the design
 did not know); `AGENTS.md`. Note the wall clock; a Finding records what
 a phase cost.
 
-**Three gates before any code:**
+**Four gates before any code:**
 
 - **The docs agree.** If the phase's Proof, the journey's steps, and the
   design's mechanism disagree, fix the docs first, as their own commit,
@@ -98,6 +98,15 @@ a phase cost.
   reports. This is the one gate that waits on a person, so before
   stopping at it, do every phase and every part of this phase that does
   not need the answer, so the ask is the only thing left.
+- **What runs on the box is proved on a box.** A phase whose Work
+  touches what the box runs or how it is reached (`src/box.ts`, the
+  object, the isolate or the window, `src/wire.ts`, `docs/harness.md`,
+  `scripts/box.mjs`, a shop's `runtime: worker`) and whose Proof names
+  no ring gets one, as a docs fix before briefing: `pnpm hermetic --ring
+  account` for the wire, `--ring agent` for what an agent meets. Its run
+  is a ⚑ step, asked with its price. Fakes and workerd did not see tent
+  phase 0's first finding, a fresh box answering 500 after its deploy
+  called it ready; the account ring did, on its first run.
 
 ## 1. Brief
 
@@ -253,6 +262,13 @@ Two things look like stops and are not. Decide them, record them, go on:
   something the repo cannot produce. Fix the Proof, say why in the
   commit, then continue. Never mark a phase by a proof that was not the
   one named.
+
+**Before the leg's final report**, when its commits touched what the
+box runs or how it is reached and no ring ran on the last of them, run
+`pnpm hermetic --ring account` once on that commit, asked with its
+price like any ⚑ step, and put its exit and its verdict line in the
+report. A ring nothing runs rots quietly: it needs a token, a sheep
+checkout, and a standing station, and CI runs none of them.
 
 When in doubt whether something needs a person, ask: is the missing
 thing a credential, money, or a hand? If not, it is yours.

@@ -84,7 +84,10 @@ by the conductor, recorded, committed whole.
   against it from a sheep checkout whose kennel names a standing station,
   a github token on stdin, under a dollar. Each strikes its tent on every
   exit unless `--keep`, and reads the listing for its own
-  `town-hermetic-*` Workers, since the account is shared.
+  `town-hermetic-*` Workers, since the account is shared. A phase that
+  changes what the box runs or how it is reached names a ring in its
+  Proof, and the standing box is redeployed only from a commit the
+  account ring has passed.
 - **Node 24 and nothing native.** The database is `node:sqlite`; the
   server is `node:http`. A dependency that compiles is a finding, not a
   choice.

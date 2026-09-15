@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 since: 2026-09-14
 see: wagon
-note: "written 14 Sep 2026, the evening tent closed: the town's wagon, where a town is packed whole into one document and unpacked into an empty town on a laptop or a box. `townd admin store export --key <file>` prints every user, pass, grant, shop with its files, credential type, credential, permit, call, and state file as one JSON document, the sealed values sealed again under the wagon's key; `store import --key <file>` writes it into an empty town, whole or not at all, at the laptop or over the wire. An agent's grant works at the new town with the address changed and nothing else. The star wagon of the sheep constellation and the second half of the night sky's row 5, the two verbs box said were one verb away. Wagon phase 0 closed 14 Sep 2026: export and import at the laptop, journey 1 walked with a real GitHub token, a town crossing data directories with its grant working at the new address. Wagon phase 1 part-done the same night: the key in the body and the box's rules, journey 2 walked on a tent and struck; journey 3, the standing box's backup, next."
+note: "written 14 Sep 2026, the evening tent closed: the town's wagon, where a town is packed whole into one document and unpacked into an empty town on a laptop or a box. `townd admin store export --key <file>` prints every user, pass, grant, shop with its files, credential type, credential, permit, call, and state file as one JSON document, the sealed values sealed again under the wagon's key; `store import --key <file>` writes it into an empty town, whole or not at all, at the laptop or over the wire. An agent's grant works at the new town with the address changed and nothing else. The star wagon of the sheep constellation and the second half of the night sky's row 5, the two verbs box said were one verb away. Wagon phase 0 closed 14 Sep 2026: export and import at the laptop, journey 1 walked with a real GitHub token, a town crossing data directories with its grant working at the new address. Wagon phase 1 closed the same night: the key in the body and the box's rules, journey 2 walked on a tent and struck, and journey 3 on the standing box, redeployed from b60ab85 and exported with its audit unchanged. Done."
 ---
 
 # Wagon — the journeys
@@ -143,8 +143,8 @@ token, the box holding the shepherd's users, consents, and grants.
    town-<date>.json` prints the same counts. `townd serve --data e`,
    and `user ls`, `shop ls`, `type ls`, `credential ls --user <each>`,
    `permit ls`, and `audit` over `e` print what the box's print, save
-   the address; the oauth type's client came through, since `type ls`
-   says it is registered.
+   the address and the hall's `added`; the oauth type's client came
+   through, its sealed registration opening under `e`'s own key.
 3. The file and the key are kept apart, the file where a backup goes
    and the key where `~/.town/operator` is, and the README says so in
    one paragraph.

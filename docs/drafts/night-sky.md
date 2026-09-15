@@ -15,8 +15,9 @@ the line is drawn, and the standing station `sheep-drove` stays.
 project, was cut that night and closed the same night: the account ring
 and the agent ring walk on the operator's account and the station.
 [Wagon](../projects/wagon/design.md), the second half of row 5, was cut
-the same night: `store export` and `store import`, the two verbs box
-said were one verb away; street stays a proposal.
+the same night and closed the same night: `store export` and `store
+import`, a town carried whole at a laptop and over the wire, the
+standing box backed up; street stays a proposal.
 **Date:** 2026-09-13
 
 Four drafts sketch what the town could do after its first seven projects
@@ -48,7 +49,7 @@ in the sheep draft; this page is the order across all four.
    ─────────────────────  the line: a dog mints a sheep that works memory and github on the box
    after the line
    4  tent + stranger   infra    the account ring, deployed from the checkout; the agent ring as a sheep inside it   done 14 Sep as tent
-   5  street, wagon     sheep    a public origin; export and import      (small, in gaps; wagon cut 14 Sep)
+   5  street, wagon     sheep    a public origin; export and import      (small, in gaps; wagon done 14 Sep)
    6  survey            growth   a republish runs its dependents' tests; walk 1 as a herd
    7  deputy            sheep    a narrower durable grant, the earmark its first home
    8  tempo, crate, yard infra   the suite's clock and CI; the release path, tent moved onto it; the machine ring

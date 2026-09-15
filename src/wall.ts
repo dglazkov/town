@@ -48,6 +48,28 @@ export const ISOLATE_WALL: Wall = {
 /** The words a shop whose runtime is not `worker` is refused in on the box, at `shop add` and at `publish`. */
 export const SUBPROCESS_REFUSAL = "runtime: subprocess runs on a laptop; this box runs a shop in an isolate: write runtime: worker (spec §7)";
 
+/** The most one file of a shop's state, or of its shelf, may hold on the box, its path and content in UTF-8: the platform's two megabytes a row. Beside the box's other words, and not in src/rows.ts, since src/wagon.ts checks it and is Node's too. */
+export const ROW_LIMIT_BYTES = 2_000_000;
+
+/** The largest file of a state past the row limit, its bytes; null when every file fits. */
+export function overRowLimit(state: ReadonlyMap<string, string>): number | null {
+  const encoder = new TextEncoder();
+  let most: number | null = null;
+  for (const [path, content] of state) {
+    const bytes = encoder.encode(path).length + encoder.encode(content).length;
+    if (bytes > ROW_LIMIT_BYTES && (most === null || bytes > most)) most = bytes;
+  }
+  return most;
+}
+
+/** What a file past the row limit is over, in the row limit's line and the wagon's refusal alike. */
+export const ROW_LIMIT_WORDS = "over the box's two megabyte limit on one file";
+
+/** The row limit's line, on stderr for a call that would leave a file past it. */
+export function rowLimitLine(bytes: number): string {
+  return `town: a file of the state would be ${bytes} bytes after this call, ${ROW_LIMIT_WORDS}; it is kept as it was before the call`;
+}
+
 /** The wall chooser the box's admin is given: the box's own, and `--wall` refused, since it is not the operator's to choose. */
 export const BOX_WALL = (flag: string | undefined): { open: (opts: { data?: string }) => Wall } | { refused: string } =>
   flag === undefined ? { open: () => ISOLATE_WALL } : { refused: "--wall is not the operator's to choose on the box; every shop runs in an isolate" };

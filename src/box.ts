@@ -7,7 +7,8 @@
 // and the body as the clerk's `parseCall` does and hands them to the
 // object, which runs the gate and writes one audit row; `POST /admin`
 // compares the bearer to the operator's secret in constant time and hands
-// the verb's words and stdin to the object, which runs src/admin.ts's
+// the verb's words, its stdin, and for the wagon's verbs the wagon's key as
+// sixty-four hex characters to the object, which runs src/admin.ts's
 // `main` over its store with what it prints captured; `GET
 // /admin/consent/<state>` waits, with the same bearer, on a consent the
 // object holds; `GET /consent`, where a provider's redirect lands, and
@@ -54,11 +55,11 @@ import type { Manifest } from "./manifest.js";
 import type { RunOptions, RunResult } from "./runtime.js";
 import { decideAndRecord, handleCall, refusedCall } from "./server.js";
 import type { Shelf } from "./shelf.js";
-import { TOWN_OBJECT, objectStore, overRowLimit, readState, rowLimitLine, writeState } from "./rows.js";
+import { TOWN_OBJECT, objectStore, readState, writeState } from "./rows.js";
 import type { Store } from "./store.js";
 import { openCredential, sealCredential } from "./vault.js";
 import { OPERATOR_REFUSED, type AdminAnswer } from "./wire.js";
-import { BOX_WALL, ISOLATE_WALL, SUBPROCESS_REFUSAL } from "./wall.js";
+import { BOX_WALL, ISOLATE_WALL, SUBPROCESS_REFUSAL, overRowLimit, rowLimitLine } from "./wall.js";
 import { forwardHeaders, forwardPath, parseHeaderTemplate, parseOrigin, signedHeader, windowRefusal } from "./window.js";
 
 export interface Env {
@@ -185,8 +186,8 @@ export class Town extends DurableObject<Env> {
     return handleCall(this.deps(), call);
   }
 
-  /** The operator's verb: src/admin.ts's `main` over the object's store, with what it prints captured, and for a consent begun, its state to wait on. */
-  async admin(argv: string[], stdin: string | null, address: string): Promise<AdminAnswer> {
+  /** The operator's verb: src/admin.ts's `main` over the object's store, with what it prints captured, and for a consent begun, its state to wait on; `key`, the wagon's key as hex the pipe sent, is held for this verb alone and written nowhere. */
+  async admin(argv: string[], stdin: string | null, address: string, key: string | null = null): Promise<AdminAnswer> {
     const store = this.store;
     if (store.getMeta("address") !== address) store.setMeta("address", address);
     let stdout = "";
@@ -202,7 +203,7 @@ export class Town extends DurableObject<Env> {
     };
     let exit: number;
     try {
-      exit = await admin(argv, io, BOX_WALL, { store, runtime: this.runtime, address });
+      exit = await admin(argv, io, BOX_WALL, { store, runtime: this.runtime, address, build: this.env.TOWN_BUILD, ...(key === null ? {} : { wagonKey: Buffer.from(key, "hex") }) });
     } catch (err) {
       // What a verb threw that is not a refusal names no value: its kind alone.
       stderr += `townd admin: the town failed on this verb: ${(err as Error).name}\n`;
@@ -403,10 +404,11 @@ async function door(request: Request, env: Env): Promise<Response> {
       parsed = null;
     }
     const o = (typeof parsed === "object" && parsed !== null ? parsed : {}) as Record<string, unknown>;
-    if (!Array.isArray(o.argv) || !o.argv.every((a) => typeof a === "string") || (o.stdin !== undefined && o.stdin !== null && typeof o.stdin !== "string")) {
+    const key = o.key === undefined || o.key === null ? null : typeof o.key === "string" && /^[0-9a-fA-F]{64}$/.test(o.key) ? o.key : undefined;
+    if (!Array.isArray(o.argv) || !o.argv.every((a) => typeof a === "string") || (o.stdin !== undefined && o.stdin !== null && typeof o.stdin !== "string") || key === undefined) {
       return Response.json({ stdout: "", stderr: "townd admin: the box could not read this verb\n", exit: 1 }, { status: 400 });
     }
-    return Response.json(await town().admin(o.argv as string[], (o.stdin as string | null | undefined) ?? null, url.origin));
+    return Response.json(await town().admin(o.argv as string[], (o.stdin as string | null | undefined) ?? null, url.origin, key));
   }
   const waiting = /^\/admin\/consent\/([^/]+)$/.exec(path);
   if (method === "GET" && waiting) {

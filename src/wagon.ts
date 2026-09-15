@@ -5,8 +5,10 @@
 // reads each shop's files from the shelf, and every state file by the
 // store's states seam; it writes nothing. The unpacking reads the wagon
 // whole and checks it whole before a byte is written, in order: one JSON
-// document whose `wagon` is 1; its `schema` this town's; the town empty;
-// every sealed value opening under the wagon's key. Then files and state
+// document whose `wagon` is 1; its `schema` this town's; on the box, every
+// shop `runtime: worker`, every state file text, and every file and state
+// file within the platform's row; the town empty; every sealed value
+// opening under the wagon's key. Then files and state
 // go onto the shelf and the state root, and every row in one transaction,
 // each sealed value sealed again under this town's key. Ids are kept, so a
 // grant file works at the new town with its address changed and nothing
@@ -23,6 +25,7 @@ import { HALL_NAME } from "./manifest.js";
 import { SCHEMA_VERSION, SEEDED_TYPES } from "./schema.js";
 import { StoreError, type Store } from "./store.js";
 import { KEY_BYTES, VaultError, openCredential, readKeyFile, sealCredential } from "./vault.js";
+import { ROW_LIMIT_WORDS, SUBPROCESS_REFUSAL, overRowLimit } from "./wall.js";
 
 /** The format's version: the `wagon` key's value. */
 export const WAGON_FORMAT = 1;
@@ -230,11 +233,38 @@ const cellOf = (v: Cell, blob: boolean) => (blob && typeof v === "string" ? Buff
 export function unpack(store: Store, text: string, wagonKey: Buffer): Wagon {
   const wagon = readWagon(store, text);
 
-  // 3. An empty town alone: no merge.
+  // 3. On the box, the box's rules, each named with its shop, user, or path, and before the emptiness check, so a wagon the box cannot hold is named as that over a town that is not empty: every shop runtime: worker, since the box runs an isolate alone; every state file text, since its state is rows of text; every file and state file within the platform's row.
+  if (store.dataDir === null) {
+    const refuse = (why: string) => new StoreError(`this box does not take this wagon: ${why}; nothing was written`);
+    for (const s of wagon.shops) {
+      let runtime: unknown;
+      try {
+        runtime = (JSON.parse(String(s.manifest)) as { runtime?: unknown }).runtime;
+      } catch {
+        runtime = undefined;
+      }
+      if (runtime !== "worker") throw refuse(`shop ${String(s.name)} is refused: ${SUBPROCESS_REFUSAL}`);
+    }
+    for (const f of wagon.state) {
+      if ("base64" in f) throw refuse(`state file ${f.path} of shop ${f.shop} for user ${f.user} is bytes that are not UTF-8, carried as base64, and this box keeps state as rows of text`);
+    }
+    for (const s of wagon.shops) {
+      for (const f of s.files) {
+        const bytes = overRowLimit(new Map([[f.path, f.content]]));
+        if (bytes !== null) throw refuse(`file ${f.path} of shop ${String(s.name)} is ${bytes} bytes, ${ROW_LIMIT_WORDS}`);
+      }
+    }
+    for (const f of wagon.state) {
+      const bytes = "content" in f ? overRowLimit(new Map([[f.path, f.content]])) : null;
+      if (bytes !== null) throw refuse(`state file ${f.path} of shop ${f.shop} for user ${f.user} is ${bytes} bytes, ${ROW_LIMIT_WORDS}`);
+    }
+  }
+
+  // 4. An empty town alone: no merge.
   const held = holdings(store);
   if (held.length > 0) throw new StoreError(`this town holds ${listed(held)}; import writes into an empty town alone`);
 
-  // 4. Every sealed value opens under the wagon's key, before any is written.
+  // 5. Every sealed value opens under the wagon's key, before any is written.
   const opened = new Map<string, string>();
   const failed: string[] = [];
   let total = 0;
@@ -326,7 +356,7 @@ export async function wagonVerb(over: Over, key: string, args: string[], p: Pars
     if (!over.wagonKey) throw new UsageError("store export needs --key <file>, read where townd runs");
     const audit = !p.opts.has("no-audit");
     const from = store.dataDir === null ? (store.getMeta("address") ?? "the box") : path.join(store.dataDir, "town.db");
-    const { wagon, left } = pack(store, over.key, over.wagonKey, { audit, now, build: store.dataDir === null ? "box" : "laptop", from });
+    const { wagon, left } = pack(store, over.key, over.wagonKey, { audit, now, build: store.dataDir === null ? (over.build ?? "box") : "laptop", from });
     io.out(`${JSON.stringify(wagon, null, 2)}\n`);
     io.err(`${countsLine(wagon)}${audit ? "" : `; calls left behind: ${left}`}\n`);
     return 0;

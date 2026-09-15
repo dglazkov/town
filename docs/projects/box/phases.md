@@ -62,7 +62,7 @@ money and reads the audit the earlier phases made.
 **Deliberately open.** Postponed on purpose: a process on the box,
 pen's container as a tier; one object per shop and user, and alarms;
 a second person's own way in; a custom domain; backups and a store
-moved from a laptop; the OAuth relay; a Linux wall, never.
+moved from a laptop, now [wagon](../wagon/phases.md)'s; the OAuth relay; a Linux wall, never.
 
 ---
 

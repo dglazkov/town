@@ -492,10 +492,12 @@ its line in `stderr` as any shop failure is.
 - **A custom domain, a second environment, or an upgrade path.** The
   Worker's `workers.dev` address, one environment, and a redeploy.
 - **Backups.** The object's rows are the platform's to keep; an export
-  verb is owed when there is something to lose.
+  verb is owed when there is something to lose. Now
+  [wagon](../wagon/design.md)'s `store export`, wagon phase 1.
 - **A store moved from a laptop to a box.** A box starts empty and the
   operator adds shops and users over the wire; the shape of the rows
-  is the same, and a `store export` and `import` are one verb away.
+  is the same, and a `store export` and `import` are one verb away. Now
+  [wagon](../wagon/design.md)'s export and import, wagon phase 1.
 - **The OAuth relay.** §14's v.NEXT: a box's registrations are the
   operator's own, as consent said.
 - **Rate limits, quotas, and cost.** Measured in the walk, recorded as

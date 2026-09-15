@@ -23,11 +23,12 @@ a walk that needs a box to import into pitches a tent and strikes it.
 ---
 
 **Where we are: partial, 14 September 2026.** Wagon phase 0 is CLOSED:
-`store export` and `store import` pack and unpack a town at the laptop,
-journey 1 walked with a real GitHub token. Next is wagon phase 1, the
-wagon over the wire, whose account ring, kept tent, and standing box's
-export the shepherd said yes to on 14 September; nothing waits on a
-person.
+`store export` and `store import` at the laptop, journey 1 walked.
+Wagon phase 1 is PART-DONE: the wire carries the key in the body and
+the box refuses what it cannot hold, journey 2 walked on a tent and
+struck. Next is wagon phase 1's journey 3: the account ring on this
+commit, the standing box redeployed from it, and its export walked, all
+said yes to by the shepherd; nothing waits on a person.
 
 The order is the order of dependence. Wagon phase 0 is the wagon
 itself, `src/wagon.ts` and the states seam, packed and unpacked at the
@@ -148,4 +149,14 @@ Falsified by one mutation with `scripts/mutate.mjs`: the box's
 `runtime: worker` check removed from `unpack`, seen by the box ring's
 subprocess case, and put back.
 
-**Status: NOT STARTED.**
+**Status: PART-DONE.** 14 Sep 2026. The wire, the key in the body, and the box's rules, journey 2 walked on a tent; journey 3 waits on the standing box's redeploy from this commit.
+
+**Findings:**
+
+- **2026-09-14 — Suite, ring, mutation.** `pnpm test` exit 0, 778 tests; typecheck 0. `pnpm hermetic --ring account` exit 0 at `c99e9eb-dirty`, this tree: `conformant: 30 checks`. `if (runtime !== "worker")` to `if (false)` killed by the box ring's door case.
+- **2026-09-14 — Two doc fixes before the walk.** The box's rules now run before emptiness, else step 4 over a filled tent only says not empty; the ring's kept tent holds conformance's user and passes, so journey 2's tent is pitched empty by `pnpm box deploy`.
+- **2026-09-14 — Journey 2 walked on `town-hermetic-wagon`.** Import exit 0; `memory recall` and `github show` through the box exit 0; audit `a`'s 11 then 2; again, not empty; `test/echo` refused naming `runtime: worker`, `notes/second` as base64, an 11,213,809-byte body before posting; audit unchanged.
+- **2026-09-14 — Back to a laptop.** Export from the tent exit 0, `from` its address, `build` its commit; import into `d`, `memory recall` exit 0, two `isolate` rows. Each key's bytes, hex, and base64 only in its own file; the token in none. Struck, listing as before.
+- **2026-09-14 — The row limit lives in `src/wall.ts`.** `src/rows.ts` is Worker-only and never built for Node, where `src/wagon.ts` also runs, so `overRowLimit` moved beside `SUBPROCESS_REFUSAL`, its line unchanged.
+- **2026-09-14 — `test/dev.test.ts` resets under load.** Step 9's `fetch` to wrangler dev threw `ECONNRESET` in four of seven runs at load 8 to 11, after steps 3 to 8 passed; alone and in the final full runs it passed.
+- **2026-09-14 — Open: journey 3 on the standing box.** It runs `d2cb955`, with no `store` verbs; the account ring on this clean commit, then `pnpm box deploy --name town` from it, then the walk. The shepherd said yes on 14 Sep.

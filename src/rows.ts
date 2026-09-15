@@ -116,25 +116,6 @@ export function rowsShelf(sql: Sql): Shelf {
   };
 }
 
-/** The most one file of a shop's state may hold on the box, its path and content in UTF-8: the platform's two megabytes a row. */
-export const ROW_LIMIT_BYTES = 2_000_000;
-
-/** The largest file of a state past the row limit, its bytes; null when every file fits. */
-export function overRowLimit(state: ReadonlyMap<string, string>): number | null {
-  const encoder = new TextEncoder();
-  let most: number | null = null;
-  for (const [path, content] of state) {
-    const bytes = encoder.encode(path).length + encoder.encode(content).length;
-    if (bytes > ROW_LIMIT_BYTES && (most === null || bytes > most)) most = bytes;
-  }
-  return most;
-}
-
-/** The row limit's line, on stderr for a call that would leave a file past it. */
-export function rowLimitLine(bytes: number): string {
-  return `town: a file of the state would be ${bytes} bytes after this call, over the box's two megabyte limit on one file; it is kept as it was before the call`;
-}
-
 /** One shop's state for one user under `root`, by path. */
 export function readState(sql: Sql, root: string, shop: string, user: string): Map<string, string> {
   const rows = sql.all<{ path: string; content: string }>("SELECT path, content FROM shop_state WHERE root = ? AND shop = ? AND user = ? ORDER BY path", root, shop, user);

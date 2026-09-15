@@ -20,7 +20,8 @@
 // chosen when they have not run on its code, and on a refusal prints the
 // checklist that remains. The type and credential verbs are src/secrets.ts;
 // `store export` and `store import` are src/wagon.ts, the wagon's key read
-// in `main` from `--key <file>` before the store is opened.
+// in `main` from `--key <file>` before the store is opened, or before the
+// pipe posts it in the body; in the object, `--key` in the words is refused.
 
 import type { CallRow } from "./audit.js";
 import { TAR_COMMAND, readBundle } from "./bundle.js";
@@ -60,6 +61,10 @@ export interface AdminTown {
   store: Store;
   runtime: Runtime;
   address: string;
+  /** The commit the box was deployed from, for the wagon's header. */
+  build?: string;
+  /** The wagon's key the pipe sent in the body, for `store export` and `store import`. */
+  wagonKey?: Buffer;
 }
 
 /**
@@ -193,7 +198,8 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
       return 1;
     }
     try {
-      return await pipe(one(p, "town", true), withoutFlag(argv, "town"), io);
+      // The wagon's key is read here, where townd runs, and goes in the body: out of the words the box sees.
+      return await pipe(one(p, "town", true), withoutFlag(withoutFlag(argv, "town"), "key"), io, wagonKeyOf(p, io));
     } catch (err) {
       return refusal(err, io);
     }
@@ -267,10 +273,12 @@ function refusal(err: unknown, io: Io): number {
  * The verbs in the box's object, over its store: no --data, no --town, and
  * no --wall, since the box is the one town and runs every shop in an
  * isolate; a verb that would read a directory reads a bundle on stdin as
- * `-`, and a directory is refused naming the pipe to type.
+ * `-`, and a directory is refused naming the pipe to type. No `--key`
+ * either: the wagon's key comes in the body, as `town.wagonKey`.
  */
 async function inTown(town: AdminTown, argv: readonly string[], p: Parsed, io: Io, chooseWall: WallChooser, now: () => number): Promise<number> {
   for (const flag of ["data", "town"]) if (p.opts.has(flag)) return usage(io, `--${flag} is not a flag the box reads; the box is the town`);
+  if (p.opts.has("key")) return usage(io, `--key is read where townd runs, never on the box; the pipe reads the file and sends the key: townd admin --town ${town.address} store export --key <file>`);
   const chosen = chooseWall(one(p, "wall"));
   if ("refused" in chosen) {
     io.err(`townd admin: ${chosen.refused}\n`);
@@ -294,7 +302,7 @@ async function inTown(town: AdminTown, argv: readonly string[], p: Parsed, io: I
         return await shopTest({ store, key }, source, picked(p, io), io, wall, runtime);
       }
     }
-    return await dispatch({ store, key, wall, now: now(), runtime }, noun, verb, args, p, io);
+    return await dispatch({ store, key, wall, now: now(), runtime, wagonKey: town.wagonKey, build: town.build }, noun, verb, args, p, io);
   } catch (err) {
     return refusal(err, io);
   }
@@ -335,6 +343,8 @@ export interface Over {
   runtime?: Runtime;
   /** The wagon's key, `--key <file>` read where townd runs, for `store export` and `store import`. */
   wagonKey?: Buffer | undefined;
+  /** The box's build, for the wagon's header; a laptop's is `laptop`. */
+  build?: string | undefined;
 }
 
 async function dispatch(over: Over, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io): Promise<number> {

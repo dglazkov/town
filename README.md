@@ -77,9 +77,13 @@ tar --format ustar -cf - -C shops/memory . | node bin/townd.js admin --town <url
 node bin/townd.js admin --town <url> pass new --user dimitri --label "research assistant" > ~/work/.town/grant   # the grant file's town is <url>; TOWN_GRANT="$(… pass new …)" hands the same grant as a value
 node bin/townd.js admin --town <url> credential connect --user dimitri --type google-oauth   # the redirect lands at <url>/consent, and the pipe waits for the id; register the client with that redirect URI
 # --data and --town together are refused; --wall over --town is refused, since the box's wall is not the operator's to choose
+node bin/townd.js admin --town <url> store export --key ~/.town/wagon.key > town-<date>.json   # the box's backup: the key read here and sent in the body, never in a file on the box; the box's audit is unchanged by it
+node bin/townd.js admin --town <new-url> store import --key ~/.town/wagon.key < town-<date>.json   # a move is that export and this import, into a box that is empty: every shop runtime: worker, every state file text, each file under two megabytes; a body past eight is refused before posting, and --no-audit is the relief
 node scripts/walk.mjs --shop hall --town <url>   # the hall's walk staged on the box over the wire: memory added when missing, dimitri reused, a pass and its grant file naming <url>, the agent's project settings
 node scripts/walk.mjs --status <root>            # the walk's rows read over the wire, by wall with isolate counted; --teardown <root> revokes the walk's pass there and removes the root, and --search-sealed is refused, the box's key being the platform's
 ```
+
+A box's vault key lives in the platform's secret and nowhere else, so a box deleted takes every credential it held with it: its export is the only copy of a box's credentials an operator can hold, sealed under the wagon's key. Keep the two apart. The wagon file goes where backups go; the key goes where `~/.town/operator` is, on the operator's machine, never beside the file and never on the box. The file without the key opens no credential, and a lost key leaves every credential in its wagons sealed for good.
 
 ## The agent
 

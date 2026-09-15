@@ -1,6 +1,6 @@
 # Wagon — the design
 
-**14 September 2026.** Wagon phase 0 built: `src/wagon.ts`, the states seam on both drivers, and `store export` and `store import` at the laptop; the wire and the box's checks are wagon phase 1's. The project's status lives in
+**14 September 2026.** Wagon phase 0 built: `src/wagon.ts`, the states seam on both drivers, and `store export` and `store import` at the laptop; wagon phase 1 built the wire's key and size refusal and the box's rules, walked on a tent. The project's status lives in
 [journey.md](journey.md)'s front matter. The journeys are the acceptance
 suite, this doc is the argument, and [phases.md](phases.md) is the walk.
 It is the star **wagon** of the

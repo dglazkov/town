@@ -2,7 +2,10 @@
 // pipe. The verb's words, and its stdin when src/admin.ts's `readsStdin`
 // says the verb reads it and null otherwise, are posted to the box's `/admin`
 // with the operator's token, from $TOWN_OPERATOR or ~/.town/operator, and
-// what comes back is printed as it came, the verb's exit its exit; the
+// for `store export` and `store import` the wagon's key as hex, read by
+// `main` from `--key <file>` and taken out of the words, so the key reaches
+// the box in no file and no argv; a body past the door's limit is refused
+// before it is posted, naming `--no-audit`. What comes back is printed as it came, the verb's exit its exit; the
 // verbs, their refusals, and their printouts are src/admin.ts's, run in
 // the box's object. A consent begun is waited on at
 // `/admin/consent/<state>` until it lands, is refused, or times out. A
@@ -12,6 +15,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { readsStdin, type Io } from "./admin.js";
+import { BODY_LIMIT_BYTES } from "./clerk.js";
 
 /** What the pipe prints, and the door answers, for a bearer that is not the operator's. */
 export const OPERATOR_REFUSED = "the operator token is refused";
@@ -51,13 +55,14 @@ export function operatorToken(env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * `townd admin --town <url> <verb …>`: a pipe. The verb and its stdin
- * posted to the box's `/admin` with the operator's token, and what comes
- * back printed; a consent begun is waited on at `/admin/consent/<state>`
+ * `townd admin --town <url> <verb …>`: a pipe. The verb and its stdin,
+ * and the wagon's key as hex when `main` read one, posted to the box's
+ * `/admin` with the operator's token, and what comes back printed; a body
+ * past `BODY_LIMIT_BYTES` refused before it is posted, naming `--no-audit`; a consent begun is waited on at `/admin/consent/<state>`
  * until it lands, is refused, or times out. A token the box refuses is
  * said so, and nothing ran.
  */
-export async function pipe(url: string, argv: string[], io: Io): Promise<number> {
+export async function pipe(url: string, argv: string[], io: Io, wagonKey?: Buffer): Promise<number> {
   let base: URL;
   try {
     base = new URL(url);
@@ -77,6 +82,13 @@ export async function pipe(url: string, argv: string[], io: Io): Promise<number>
     const chunks: Buffer[] = [];
     for await (const chunk of io.stdin) chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
     stdin = chunks.length ? Buffer.concat(chunks).toString("utf8") : null;
+  }
+  // The body whole before any fetch: past the door's limit it is refused here, and nothing is posted.
+  const body = JSON.stringify({ argv, stdin, ...(wagonKey ? { key: wagonKey.toString("hex") } : {}) });
+  const size = Buffer.byteLength(body, "utf8");
+  if (size > BODY_LIMIT_BYTES) {
+    io.err(`townd admin: this verb's body is ${size} bytes, over the wire's limit of ${BODY_LIMIT_BYTES}; nothing was posted. A wagon's bulk is its audit: export it with --no-audit to leave the calls behind\n`);
+    return 1;
   }
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const ask = async (target: string, init: RequestInit): Promise<AdminAnswer | number> => {
@@ -100,7 +112,7 @@ export async function pipe(url: string, argv: string[], io: Io): Promise<number>
     return { stdout: body.stdout, stderr: body.stderr, exit: body.exit, ...(typeof body.wait === "string" ? { wait: body.wait } : {}) };
   };
   // The verb's answer; then, for a consent begun, the box's answers to the wait until one is not a wait.
-  let answer = await ask("/admin", { method: "POST", body: JSON.stringify({ argv, stdin }) });
+  let answer = await ask("/admin", { method: "POST", body });
   for (;;) {
     if (typeof answer === "number") return answer;
     if (answer.stdout) io.out(answer.stdout);

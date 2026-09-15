@@ -9,6 +9,7 @@
 // before anything is read.
 
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +18,7 @@ import { main, readsStdin, type AdminTown, type Io } from "../src/admin.js";
 import { runShelved } from "../src/runtime.js";
 import { openStore, type Store } from "../src/store.js";
 import { openWall } from "../src/wall.js";
+import { withoutFlag } from "../src/wire.js";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const MEMORY = path.join(ROOT, "shops/memory");
@@ -93,8 +95,8 @@ const STEPS: Step[] = [
   { argv: (c) => ["permit", "deny", c.deniable], before: (store, c) => void (c.deniable = store.newPermit({ passId: c.pass, shop: "town/hall", commands: ["search"], constraints: {}, why: "a test" }).id) },
   { argv: () => ["audit"] },
   { argv: () => ["audit", "--since", "1d"] },
-  // Over a data directory export makes the key, and import reads the wagon before refusing a town that is not empty; in the object, where no --key is read, both are refused.
-  { argv: (c) => ["store", "export", "--key", c.wagonKey], after: (r, c) => void (c.wagon = r.stdout), exits: [0, 1] },
+  // Export makes the key, and import reads the wagon before refusing a town that is not empty; in the object the key comes as the pipe sends it, out of the words.
+  { argv: (c) => ["store", "export", "--key", c.wagonKey], after: (r, c) => void (c.wagon = r.stdout) },
   { argv: (c) => ["store", "import", "--key", c.wagonKey], stdin: (c) => c.wagon, exits: [1, 1] },
   { argv: (c) => ["pass", "revoke", c.pass] },
   { argv: () => ["shop", "rm", "town/memory"] },
@@ -162,12 +164,13 @@ it("says a verb reads stdin exactly when the verb, run over a data directory, re
 
 it("says a verb reads stdin exactly when the verb, run in the box's object, reads it, a shop's directory refused there unread", async () => {
   const store = openStore(scratch("box"));
-  const town: AdminTown = { store, runtime: runShelved, address: "https://town.example" };
+  // The wagon's key as the door hands it to the object, and `--key <file>` out of the words, as the pipe takes it out.
+  const town: AdminTown = { store, runtime: runShelved, address: "https://town.example", wagonKey: randomBytes(32) };
   const ctx = context();
   try {
     for (const step of STEPS) {
       step.before?.(store, ctx);
-      const argv = step.argv(ctx);
+      const argv = withoutFlag(step.argv(ctx), "key");
       const r = recorder(step.stdin?.(ctx));
       let stdout = "";
       let stderr = "";
@@ -178,6 +181,11 @@ it("says a verb reads stdin exactly when the verb, run in the box's object, read
       const directory = argv[0] === "shop" && (argv[1] === "add" || argv[1] === "test") && argv[2] !== "-";
       expect([argv.join(" "), readsStdin(argv) && !directory], stderr).toEqual([argv.join(" "), r.read()]);
     }
+    // --key in the words the object is given is refused naming the pipe, before the wagon on stdin is read.
+    const r = recorder(ctx.wagon);
+    let stderr = "";
+    const exit = await main(["store", "import", "--key", ctx.wagonKey], { out: () => {}, err: (s) => void (stderr += s), env: {}, stdin: r.stdin }, wall, town);
+    expect([exit, stderr.split("\n")[0], r.read()]).toEqual([1, "townd admin: --key is read where townd runs, never on the box; the pipe reads the file and sends the key: townd admin --town https://town.example store export --key <file>", false]);
   } finally {
     store.close();
   }

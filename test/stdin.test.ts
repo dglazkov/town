@@ -41,6 +41,9 @@ interface Ctx {
   deniable: string;
   gdocs: string;
   memoryTar: string;
+  /** Where export makes the wagon's key, and the wagon it printed. */
+  wagonKey: string;
+  wagon: string;
 }
 
 /** One verb's argv, what is on its stdin, and what the store needs before it runs so the verb reaches its read. */
@@ -90,6 +93,9 @@ const STEPS: Step[] = [
   { argv: (c) => ["permit", "deny", c.deniable], before: (store, c) => void (c.deniable = store.newPermit({ passId: c.pass, shop: "town/hall", commands: ["search"], constraints: {}, why: "a test" }).id) },
   { argv: () => ["audit"] },
   { argv: () => ["audit", "--since", "1d"] },
+  // Over a data directory export makes the key, and import reads the wagon before refusing a town that is not empty; in the object, where no --key is read, both are refused.
+  { argv: (c) => ["store", "export", "--key", c.wagonKey], after: (r, c) => void (c.wagon = r.stdout), exits: [0, 1] },
+  { argv: (c) => ["store", "import", "--key", c.wagonKey], stdin: (c) => c.wagon, exits: [1, 1] },
   { argv: (c) => ["pass", "revoke", c.pass] },
   { argv: () => ["shop", "rm", "town/memory"] },
 ];
@@ -115,7 +121,7 @@ function context(): Ctx {
   // The shop's oauth type under a name no step holds, so --client-id at shop add reads its secret.
   writeFileSync(path.join(gdocs, "manifest.yaml"), readFileSync(path.join(gdocs, "manifest.yaml"), "utf8").replace("type: google-oauth", "type: gdocs-oauth"));
   const tar = spawnSync("tar", ["--format", "ustar", "-cf", "-", "-C", MEMORY, "."], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
-  return { pass: "", grant: "", credential: "", approvable: "", deniable: "", gdocs, memoryTar: tar.stdout.toString("utf8") };
+  return { pass: "", grant: "", credential: "", approvable: "", deniable: "", gdocs, memoryTar: tar.stdout.toString("utf8"), wagonKey: path.join(scratch("wagon"), "wagon.key"), wagon: "" };
 }
 
 const wall = () => ({ open: (opts: { data?: string }) => openWall("none", opts) });

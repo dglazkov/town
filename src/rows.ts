@@ -9,7 +9,8 @@
 // file by shop and path with its content and mode; a put is whole. A
 // shop's state is `shop_state`, a row per file by root, shop, user, and
 // path: the store's own root for a call, a scratch root for a shop test,
-// removed with its rows. A consent waiting on its landing is `consents`.
+// removed with its rows; the wagon reads every row under the store's root
+// and puts one shop's and user's back. A consent waiting on its landing is `consents`.
 // These three tables are the object's own, beside the store's schema,
 // which src/schema.ts makes and migrates over the driver as on a laptop.
 // The key is the `TOWN_VAULT_KEY` secret, thirty-two bytes as hex, made
@@ -23,7 +24,7 @@ import { KEY_MISSING } from "./gate.js";
 import { filesShelf } from "./publish.js";
 import type { Shelf } from "./shelf.js";
 import { refuseNamed, type Sql, type SqlValue } from "./sql.js";
-import { Store } from "./store.js";
+import { Store, type States } from "./store.js";
 import { KEY_BYTES, VaultError, type KeySource } from "./vault.js";
 
 /** The object's name: one per box. */
@@ -152,6 +153,21 @@ export function writeState(sql: Sql, root: string, shop: string, user: string, b
   });
 }
 
+/** Every shop's state under `root` as the wagon reads it, text as UTF-8 bytes, and one shop's and user's put back whole as text. */
+export function rowsStates(sql: Sql, root: string): States {
+  return {
+    readAll: () =>
+      sql.all<{ shop: string; user: string; path: string; content: string }>("SELECT shop, user, path, content FROM shop_state WHERE root = ? ORDER BY shop, user, path", root)
+        .map((r) => ({ shop: r.shop, user: r.user, path: r.path, content: Buffer.from(r.content, "utf8") })),
+    put(shop, user, files) {
+      sql.transaction(() => {
+        sql.run("DELETE FROM shop_state WHERE root = ? AND shop = ? AND user = ?", root, shop, user);
+        for (const [path, content] of files) sql.run("INSERT INTO shop_state (root, shop, user, path, content) VALUES (?, ?, ?, ?, ?)", root, shop, user, path, content.toString("utf8"));
+      });
+    },
+  };
+}
+
 /** The key from the secret's value: thirty-two bytes as hex, or none. The box makes no key: `ensure` refuses without one. */
 export function secretKey(value: string | undefined): KeySource {
   const read = (): Buffer | null => {
@@ -185,6 +201,7 @@ export function objectStore(storage: DurableObjectStorage, vaultKey: string | un
     shelf: rowsShelf(sql),
     key: secretKey(vaultKey),
     stateRoot: BOX_STATE_ROOT,
+    states: rowsStates(sql, BOX_STATE_ROOT),
     stage: async (files: ReadonlyMap<string, BundleFile>) => ({ shelf: filesShelf(files), remove: async () => {} }),
     async scratch() {
       const root = `scratch-${randomBytes(8).toString("hex")}`;

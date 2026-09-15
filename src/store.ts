@@ -16,7 +16,7 @@
 // town is born with its own shop and always holds this town's version of it.
 
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -34,6 +34,7 @@ import * as passes from "./passes.js";
 import type { Pass, User } from "./passes.js";
 import * as permits from "./permits.js";
 import type { Permit } from "./permits.js";
+import { stateDir } from "./runtime.js";
 import { getMeta, openSchema, setMeta } from "./schema.js";
 import { diskShelf, shopAt, type Shelf } from "./shelf.js";
 import * as shops from "./shops.js";
@@ -71,6 +72,14 @@ export interface Staged {
   remove(): Promise<void>;
 }
 
+/** Every state file a store holds, and one shop's and user's put back: the wagon's seam, and the emptiness check's. */
+export interface States {
+  /** Every state file the store holds, by shop, user, and path, in that order. */
+  readAll(): Array<{ shop: string; user: string; path: string; content: Buffer }>;
+  /** Puts one shop's and one user's state in place, whole; what was there is gone. */
+  put(shop: string, user: string, files: ReadonlyMap<string, Buffer>): void;
+}
+
 /** What a store is opened over: its SQL, its shelf, its key, where its shops' state is, and on a laptop the data directory they are under. */
 export interface StoreSeams {
   sql: Sql;
@@ -78,6 +87,8 @@ export interface StoreSeams {
   key: KeySource;
   /** The root every shop's state is under, as the runtime is handed it: <data>/state on a laptop, a name for the object's rows on the box. */
   stateRoot: string;
+  /** Every state file under the state root, read and put back: the tree under <data>/state on a laptop, `shop_state` rows on the box. */
+  states: States;
   /** A copy of a shop's files for its tests: a directory under <data>/shops on a laptop, the files in memory on the box. */
   stage(files: ReadonlyMap<string, BundleFile>): Promise<Staged>;
   /** A state root for one shop test's scratch state, and its removal. */
@@ -96,6 +107,7 @@ export class Store {
   readonly key: KeySource;
   readonly dataDir: string | null;
   readonly stateRoot: string;
+  readonly states: States;
   private readonly seams: StoreSeams;
   private readonly closeSeams: () => void;
 
@@ -106,6 +118,7 @@ export class Store {
     this.key = seams.key;
     this.dataDir = seams.dataDir;
     this.stateRoot = seams.stateRoot;
+    this.states = seams.states;
     this.seams = seams;
     this.closeSeams = seams.close ?? (() => {});
     try {
@@ -425,6 +438,7 @@ export function openStore(dataDir: string): Store {
     shelf: diskShelf(shops),
     key: fileKey(dir),
     stateRoot: path.join(dir, "state"),
+    states: diskStates(path.join(dir, "state")),
     async stage(files) {
       await mkdir(shops, { recursive: true });
       const staging = path.join(shops, `.staging-${randomBytes(6).toString("hex")}`);
@@ -446,6 +460,51 @@ export function openStore(dataDir: string): Store {
     where: file,
     close: () => sql.close(),
   });
+}
+
+/** The state under `root` as the runtime lays it out, <root>/<segment(shop)>/<segment(user)>/<path>, read with `segment` undone and put back by `stateDir`. */
+function diskStates(root: string): States {
+  const unsegment = (seg: string) => (seg === "%" ? "" : decodeURIComponent(seg));
+  const dirs = (at: string) => (existsSync(at) ? readdirSync(at).filter((n) => lstatSync(path.join(at, n)).isDirectory()) : []);
+  return {
+    readAll() {
+      const out: Array<{ shop: string; user: string; path: string; content: Buffer }> = [];
+      for (const shopSeg of dirs(root)) {
+        for (const userSeg of dirs(path.join(root, shopSeg))) {
+          const walk = (at: string, prefix: string) => {
+            for (const name of readdirSync(at)) {
+              const full = path.join(at, name);
+              const st = lstatSync(full);
+              if (st.isDirectory()) walk(full, `${prefix}${name}/`);
+              else if (st.isFile()) out.push({ shop: unsegment(shopSeg), user: unsegment(userSeg), path: `${prefix}${name}`, content: readFileSync(full) });
+              else throw new StoreError(`${full} is not a plain file; a state file is one, and nothing else under ${root} is carried`);
+            }
+          };
+          walk(path.join(root, shopSeg, userSeg), "");
+        }
+      }
+      const key = (f: { shop: string; user: string; path: string }) => [f.shop, f.user, f.path];
+      return out.sort((a, b) => {
+        const [x, y] = [key(a), key(b)];
+        const i = x.findIndex((v, n) => v !== y[n]);
+        return i === -1 ? 0 : x[i]! < y[i]! ? -1 : 1;
+      });
+    },
+    put(shop, user, files) {
+      const dir = stateDir(root, shop, user);
+      const targets = [...files].map(([rel, content]) => {
+        const to = path.resolve(dir, rel);
+        if (!to.startsWith(dir + path.sep)) throw new StoreError(`state path ${JSON.stringify(rel)} of ${shop} for ${user} is outside its directory`);
+        return { to, content };
+      });
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      for (const { to, content } of targets) {
+        mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+        writeFileSync(to, content, { mode: 0o600 });
+      }
+    },
+  };
 }
 
 export function nullableNumber(v: unknown): number | null {

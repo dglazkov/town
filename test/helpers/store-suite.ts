@@ -4,20 +4,24 @@
 // in workerd (test/object.test.ts), so the two drivers are proved by one
 // suite. Users, passes, grants, shops, calls, liveness with dependencies,
 // the call tree, credential types and credentials, a grant's liveness, the
-// hall's row, a named parameter refused, and permits, each test against a
+// hall's row, a named parameter refused, permits, and the wagon packed and
+// unpacked into a store made new, each test against a
 // store made new for it holding town/memory. A harness says how a test
 // runs where its store can be opened, how the same store is opened again
-// as another connection, the vault's key, the two manifests the tests add,
+// as another connection, a second store made new in its place, the vault's key, the two manifests the tests add,
 // and every byte the store holds, for a search. `describe`, `it`, and
 // `beforeEach` here are vitest's, with each test's hooks run inside its
 // body, since the object's storage is reached only inside the object.
 // This file is imported by one ring of each kind and runs in both.
 
+import { randomBytes } from "node:crypto";
 import { describe as vDescribe, expect, it as vIt } from "vitest";
 import { HALL } from "../../src/hall.js";
 import { parseManifest, type Manifest } from "../../src/manifest.js";
 import { hashToken } from "../../src/passes.js";
 import { StoreError, type Store } from "../../src/store.js";
+import { holdings, pack, unpack, type Wagon } from "../../src/wagon.js";
+import { openCredential } from "../../src/vault.js";
 
 export interface StoreHarness {
   /** Runs one test's body where a store can be opened. */
@@ -26,7 +30,9 @@ export interface StoreHarness {
   open(): Store;
   /** The same store opened again: a second connection, or the object opened again. */
   reopen(): Store;
-  /** The vault's key the test's store seals under. */
+  /** A store made new in place of the test's, which the caller has closed, with a vault key of its own: a new directory, or the object's tables dropped and made again. */
+  renew(): Store;
+  /** The vault's key the test's store, or the one made new in its place, seals under. */
   key(): Buffer;
   /** shops/memory's manifest. */
   memory(): Promise<Manifest>;
@@ -615,6 +621,160 @@ export function storeSuite(h: StoreHarness): void {
     it("leave a grant's source null for the operator's grant new", () => {
       const { pass } = passFor();
       expect(store.newGrant({ passId: pass.id, shop: "town/memory", commands: ["recall"], constraints: {}, expiresAt: null }, 1000).source).toBeNull();
+    });
+  });
+
+  describe("the wagon", () => {
+    const VALUE = "ghp_wagon_suite_not_a_token";
+    const CLIENT = { id: "wagon-client", secret: "wagon-client-secret-not-a-secret" };
+    const SEAL_OF: Record<string, [string, (r: Record<string, unknown>) => string]> = { credentials: ["sealed", (r) => String(r.id)], credential_types: ["client", (r) => `client:${String(r.name)}`] };
+    const TABLES = [["users", "id"], ["passes", "id"], ["grants", "id"], ["permits", "id"], ["credential_types", "name"], ["credentials", "id"], ["shops", "name"], ["calls", "id"]] as const;
+    let tokens: string[];
+
+    /** Two users, three passes, grants at memory and teller with a credential bound, a proposed type and an oauth type with its client, a permit, ten calls in a tree, state for two users, and files on the shelf. */
+    beforeEach(async () => {
+      const key = h.key();
+      const a = passFor("dimitri", 1000);
+      const b = store.newPass("dimitri", "second", 9_000_000, 1001);
+      const c = passFor("ada", 1002);
+      tokens = [a.token, b.token, c.token];
+      store.addType({ name: "test-origin", origin: "http://127.0.0.1:9", header: "Authorization: Bearer {token}" }, 1000);
+      store.addType({ name: "wagon-oauth", origin: "https://docs.example", header: "Authorization: Bearer {token}", oauth: { authorize: "https://auth.example/a", token: "https://auth.example/t", scopes: ["read"] }, client: CLIENT }, 1003, key);
+      store.proposeType({ name: "figma", origin: "https://api.figma.com", header: "X-Figma-Token: {token}", guidance: "Make one." }, "dimitri/figma", false, 1004);
+      store.upsertShop(await h.teller(["github-token", "test-origin"]), 1005);
+      const cred = store.addCredential({ userName: "dimitri", type: "test-origin", label: "PAT", value: VALUE }, key, 1006);
+      const memory = store.newGrant({ passId: a.pass.id, shop: "town/memory", commands: ["recall"], constraints: { "recall.key": { prefix: "notes/" } }, expiresAt: null }, 1007);
+      store.newGrant({ passId: a.pass.id, shop: "test/teller", commands: ["get"], constraints: {}, expiresAt: null, credentials: { "test-origin": cred.id } }, 1008);
+      store.newGrant({ passId: c.pass.id, shop: "town/memory", commands: ["remember"], constraints: {}, expiresAt: 5000 }, 1009);
+      store.newPermit({ passId: c.pass.id, shop: "town/memory", commands: ["forget"], constraints: {}, why: "to tidy" }, 1010);
+      for (let i = 0; i < 10; i++) {
+        store.recordCall({ callId: `call_${i}`, parent: i === 0 ? null : `call_${Math.floor((i - 1) / 3)}`, at: 2000 + i, passId: a.pass.id, grantId: memory.id, shop: "town/memory", command: "recall", argvHash: "h".repeat(64), result: "ok", exit: 0, shopExit: 0, latencyMs: i, notices: [], stderr: "", detail: null, credentials: [], wall: "none" });
+      }
+      store.shelf.put("town/memory", new Map([["main.mjs", { content: "export default async function main() {}\n", mode: 0o700 }], ["lib/words.txt", { content: "words", mode: 0o600 }]]));
+      store.shelf.put("test/teller", new Map([["main.mjs", { content: "// teller\n", mode: 0o600 }]]));
+      store.states.put("town/memory", a.pass.userId, new Map([["notes/a", Buffer.from("the wagon rolls")], ["notes/b", Buffer.from("")]]));
+      store.states.put("town/memory", c.pass.userId, new Map([["x", Buffer.from("ada's")]]));
+    });
+
+    /** Every table but meta, the hall's row left out, each sealed value opened under `key`. */
+    function tables(s: Store, key: Buffer): Record<string, unknown[]> {
+      return Object.fromEntries(
+        TABLES.map(([table, order]) => [
+          table,
+          s.sql.all<Record<string, unknown>>(`SELECT * FROM ${table} ${table === "shops" ? "WHERE name != 'town/hall'" : ""} ORDER BY ${order}`).map((r) => {
+            const seal = SEAL_OF[table];
+            return seal && r[seal[0]] !== null ? { ...r, [seal[0]]: openCredential(key, seal[1](r), r[seal[0]] as Uint8Array) } : r;
+          }),
+        ]),
+      );
+    }
+
+    const packed = (key: Buffer, audit = true) => pack(store, h.key(), key, { audit, now: 9000, build: "laptop", from: "the suite" });
+
+    /** Closes the test's store and opens one made new in its place. */
+    function renew(): Store {
+      store.close();
+      store = h.renew();
+      return store;
+    }
+
+    it("packs every row, file, and state file, with no value, token, or key in it, and unpacks them into a store made new, each sealed value sealed again under its key", () => {
+      const wagonKey = randomBytes(32);
+      const before = tables(store, h.key());
+      const sealedBefore = store.sql.all<{ sealed: Uint8Array }>("SELECT sealed FROM credentials").map((r) => Buffer.from(r.sealed));
+      const shelf = ["town/memory", "test/teller"].map((n) => store.shelf.read(n));
+      const state = store.states.readAll();
+      const { wagon, left } = packed(wagonKey);
+      expect(left).toBe(0);
+      expect(Object.keys(wagon)).toEqual(["wagon", "schema", "build", "packed_at", "from", "audit", "users", "passes", "grants", "shops", "types", "credentials", "permits", "calls", "state"]);
+      expect([wagon.wagon, wagon.schema, wagon.audit, wagon.users.length, wagon.passes.length, wagon.grants.length, wagon.shops.length, wagon.types.length, wagon.credentials.length, wagon.permits.length, wagon.calls.length, wagon.state.length]).toEqual([1, 7, true, 2, 3, 3, 2, 4, 1, 1, 10, 3]);
+      const text = JSON.stringify(wagon, null, 2);
+      for (const secret of [VALUE, CLIENT.secret, ...tokens, wagonKey.toString("hex"), wagonKey.toString("base64"), h.key().toString("hex"), h.key().toString("base64")]) expect(text).not.toContain(secret);
+
+      const oldKey = h.key();
+      renew();
+      expect(h.key().equals(oldKey)).toBe(false);
+      unpack(store, text, wagonKey);
+      expect(tables(store, h.key())).toEqual(before);
+      expect(store.sql.all<{ sealed: Uint8Array }>("SELECT sealed FROM credentials").map((r) => Buffer.from(r.sealed))[0]!.equals(sealedBefore[0]!)).toBe(false);
+      expect(store.openClient("wagon-oauth", h.key())).toEqual(CLIENT);
+      expect(["town/memory", "test/teller"].map((n) => store.shelf.read(n))).toEqual(shelf);
+      expect(store.states.readAll()).toEqual(state);
+      expect(store.getShop("town/hall")?.manifest).toEqual(HALL);
+      expect(store.sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM shops WHERE name = 'town/hall'")!.n).toBe(1);
+      expect(store.passByTokenHash(hashToken(tokens[0]!))?.label).toBe("research assistant");
+    });
+
+    it("replaces the seeded type with the wagon's row, not doubled, and a wagon without it leaves none", () => {
+      const wagonKey = randomBytes(32);
+      const seeded = store.getType("github-token")!;
+      const text = JSON.stringify(packed(wagonKey).wagon);
+      renew();
+      unpack(store, text, wagonKey);
+      expect(store.listTypes().filter((t) => t.name === "github-token")).toEqual([seeded]);
+      const w = JSON.parse(text) as Wagon;
+      w.types = w.types.filter((t) => t.name !== "github-token");
+      renew();
+      unpack(store, JSON.stringify(w), wagonKey);
+      expect(store.getType("github-token")).toBeNull();
+    });
+
+    it("refuses to unpack into a town that is not empty, naming what it holds, and writes nothing", () => {
+      const wagonKey = randomBytes(32);
+      const text = JSON.stringify(packed(wagonKey).wagon);
+      const before = tables(store, h.key());
+      expect(() => unpack(store, text, wagonKey)).toThrow(new StoreError("this town holds 2 users and 2 shops; import writes into an empty town alone"));
+      expect(tables(store, h.key())).toEqual(before);
+      renew();
+      expect(holdings(store)).toEqual([]);
+      store.recordCall({ callId: "call_lone", parent: null, at: 1, passId: null, grantId: null, shop: null, command: null, argvHash: "h", result: "invalid-pass", exit: 3, shopExit: null, latencyMs: 1, notices: [], stderr: null, detail: null, credentials: [], wall: null });
+      store.states.put("town/memory", "user_x", new Map([["k", Buffer.from("v")]]));
+      expect(() => unpack(store, text, wagonKey)).toThrow(new StoreError("this town holds 1 call and 1 state file; import writes into an empty town alone"));
+      expect(store.listUsers()).toEqual([]);
+    });
+
+    it("refuses a wagon whose sealed value does not open under the key, a byte flipped or the key another, naming the first and the count, and writes nothing", () => {
+      const wagonKey = randomBytes(32);
+      const { wagon } = packed(wagonKey);
+      const credential = wagon.credentials[0]!;
+      const flipped = Buffer.from(String(credential.sealed), "base64");
+      flipped[20] = flipped[20]! ^ 1;
+      const changed = { ...wagon, credentials: [{ ...credential, sealed: flipped.toString("base64") }] };
+      renew();
+      expect(() => unpack(store, JSON.stringify(changed), wagonKey)).toThrow(
+        new StoreError(`credential ${String(credential.id)} does not open under --key; the key is not the one this wagon was packed with, or the wagon is changed; 1 of 2 sealed values does not open`),
+      );
+      expect(() => unpack(store, JSON.stringify(wagon), randomBytes(32))).toThrow(/^type wagon-oauth's registration does not open under --key; .*; 2 of 2 sealed values do not open$/);
+      expect(holdings(store)).toEqual([]);
+      expect(store.shelf.read("town/memory")).toBeNull();
+      expect(store.states.readAll()).toEqual([]);
+    });
+
+    it("refuses a wagon of another schema with each sentence, and a document that is not a wagon naming what it found", () => {
+      const wagonKey = randomBytes(32);
+      const { wagon } = packed(wagonKey);
+      renew();
+      expect(() => unpack(store, JSON.stringify({ ...wagon, schema: 8 }), wagonKey)).toThrow(new StoreError("this wagon is schema 8, newer than this town's 7; run the town that made it"));
+      expect(() => unpack(store, JSON.stringify({ ...wagon, schema: 6 }), wagonKey)).toThrow(new StoreError("this wagon is schema 6; open its town with this town's code, which migrates it, and export again"));
+      const not = (what: string) => new StoreError(`stdin is not a wagon: ${what}; pipe in what townd admin store export printed`);
+      expect(() => unpack(store, "", wagonKey)).toThrow(not("it is empty"));
+      expect(() => unpack(store, "town.db", wagonKey)).toThrow(not("it is not JSON"));
+      expect(() => unpack(store, "[1, 2]", wagonKey)).toThrow(not("it is JSON, a list, and a wagon is an object"));
+      expect(() => unpack(store, '{"town": "http://127.0.0.1:7000"}', wagonKey)).toThrow(not("it is a JSON object with no wagon key"));
+      expect(() => unpack(store, JSON.stringify({ ...wagon, wagon: 2 }), wagonKey)).toThrow(not("its wagon is 2, and this town reads wagon 1"));
+      expect(() => unpack(store, JSON.stringify({ ...wagon, users: [{ ...wagon.users[0], nope: 1 }] }), wagonKey)).toThrow(/^stdin is not a whole wagon: its users\[0\] holds nope, which is not a column of users; export it again$/);
+      expect(() => unpack(store, JSON.stringify({ ...wagon, state: [{ shop: "town/memory", user: "u", path: "../../escape", content: "x" }] }), wagonKey)).toThrow(/^stdin is not a whole wagon: its state\[0\]/);
+      expect(holdings(store)).toEqual([]);
+    });
+
+    it("leaves the calls behind with --no-audit, counting them, and unpacks the rest", () => {
+      const wagonKey = randomBytes(32);
+      const { wagon, left } = packed(wagonKey, false);
+      expect([wagon.audit, wagon.calls, left]).toEqual([false, [], 10]);
+      renew();
+      unpack(store, JSON.stringify(wagon), wagonKey);
+      expect(store.calls()).toEqual([]);
+      expect(store.listUsers().map((u) => u.name).sort()).toEqual(["ada", "dimitri"]);
     });
   });
 }

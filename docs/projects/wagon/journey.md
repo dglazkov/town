@@ -1,8 +1,8 @@
 ---
-status: planned
+status: partial
 since: 2026-09-14
 see: wagon
-note: "written 14 Sep 2026, the evening tent closed: the town's wagon, where a town is packed whole into one document and unpacked into an empty town on a laptop or a box. `townd admin store export --key <file>` prints every user, pass, grant, shop with its files, credential type, credential, permit, call, and state file as one JSON document, the sealed values sealed again under the wagon's key; `store import --key <file>` writes it into an empty town, whole or not at all, at the laptop or over the wire. An agent's grant works at the new town with the address changed and nothing else. The star wagon of the sheep constellation and the second half of the night sky's row 5, the two verbs box said were one verb away. Nothing built."
+note: "written 14 Sep 2026, the evening tent closed: the town's wagon, where a town is packed whole into one document and unpacked into an empty town on a laptop or a box. `townd admin store export --key <file>` prints every user, pass, grant, shop with its files, credential type, credential, permit, call, and state file as one JSON document, the sealed values sealed again under the wagon's key; `store import --key <file>` writes it into an empty town, whole or not at all, at the laptop or over the wire. An agent's grant works at the new town with the address changed and nothing else. The star wagon of the sheep constellation and the second half of the night sky's row 5, the two verbs box said were one verb away. Wagon phase 0 closed 14 Sep 2026: export and import at the laptop, journey 1 walked with a real GitHub token, a town crossing data directories with its grant working at the new address. Next is wagon phase 1, over the wire."
 ---
 
 # Wagon — the journeys
@@ -56,9 +56,10 @@ second directory `b/` that does not exist.
    wagon rolls`; `town github show <owner/name> <n>` prints the issue,
    through the credential resealed under `b`'s key; `town --help`
    lists both shops. `townd admin --data b audit` shows `a`'s dozen
-   calls before today's two; `user ls`, `pass ls`, `grant ls`, `shop
-   ls`, `type ls`, `credential ls --user`, and `permit ls` print what
-   `a`'s print, save the address.
+   calls before today's; `user ls`, `pass ls`, `grant ls`, `shop
+   ls`, `type ls`, `credential ls --user`, and `permit ls`, typed before
+   `b` serves a call, print what `a`'s print, save the address and the
+   hall's `added`, which every town writes on open.
 4. `b/vault.key` differs from `a/vault.key`, and `b/town.db`'s
    `credentials.sealed` differs from `a`'s: the credential was opened
    and sealed again, not copied.

@@ -22,10 +22,12 @@ a walk that needs a box to import into pitches a tent and strikes it.
 
 ---
 
-**Where we are: planned, 14 September 2026.** Nothing built. Next is
-wagon phase 0, the wagon on a laptop, which needs the shepherd's GitHub
-token for its walk and nothing else; wagon phase 1 needs the account
-ring and a kept tent, cents.
+**Where we are: partial, 14 September 2026.** Wagon phase 0 is CLOSED:
+`store export` and `store import` pack and unpack a town at the laptop,
+journey 1 walked with a real GitHub token. Next is wagon phase 1, the
+wagon over the wire, whose account ring, kept tent, and standing box's
+export the shepherd said yes to on 14 September; nothing waits on a
+person.
 
 The order is the order of dependence. Wagon phase 0 is the wagon
 itself, `src/wagon.ts` and the states seam, packed and unpacked at the
@@ -88,7 +90,17 @@ Falsified by one mutation with `scripts/mutate.mjs`: the emptiness
 check in `unpack` made to pass always, seen by the store suite's
 not-empty case, and put back.
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 Sep 2026. A town crosses data directories whole, its grant working with the address changed, and journey 1 walked for real.
+
+**Findings:**
+
+- **2026-09-14 — Journey 1 walked, real token.** `a` with a user, pass, four grants, memory, github, a credential, an approved permit, 11 calls: export exit 0, `wagon.key` made 600; import into `b` exit 0, same counts; at `b`, `memory recall` and `github show dglazkov/town 6` exit 0.
+- **2026-09-14 — No secret in the wagon.** `grep -F` for the credential's value and the pass's token over `wagon.json`: exit 1 each. `cmp` of `credentials.sealed` in `a/town.db` against the wagon's and against `b`'s, and of the two `vault.key`s: all differ.
+- **2026-09-14 — Refusals hold.** Into `a`: `this town holds 1 user and 2 shops; import writes into an empty town alone`, exit 1, sha256 same. Another key, no `--key`, schema 8 and 6, not JSON, JSON without `wagon`: each exit 1 in the design's words; `c` holds no user.
+- **2026-09-14 — Suite and mutation.** `pnpm test` exit 0, 775 tests (31/16/4 files); typecheck 0. `if (held.length > 0)` to `if (false)` killed by the store suite's not-empty case. `src/admin.ts` 577 lines, no split. The two-town test took 4.3 s against vitest's 5 s default and failed under load; it has 120 s now.
+- **2026-09-14 — What differs after import is by design.** Right after, every `ls` matches `a`'s but `shop ls`'s hall `added`, the hall being written on open; `town --help` is an audited call. `readWagon` also checks columns, paths, and no hall row, before emptiness.
+- **2026-09-14 — A mutation's build outlives its restore for `bin/`.** The first walk ran `dist/` built from the mutant and imported past the emptiness check; `pnpm build` then walking again held. Walk before mutating, or build first.
+- **2026-09-14 — Cost.** Builder 15 minutes; conductor's proof and two walks 20 minutes; no money.
 
 ## Phase 1: The wagon, over the wire
 

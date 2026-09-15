@@ -70,7 +70,7 @@ const TYPE_NAME = /^[a-z][a-z0-9-]*$/;
 const CREDENTIAL_SELECT = "SELECT c.id, c.user_id, c.type, c.label, c.created_at, c.revoked_at, c.revoked_why, c.scopes, u.name AS user_name FROM credentials c JOIN users u ON u.id = c.user_id";
 
 /** A type's registration as a sealed row's associated data: never a credential's id, which starts `credential_`. */
-const clientSeal = (name: string) => `client:${name}`;
+export const clientSeal = (name: string) => `client:${name}`;
 
 // credential types
 

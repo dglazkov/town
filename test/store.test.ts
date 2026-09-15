@@ -18,7 +18,8 @@
 // a held token type, and every shop tested at its `added_at`; and proposed
 // types made, met, refused a credential, approved, and removed. The tests
 // that do not read the file itself are test/helpers/store-suite.ts's, run
-// here over the file driver and in test/object.test.ts over the object's.
+// here over the file driver and in test/object.test.ts over the object's;
+// the wagon's among them, unpacked into a store made new in a directory of its own.
 
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -39,6 +40,7 @@ const TELLER = path.resolve(import.meta.dirname, "fixtures/teller-shop");
 /** The columns consent's migration gives every type an older store held: a held token type, no proposer, no guidance, no registration. */
 const HELD_TOKEN = { kind: "token", state: "held", proposed_by: null, guidance: "", oauth: null, client: null };
 
+const renewed: string[] = [];
 storeSuite({
   around: (body) => body(),
   open() {
@@ -46,11 +48,18 @@ storeSuite({
     return openStore(dir);
   },
   reopen: () => openStore(dir),
+  renew() {
+    renewed.push(dir);
+    dir = mkdtempSync(path.join(os.tmpdir(), "town-store-test-"));
+    return openStore(dir);
+  },
   key: () => ensureKey(dir),
   memory: () => loadShop(MEMORY),
   teller: (types) => loadShop(TELLER, types),
   bytes: () => readdirSync(dir).map((f) => readFileSync(path.join(dir, f))),
-  cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  cleanup: () => {
+    for (const d of [dir, ...renewed.splice(0)]) rmSync(d, { recursive: true, force: true });
+  },
 });
 
 describe("over a file", () => {

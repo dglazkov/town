@@ -2,7 +2,7 @@
 // The object's seams, in workerd through the pool: the store's own tests
 // (test/helpers/store-suite.ts) over the object's SQL driver, each in an
 // object made for it, so the file driver and the object's are proved by
-// one suite; the driver's transaction whole or not at all, its changes,
+// one suite, the wagon's packing and unpacking among them; the driver's transaction whole or not at all, its changes,
 // and a named parameter refused; the shelf as `shop_files` rows, put whole,
 // read, and removed; the key from the TOWN_VAULT_KEY secret and the
 // refusal without it in vault's words and the secret's name; a store made
@@ -12,6 +12,7 @@
 // platform's two megabytes a row failing the call with the state as it
 // was, and a shop whose runtime is not `worker` refused.
 
+import { randomBytes } from "node:crypto";
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { expect, it } from "vitest";
 import type { Town } from "../src/box.js";
@@ -43,15 +44,26 @@ function everyByte(storage: DurableObjectStorage): Buffer[] {
 }
 
 let storage: DurableObjectStorage;
+let key = KEY;
 storeSuite({
   around: (body) =>
     runInDurableObject(fresh(), async (_town, state) => {
       storage = state.storage;
+      key = KEY;
       await body();
     }),
-  open: () => objectStore(storage, KEY),
-  reopen: () => objectStore(storage, KEY),
-  key: () => Buffer.from(KEY, "hex"),
+  open: () => objectStore(storage, key),
+  reopen: () => objectStore(storage, key),
+  // The object's tables dropped and made again, under a key of its own: a store made new, where one object is all a test reaches.
+  renew() {
+    const sql = objectSql(storage);
+    const tables = sql.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").map((t) => t.name);
+    // The object's SQLite keeps foreign keys on: a table referenced is dropped after what references it.
+    for (const name of ["grants", "permits", "credentials", "passes", ...tables]) if (tables.includes(name)) sql.exec(`DROP TABLE IF EXISTS "${name}"`);
+    key = randomBytes(32).toString("hex");
+    return objectStore(storage, key);
+  },
+  key: () => Buffer.from(key, "hex"),
   memory: async () => MEMORY.manifest,
   teller: async (types) => shopFiles("test/fixtures/teller-shop", types).manifest,
   bytes: () => everyByte(storage),

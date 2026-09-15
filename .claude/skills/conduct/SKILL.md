@@ -300,3 +300,7 @@ The pattern is the same here and so are the failure modes.
   checkout`, in a tree holding the builder's uncommitted work, and the
   builder had to redo two files. Mutate by `scripts/mutate.mjs`, which
   restores by copy, never by `git`.
+- In wagon phase 0 the conductor ran the Proof's mutation, which built
+  `dist/` from the mutant, then walked with `bin/townd.js`, which runs
+  `dist/` without asking whether it is fresh; the walk imported past the
+  check the mutation removed. Walk before mutating, or `pnpm build` first.

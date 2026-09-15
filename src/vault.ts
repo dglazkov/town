@@ -57,7 +57,11 @@ function checkKey(key: Buffer): void {
 
 /** The key at <data>/vault.key, or null when there is no file. A file of the wrong size is refused. */
 export function readKey(dataDir: string): Buffer | null {
-  const file = keyPath(dataDir);
+  return readKeyFile(keyPath(dataDir), "a vault key", "restore the key this data directory was sealed with");
+}
+
+/** The key in `file`, or null when there is no file; a file of the wrong size is refused as not `what`, saying what to do: `fix`. */
+export function readKeyFile(file: string, what: string, fix: string): Buffer | null {
   let key: Buffer;
   try {
     key = readFileSync(file);
@@ -65,7 +69,7 @@ export function readKey(dataDir: string): Buffer | null {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw new VaultError(`${file} cannot be read: ${(err as NodeJS.ErrnoException).code ?? "unknown error"}`);
   }
-  if (key.length !== KEY_BYTES) throw new VaultError(`${file} is ${key.length} bytes, not the ${KEY_BYTES} of a vault key; restore the key this data directory was sealed with`);
+  if (key.length !== KEY_BYTES) throw new VaultError(`${file} is ${key.length} bytes, not the ${KEY_BYTES} of ${what}; ${fix}`);
   return key;
 }
 

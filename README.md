@@ -46,6 +46,9 @@ node bin/townd.js admin shop add shops/gdocs --user dimitri   # again, once conn
 # the town refreshes an access token within a minute of expiry at the call, sealing the new one; a refresh the provider refuses revokes the credential, credential ls says revoked (refresh refused), and connect makes a new one
 node bin/townd.js admin audit --pass <id>       # every call: pass, shop, command, argv hash, result, latency, notices; a consent is a row of its own, and a refresh says refreshed <type>
 node bin/townd.js admin grant revoke <id>       # seen by the next call; pass revoke makes the grant file paper
+node bin/townd.js admin store export --key ~/.town/wagon.key > wagon.json   # the whole town as one JSON document: every row, shop's files, and state file; each credential sealed under the key, made with mode 600 when the file is missing; the counts on stderr. --no-audit leaves the calls behind
+node bin/townd.js admin --data ~/town2 store import --key ~/.town/wagon.key < wagon.json   # into an empty town alone, whole or not at all; each credential sealed again under the new town's vault key, and a grant file works there with its town changed
+# a backup is an export: keep the wagon's key beside ~/.town/operator, since without it the wagon's credentials never open
 # The data directory must never sit in or under a directory an agent works in (one with .town/grant in it or above):
 # an agent that can reach it can read the database or widen its own grant, so townd serve refuses one there.
 ```

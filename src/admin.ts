@@ -18,7 +18,9 @@
 // from a pending permit to its grant, and `permit approve` at a shop with
 // needs checks in its order, runs the shop's tests on the credentials
 // chosen when they have not run on its code, and on a refusal prints the
-// checklist that remains. The type and credential verbs are src/secrets.ts.
+// checklist that remains. The type and credential verbs are src/secrets.ts;
+// `store export` and `store import` are src/wagon.ts, the wagon's key read
+// in `main` from `--key <file>` before the store is opened.
 
 import type { CallRow } from "./audit.js";
 import { TAR_COMMAND, readBundle } from "./bundle.js";
@@ -33,6 +35,7 @@ import { dependentsOf, shopAdd, shopTest, testAtApproval, type Picked, type Shop
 import { readClient, secretVerb } from "./secrets.js";
 import { decideAndRecord } from "./server.js";
 import { StoreError, openStore, type Store } from "./store.js";
+import { wagonKeyOf, wagonVerb } from "./wagon.js";
 import { pipe, withoutFlag } from "./wire.js";
 import { VaultError } from "./vault.js";
 import type { Wall } from "./wall.js";
@@ -76,6 +79,7 @@ const USAGE = `usage: townd admin [--data <dir>] [--wall <kind>] <verb> | townd 
   type add <name> --origin <url> --header '<Name>: <value with {token}>' [--guidance <text>] [--kind oauth --authorize <url> --token <url> --scopes a,b --client-id <id>] | type approve <name> [--client-id <id>] | type ls | type rm <name>
   credential add --user <name> --type <type> [--label <text>] [--replace <id>] | credential connect --user <name> --type <type> [--label <text>] [--replace <id>] [--port <n>] [--timeout <wait>] | credential ls [--user <name>] | credential rm <id>
   audit [--pass <id>] [--shop <name>] [--since <duration>] | audit --call <id>
+  store export --key <file> [--no-audit] > wagon.json | store import --key <file> < wagon.json
 a secret, and an oauth client's secret, is read on stdin. durations: <n>d, <n>h, <n>m; a wait, <n>m or <n>s. --data defaults to $TOWN_DATA. --wall is seatbelt or none, the box's wall when omitted.
 --town posts the verb to a box with the operator's token, from $TOWN_OPERATOR or ~/.town/operator; a shop comes from stdin there, as - for its directory.`;
 
@@ -86,7 +90,7 @@ export interface Parsed {
   opts: Map<string, string[]>;
 }
 
-const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance", "kind", "authorize", "token", "scopes", "client-id", "port", "timeout", "replace"];
+const VALUE_FLAGS = ["data", "wall", "user", "label", "expires", "pass", "shop", "commands", "constraint", "since", "town", "type", "origin", "header", "credential", "call", "guidance", "kind", "authorize", "token", "scopes", "client-id", "port", "timeout", "replace", "key"];
 
 function parse(argv: readonly string[]): Parsed {
   const words: string[] = [];
@@ -99,6 +103,10 @@ function parse(argv: readonly string[]): Parsed {
     }
     const eq = w.indexOf("=");
     const name = eq === -1 ? w.slice(2) : w.slice(2, eq);
+    if (name === "no-audit" && eq === -1) {
+      opts.set(name, ["true"]);
+      continue;
+    }
     if (!VALUE_FLAGS.includes(name)) throw new UsageError(`--${name} is not an admin flag`);
     let value: string | undefined = eq === -1 ? argv[++i] : w.slice(eq + 1);
     if (value === undefined) throw new UsageError(`--${name} needs a value`);
@@ -110,10 +118,10 @@ function parse(argv: readonly string[]): Parsed {
 /**
  * Whether the verb `argv` names reads stdin, run as far as its read: a
  * shop given as `-` to `shop test` or `shop add`; the secret of
- * `credential add`; and the client secret `--client-id` comes with, at
- * `type add --kind oauth`, `type approve`, and `shop add` from a directory
- * (`shop add -` with one is refused unread). A refusal before the read
- * reads nothing whatever this says. The wire reads and sends stdin for
+ * `credential add`; the wagon of `store import`; and the client secret
+ * `--client-id` comes with, at `type add --kind oauth`, `type approve`, and
+ * `shop add` from a directory (`shop add -` with one is refused unread). A
+ * refusal before the read reads nothing whatever this says. The wire reads and sends stdin for
  * these alone, so a verb that takes none returns with stdin an open pipe;
  * test/stdin.test.ts runs every verb to hold the two together.
  */
@@ -137,6 +145,8 @@ export function readsStdin(argv: readonly string[]): boolean {
       return client && p.opts.get("kind")?.at(-1) === "oauth";
     case "type approve":
       return client;
+    case "store import":
+      return true;
   }
   return false;
 }
@@ -220,6 +230,7 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
 
   let store: Store | null = null;
   try {
+    const wagonKey = wagonKeyOf(p, io);
     store = openStore(data);
     let wall: Wall;
     try {
@@ -234,7 +245,7 @@ export async function main(argv: readonly string[], io: Io, chooseWall: WallChoo
       if (typeof source === "number") return source;
       return await shopTest({ store, key }, source, picked(p, io), io, wall);
     }
-    return await dispatch({ store, key, wall, now: now() }, noun, verb, args, p, io);
+    return await dispatch({ store, key, wall, now: now(), wagonKey }, noun, verb, args, p, io);
   } catch (err) {
     return refusal(err, io);
   } finally {
@@ -316,12 +327,14 @@ export function noExtra(args: readonly string[], n: number, what: string): void 
 }
 
 /** What a verb runs over: the store, its key when there is one, the wall, the time, and on the box the runtime a shop's tests run in. */
-interface Over {
+export interface Over {
   store: Store;
   key: Buffer | null;
   wall: Wall;
   now: number;
   runtime?: Runtime;
+  /** The wagon's key, `--key <file>` read where townd runs, for `store export` and `store import`. */
+  wagonKey?: Buffer | undefined;
 }
 
 async function dispatch(over: Over, noun: string, verb: string | undefined, args: string[], p: Parsed, io: Io): Promise<number> {
@@ -491,6 +504,10 @@ async function dispatch(over: Over, noun: string, verb: string | undefined, args
     case "credential ls":
     case "credential rm":
       return secretVerb(store, key, args, p, io, now);
+
+    case "store export":
+    case "store import":
+      return wagonVerb(over, key, args, p, io);
 
     case "audit": {
       if (verb !== undefined) throw new UsageError(`audit takes flags, not ${verb}`);
